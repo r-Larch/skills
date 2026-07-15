@@ -162,10 +162,13 @@ Open a bug report or feature request at **https://github.com/r-Larch/skills/issu
 These scripts are meant to evolve. **If a script errors, produces wrong/partial output, is slow,
 or doesn't support what you need**, do the right thing for where you're running it:
 
-- **Running the installed plugin** (path contains `…/plugins/cache/…`): that copy is **read-only and
-  regenerated on every update — do not edit it**. Instead, either open an issue at the URL above with
-  the command, package, and output, or (if you have push access) fix it in a checkout of the repo and
-  push; then `/plugin marketplace update rlarch` pulls the fix.
+- **Running the installed plugin** (path contains `…/plugins/cache/…`): you **may edit this copy to
+  unblock the task in progress** — but it is **regenerated on every update, so a cache-only edit is
+  temporary and will be lost**. Therefore **every such edit MUST also produce an issue or a PR** so the
+  change survives: open an issue at the URL above with the command, package, and output (attach a diff
+  if you edited), or — preferred, if you have push access — push the same change to the repo as a
+  commit/PR. Never leave a cache-only fix undocumented; `/plugin marketplace update rlarch` will
+  otherwise overwrite it.
 - **Working in a checkout of the repo**: fix it, re-run the affected script to confirm, then commit &
   push. No version bump needed — every commit is picked up as an update.
 
