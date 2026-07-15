@@ -51,6 +51,16 @@ dotnet run cache.cs <pkgId> [version]
 dotnet run bindir.cs <pkgId> <version>
 ```
 
+## Metapackages & multi-assembly packages
+
+Some packages ship **no assembly of their own** — they're aggregators whose `lib/*/_._` are
+placeholders (e.g. `OpenIddict.AspNetCore` → `OpenIddict.Server.AspNetCore`,
+`OpenIddict.Validation.AspNetCore`, …). The scripts detect this and **expand to the real
+assemblies the package exposes**, so `surface`/`find`/`decompile` all work on the aggregate.
+With more than one assembly in play, `find` prefixes each hit with `Assembly!` and `surface`
+groups output under `// ===== Assembly.dll =====` headers (empty ones are omitted when you
+filter). A `typeFilter` is the way to keep a big metapackage's output focused.
+
 ## How to use it (escalation ladder)
 
 1. **Don't know the name?** → `find.cs` with a substring.

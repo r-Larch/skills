@@ -63,7 +63,12 @@ static class Proc
 sealed class Workbench
 {
     public bool Ok; public string Error = "";
-    public string BinDir = "", Dll = "", Xml = "", Version = "", Log = "";
+    public string BinDir = "", Version = "", Log = "";
+    // The assemblies this package exposes: its own lib for a normal package, or the real assemblies
+    // contributed by its dependency subtree for a metapackage (lib/*/_._). Each with its xml doc (or "").
+    public List<(string dll, string xml)> Targets = new();
+    public string Dll => Targets.Count > 0 ? Targets[0].dll : "";   // convenience for single-target callers
+    public string Xml => Targets.Count > 0 ? Targets[0].xml : "";
 
     public static string RootDir() => Path.Combine(Path.GetTempPath(), "nuget-api-wb");
 
@@ -96,20 +101,85 @@ sealed class Workbench
         }
         if (!File.Exists(assets)) { wb.Error = "no project.assets.json produced (restore failed?)."; return wb; }
 
-        var (primary, resolved) = ReadPrimary(assets, pkgId);
-        if (primary == null)
+        var (targets, resolved) = ResolveTargets(assets, pkgId, binDir);
+        if (targets.Count == 0)
         {
-            wb.Error = $"'{pkgId}' {reqVersion} exposes no net10.0 lib assembly (meta-package / analyzer / ref-only?). "
-                     + "Inspect it with cache.cs.";
+            wb.Error = $"'{pkgId}' {reqVersion} exposes no net10.0 lib assembly (pure analyzer / runtime / ref-only package, "
+                     + "or a metapackage whose dependencies also have none). Inspect it with cache.cs.";
             return wb;
         }
-        var dll = Path.Combine(binDir, primary);
-        if (!File.Exists(dll)) { wb.Error = $"built ok but {primary} missing in {binDir}."; return wb; }
-
-        var xml = Path.Combine(binDir, Path.GetFileNameWithoutExtension(primary) + ".xml");
-        wb.Ok = true; wb.BinDir = binDir; wb.Dll = dll; wb.Version = resolved ?? reqVersion;
-        wb.Xml = File.Exists(xml) ? xml : FindXmlInCache(pkgId, wb.Version, primary) ?? "";
+        wb.Ok = true; wb.BinDir = binDir; wb.Version = resolved ?? reqVersion; wb.Targets = targets;
         return wb;
+    }
+
+    // Resolve the set of real assemblies a package exposes. Normal package -> its own lib dll.
+    // Metapackage (lib/*/_._) -> descend its dependency graph, collecting the first real lib dll of each
+    // branch (so OpenIddict.AspNetCore -> OpenIddict.Server.AspNetCore + OpenIddict.Validation.AspNetCore,
+    // not their transitive framework deps).
+    static (List<(string dll, string xml)> targets, string? version) ResolveTargets(string assetsPath, string rootId, string binDir)
+    {
+        using var doc = JsonDocument.Parse(File.ReadAllText(assetsPath));
+        var outList = new List<(string, string)>();
+        if (!doc.RootElement.TryGetProperty("targets", out var targets)) return (outList, null);
+        var target = targets.EnumerateObject().Select(p => p.Value).FirstOrDefault();
+        if (target.ValueKind != JsonValueKind.Object) return (outList, null);
+
+        // id(lower) -> (entry, id, version)
+        var map = new Dictionary<string, (JsonElement entry, string id, string ver)>(StringComparer.OrdinalIgnoreCase);
+        foreach (var lib in target.EnumerateObject())
+        {
+            var slash = lib.Name.IndexOf('/');
+            var id = slash < 0 ? lib.Name : lib.Name[..slash];
+            var ver = slash < 0 ? "" : lib.Name[(slash + 1)..];
+            map[id] = (lib.Value, id, ver);
+        }
+
+        string? rootVersion = null;
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var addedDll = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        void Visit(string id)
+        {
+            if (!seen.Add(id) || !map.TryGetValue(id, out var e)) return;
+            if (id.Equals(rootId, StringComparison.OrdinalIgnoreCase)) rootVersion = e.ver;
+            var libPath = FirstLibDll(e.entry);
+            if (libPath != null)                                   // a real assembly — take it, stop descending
+            {
+                var dllName = Path.GetFileName(libPath);
+                if (addedDll.Add(dllName))
+                {
+                    var binDll = Path.Combine(binDir, dllName);
+                    if (File.Exists(binDll)) outList.Add((binDll, ResolveXml(binDir, e.id, e.ver, libPath)));
+                }
+                return;
+            }
+            if (e.entry.TryGetProperty("dependencies", out var deps))  // metapackage — descend
+                foreach (var d in deps.EnumerateObject()) Visit(d.Name);
+        }
+        Visit(rootId);
+        return (outList, rootVersion);
+    }
+
+    static string? FirstLibDll(JsonElement entry)
+    {
+        foreach (var section in new[] { "compile", "runtime" })
+            if (entry.TryGetProperty(section, out var files))
+                foreach (var f in files.EnumerateObject())
+                {
+                    var name = Path.GetFileName(f.Name);
+                    if (name.EndsWith(".dll", StringComparison.OrdinalIgnoreCase) && name != "_._")
+                        return f.Name;
+                }
+        return null;
+    }
+
+    // Prefer the xml copied into bin; fall back to the exact path in the NuGet cache.
+    static string ResolveXml(string binDir, string id, string ver, string libPath)
+    {
+        var binXml = Path.Combine(binDir, Path.GetFileNameWithoutExtension(libPath) + ".xml");
+        if (File.Exists(binXml)) return binXml;
+        var rel = Path.ChangeExtension(libPath.Replace('/', Path.DirectorySeparatorChar), ".xml");
+        var cacheXml = Path.Combine(Cache.PackageDir(id), ver, rel);
+        return File.Exists(cacheXml) ? cacheXml : "";
     }
 
     static string ProjectXml(string id, string version) => $"""
@@ -127,38 +197,6 @@ sealed class Workbench
           <ItemGroup><PackageReference Include="{id}" Version="{version}" /></ItemGroup>
         </Project>
         """;
-
-    static (string? primary, string? version) ReadPrimary(string assetsPath, string pkgId)
-    {
-        using var doc = JsonDocument.Parse(File.ReadAllText(assetsPath));
-        if (!doc.RootElement.TryGetProperty("targets", out var targets)) return (null, null);
-        foreach (var target in targets.EnumerateObject())
-            foreach (var lib in target.Value.EnumerateObject())
-            {
-                var slash = lib.Name.IndexOf('/');
-                var id = slash < 0 ? lib.Name : lib.Name[..slash];
-                if (!id.Equals(pkgId, StringComparison.OrdinalIgnoreCase)) continue;
-                var version = slash < 0 ? null : lib.Name[(slash + 1)..];
-                foreach (var section in new[] { "compile", "runtime" })
-                    if (lib.Value.TryGetProperty(section, out var files))
-                        foreach (var f in files.EnumerateObject())
-                        {
-                            var name = Path.GetFileName(f.Name);
-                            if (name.EndsWith(".dll", StringComparison.OrdinalIgnoreCase) && name != "_._")
-                                return (name, version);
-                        }
-                return (null, version);
-            }
-        return (null, null);
-    }
-
-    static string? FindXmlInCache(string pkgId, string version, string primaryDll)
-    {
-        var xmlName = Path.GetFileNameWithoutExtension(primaryDll) + ".xml";
-        var libRoot = Path.Combine(Cache.PackageDir(pkgId), version, "lib");
-        if (!Directory.Exists(libRoot)) return null;
-        return Directory.EnumerateFiles(libRoot, xmlName, SearchOption.AllDirectories).FirstOrDefault();
-    }
 
     static string Sanitize(string s) => string.Concat(s.Select(c => char.IsLetterOrDigit(c) || c is '.' or '-' or '_' ? c : '_'));
     static string Tail(string s) { var lines = s.Replace("\r", "").Split('\n'); return string.Join("\n", lines.Where(l => l.Trim().Length > 0).TakeLast(12)); }

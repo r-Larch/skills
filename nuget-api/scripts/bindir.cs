@@ -16,7 +16,8 @@ if (!wb.Ok) { Console.Error.WriteLine("nuget-api: " + wb.Error); return 2; }
 
 Console.WriteLine($"package  : {args[0]} {wb.Version}");
 Console.WriteLine($"binDir   : {wb.BinDir}");
-Console.WriteLine($"assembly : {Path.GetFileName(wb.Dll)}");
-Console.WriteLine($"xml docs : {(wb.Xml == "" ? "(none)" : wb.Xml)}");
-Console.WriteLine($"\n// reuse: dotnet run surface.cs --bin \"{wb.BinDir}\" {Path.GetFileName(wb.Dll)} <TypeFilter>");
+Console.WriteLine($"assemblies ({wb.Targets.Count}):");
+foreach (var (dll, xml) in wb.Targets)
+    Console.WriteLine($"  {Path.GetFileName(dll),-45} {(xml == "" ? "(no xml)" : "xml: " + Path.GetFileName(xml))}");
+Console.WriteLine($"\n// reuse one: dotnet run surface.cs --bin \"{wb.BinDir}\" {Path.GetFileName(wb.Dll)} <TypeFilter>");
 return 0;

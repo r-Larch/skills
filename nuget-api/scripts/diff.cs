@@ -17,8 +17,13 @@ string Surface(string version)
 {
     var wb = Workbench.Ensure(id, version);
     if (!wb.Ok) throw new Exception($"{id} {version}: {wb.Error}");
-    using var loaded = Loaded.Open(wb.BinDir, wb.Dll);
-    return Render.Surface(loaded.Types, filter, XmlDocs.Load(wb.Xml));
+    var sb = new StringBuilder();
+    foreach (var (dll, xml) in wb.Targets)   // combine all exposed assemblies into one surface
+    {
+        using var loaded = Loaded.Open(wb.BinDir, dll);
+        sb.Append(Render.Surface(loaded.Types, filter, XmlDocs.Load(xml)));
+    }
+    return sb.ToString();
 }
 
 string s1, s2;

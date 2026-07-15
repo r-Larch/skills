@@ -23,9 +23,13 @@ sealed class Loaded : IDisposable
 
     public static Loaded Open(string binDir, string dllPath)
     {
-        var rt = System.Runtime.InteropServices.RuntimeEnvironment.GetRuntimeDirectory();
-        var paths = Directory.GetFiles(binDir, "*.dll").Concat(Directory.GetFiles(rt, "*.dll")).Distinct().ToArray();
-        var mlc = new MetadataLoadContext(new PathAssemblyResolver(paths));
+        // Resolver = the package's bin closure first, then every installed shared framework
+        // (Microsoft.NETCore.App, Microsoft.AspNetCore.App, …) so web/framework base types resolve.
+        var byName = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        void AddDir(string? dir) { if (dir is not null && Directory.Exists(dir)) foreach (var f in Directory.GetFiles(dir, "*.dll")) byName.TryAdd(Path.GetFileName(f), f); }
+        AddDir(binDir);                                  // package assemblies win over framework copies
+        foreach (var d in FrameworkDirs()) AddDir(d);
+        var mlc = new MetadataLoadContext(new PathAssemblyResolver(byName.Values.ToArray()));
         var asm = mlc.LoadFromAssemblyPath(dllPath);
         Type[] types; string diag = "";
         try { types = asm.GetExportedTypes(); }
@@ -47,6 +51,21 @@ sealed class Loaded : IDisposable
                  + "// Fix: use the by-package form (e.g. `surface.cs <pkgId> <version> …`), which builds a complete workbench with the full closure. See SKILL.md.\n";
         }
         return new Loaded { Mlc = mlc, Asm = asm, Types = types, Diagnostics = diag };
+    }
+
+    // The newest version dir of every shared framework under dotnet/shared (NETCore.App, AspNetCore.App, …).
+    static IEnumerable<string> FrameworkDirs()
+    {
+        var rt = System.Runtime.InteropServices.RuntimeEnvironment.GetRuntimeDirectory();
+        yield return rt;
+        var shared = Directory.GetParent(rt.TrimEnd(Path.DirectorySeparatorChar))?.Parent;   // …/shared
+        if (shared is null) yield break;
+        foreach (var fw in shared.GetDirectories())
+        {
+            var newest = fw.GetDirectories()
+                .OrderByDescending(d => d.Name, Comparer<string>.Create(Cache.CompareVer)).FirstOrDefault();
+            if (newest is not null) yield return newest.FullName;
+        }
     }
 }
 
