@@ -12,17 +12,18 @@ disk, so it's exact for the version you actually have, not whatever version the 
 show.
 
 It answers the questions you hit when using an unfamiliar package: *what's this type called, what's
-the real signature, which overload, is this nullable, what changed between versions, what does this
-method actually do?*
+the real signature, which overload, is this nullable, what changed between versions, who calls this,
+what does this method actually do?*
 
 ## What it does
 
-Six one-command scripts. Each takes a **package id + version** and builds everything it needs itself
-(no DLL/dependency/XML hunting):
+Seven one-command scripts. Each takes a **package id + version** (or a `--bin` folder) and builds
+everything it needs itself (no DLL/dependency/XML hunting):
 
 | Command | Answers |
 |---|---|
 | `find` | "what is it called / where does it live" — locate types & members by name |
+| `find-usages` | "who calls this / where is it used" — reverse usages, read from compiled IL, with file:line |
 | `surface` | exact signatures + XML-doc summaries (the default digest) |
 | `decompile` | real C# **with method bodies** — the behavior signatures can't show |
 | `diff` | API changelog between two versions (added/removed types & members) |
@@ -50,13 +51,16 @@ You can also drive the scripts directly:
 
 ```bash
 # from the plugin's scripts directory ($CLAUDE_PLUGIN_ROOT/skills/dotnet-reflect/scripts)
-dotnet run find.cs      OpenAI 2.12.0 Streaming
-dotnet run surface.cs   OpenAI 2.12.0 Chat.ChatClient
-dotnet run decompile.cs OpenAI 2.12.0 OpenAI.Chat.ChatClient
-dotnet run diff.cs      OpenAI 2.11.0 2.12.0
+dotnet run find.cs        OpenAI 2.12.0 Streaming
+dotnet run surface.cs     OpenAI 2.12.0 Chat.ChatClient
+dotnet run decompile.cs   OpenAI 2.12.0 OpenAI.Chat.ChatClient
+dotnet run diff.cs        OpenAI 2.11.0 2.12.0
+dotnet run find-usages.cs --bin MyApp/bin/Debug/net10.0 --only MyApp IsDevelopment
 ```
 
 `version` may be the literal `latest`. Use `surface.cs --inherited` to also list base-type members.
+`find-usages.cs` reads compiled IL — point `--bin` at your built solution output; a portable PDB adds
+`file:line` and the source line.
 
 ## How it works
 
@@ -83,7 +87,7 @@ dotnet-reflect/                          # the plugin
   skills/dotnet-reflect/
     SKILL.md                             # instructions Claude follows
     scripts/{common,reflect}.cs          # shared helpers (#:include'd)
-    scripts/{find,surface,decompile,diff,cache,bindir}.cs
+    scripts/{find,find-usages,surface,decompile,diff,cache,bindir}.cs
 ```
 
 Adding another plugin later: drop it in its own top-level folder and add an entry to

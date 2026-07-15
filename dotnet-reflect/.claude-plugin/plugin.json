@@ -1,7 +1,7 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
   "name": "dotnet-reflect",
-  "description": "Inspect the API surface of any .NET NuGet package or assembly — exact signatures with nullability, XML-doc summaries, decompiled method bodies, and version diffs — read straight from the DLL on disk. Six one-command scripts: surface, find, decompile, diff, cache, bindir.",
+  "description": "Inspect the API surface of any .NET NuGet package or assembly — exact signatures with nullability, XML-doc summaries, decompiled method bodies, reverse find-usages (who calls a symbol, from IL, with file:line), and version diffs — read straight from the DLL on disk. Seven one-command scripts: surface, find, find-usages, decompile, diff, cache, bindir.",
   "author": {
     "name": "René Larch",
     "email": "rene@dikaia.ai"

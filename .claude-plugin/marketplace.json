@@ -8,7 +8,7 @@
     {
       "name": "dotnet-reflect",
       "source": "./dotnet-reflect",
-      "description": "Inspect .NET NuGet/assembly API surfaces (signatures, XML docs, decompiled bodies, version diffs) straight from the DLL on disk."
+      "description": "Inspect .NET NuGet/assembly API surfaces (signatures, XML docs, decompiled bodies, version diffs, and reverse find-usages) straight from the DLL on disk."
     }
   ]
 }

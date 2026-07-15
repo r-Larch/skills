@@ -4,11 +4,13 @@ description: >-
   Inspect the API surface of a .NET NuGet package / assembly when you don't know
   how to use it — list types & members, get exact signatures (return types,
   property types, ctors, enum values) merged with XML-doc summaries, search for a
-  type/method by name, decompile a type to real C# with method bodies, or diff the
-  surface between two versions. USE FOR: "how do I call this package", unknown API
-  surface, wrong overload, "what's the type called", verifying a signature against
-  the *installed* version, understanding a method's behavior, "what changed between
-  vX and vY". Each action is ONE command that takes a package id + version and
+  type/method by name, decompile a type to real C# with method bodies, find every
+  place a symbol is USED across a set of compiled assemblies (reverse "find usages",
+  read from IL), or diff the surface between two versions. USE FOR: "how do I call
+  this package", unknown API surface, wrong overload, "what's the type called",
+  verifying a signature against the *installed* version, understanding a method's
+  behavior, "who calls this / where is this used", "what changed between vX and vY".
+  Each action is ONE command that takes a package id + version and
   builds everything it needs itself. Reads the DLL on disk — more accurate than web
   docs because it's the exact version. DO NOT USE FOR: packages you already know, or
   non-.NET packages.
@@ -16,7 +18,7 @@ description: >-
 
 # dotnet-reflect — analyze a .NET package's API surface
 
-Six file-based C# scripts. Each **action is one command**: give it a **package id + version** and it
+Seven file-based C# scripts. Each **action is one command**: give it a **package id + version** and it
 builds a throwaway project referencing that package (the "workbench"), resolves the primary assembly +
 XML doc, and reads it. You do **not** hunt for DLLs, dependencies, or XML paths — the scripts do that
 in code. Run with `dotnet run <script>.cs …` (needs the **.NET 10 SDK** — the scripts use
@@ -35,6 +37,15 @@ Version is a positional arg and may be the literal **`latest`** (newest cached, 
 # LOCATE a name — start here when you don't know what a type/method is called.
 dotnet run find.cs <pkgId> <version> <pattern>
 #   e.g. find.cs OpenAI 2.12.0 Streaming   -> every Streaming* type & *Streaming* method + signatures
+
+# FIND-USAGES — who USES a symbol, read from compiled IL (reverse "find usages", ReSharper-style).
+dotnet run find-usages.cs --bin <binDir> <symbol> [--only a,b]
+#   scans every method's IL across the assemblies for references to <symbol>; with a portable PDB it
+#   prints file:line + the source line, else the containing method. Semantic — catches env.IsDevelopment()
+#   extension-call syntax, overloads, generics. Primary form is --bin (point at your BUILT solution output).
+#   e.g. find-usages.cs --bin Nomos.Web/bin/Debug/net10.0 --only Nomos IsDevelopment
+#   also: find-usages.cs <pkgId> <version> <symbol>   -> usages WITHIN that package's own assemblies.
+#   <symbol> = Member | Type.Member | Namespace.Type (matched at dotted-segment boundaries).
 
 # SURFACE — exact signatures + XML-doc summaries for matching types. The default digest.
 dotnet run surface.cs <pkgId> <version> [typeFilter] [--inherited]
@@ -72,8 +83,9 @@ filter). A `typeFilter` is the way to keep a big metapackage's output focused.
 1. **Don't know the name?** → `find.cs` with a substring.
 2. **Know the type, need to call it?** → `surface.cs` — signatures + intent in one greppable dump.
 3. **Signatures aren't enough (behavior)?** → `decompile.cs` for the real body.
-4. **Porting across versions / "did this change"?** → `diff.cs`.
-5. **Just want to see what's in the cache?** → `cache.cs`.
+4. **Who calls / where is it used?** → `find-usages.cs --bin <built-output> <symbol>`.
+5. **Porting across versions / "did this change"?** → `diff.cs`.
+6. **Just want to see what's in the cache?** → `cache.cs`.
 
 The first run for a given package+version builds the workbench (a few seconds); it's cached under
 the temp dir and **reused** on later calls, so repeated queries are fast.
@@ -98,10 +110,34 @@ One member per line, C#-ish signatures, XML `<summary>` appended as `// …`. So
 - **Modifiers & markers**: `static`, `virtual`, `override`, `abstract` on methods; `required` on
   properties; `[SetsRequiredMembers]` on constructors; `[Obsolete("…")]` on any member or type.
 
+## Finding usages (who calls this) — `find-usages.cs`
+
+Reverse lookup: given a **symbol**, find every method that references it, read from **compiled IL** — so
+it's semantic, not textual. It sees `env.IsDevelopment()` extension-call syntax, the right overload, and
+generic instantiations that a `grep` would miss or over-match. Point `--bin` at your **built** solution
+output (e.g. `Nomos.Web/bin/Debug/net10.0`) — that folder holds every project's compiled assembly, so one
+scan covers the whole solution, ReSharper-style. `--only Nomos` keeps a big bin fast and focused; scanning
+all ~200 assemblies of a web app's bin still takes ~2s.
+
+- **Output**: grouped by assembly → containing method, one usage per line. With a **portable PDB** present
+  (a Debug build, or `DebugType=portable`), each line is `File.cs:line   <source line>`. Without a PDB it
+  degrades to `(no PDB) -> <the referenced member>` at method granularity, and a note says so. `(method only)`
+  means the assembly *had* a PDB but that IL offset carried no sequence point.
+- **`<symbol>` matching** is at dotted-segment boundaries (case-insensitive): `IsDevelopment` (any member
+  so named), `HostEnvironmentEnvExtensions.IsDevelopment` (that member, type given as a suffix), or a whole
+  type `Microsoft.Extensions.Hosting.IHostEnvironment`. A trailing `(…)` param list or a `M:`/`T:` doc
+  prefix is stripped for you.
+- **What it catches for a *type* target**: IL operand positions — `new T`, casts / `is` / `as`, `typeof`,
+  array creation, and generic arguments. **What it does NOT catch**: type usages that live only in a
+  *signature* (a parameter, field, local, or return declared as `T`) — those aren't IL operands, so an
+  IL scan can't see them. For "everywhere this type is mentioned in source", that's a `grep`/IDE job; this
+  tool answers "who *executes* against it". (Member/method targets have no such gap — a call is always in IL.)
+
 ## Advanced: reuse an existing bin (`--bin`)
 
-`surface.cs`, `find.cs`, and `decompile.cs` also accept a pre-built bin folder instead of a
-package id — use this to inspect an assembly you already build (e.g. a project in this repo):
+`surface.cs`, `find.cs`, `decompile.cs`, and `find-usages.cs` also accept a pre-built bin folder
+instead of a package id — use this to inspect an assembly you already build (e.g. a project in this
+repo). For `find-usages.cs` this is the **primary** form (point it at your solution's build output):
 
 ```bash
 dotnet run surface.cs --bin "<bin/Debug/net10.0>" MyLib.dll <TypeFilter>
@@ -179,9 +215,10 @@ improving the shared helpers (`common.cs` = cache/workbench/xml, `reflect.cs` = 
 duplicating logic in an action script — add support rather than working around a gap.
 
 Layout: `SKILL.md` + `scripts/{common,reflect}.cs` (shared, `#:include`d) +
-`scripts/{find,surface,decompile,diff,cache,bindir}.cs` (actions). Reflection is load-only
-(`MetadataLoadContext`) and decompilation is in-process (`ICSharpCode.Decompiler`), so nothing
-executes the target package and no global tools are required.
+`scripts/{find,find-usages,surface,decompile,diff,cache,bindir}.cs` (actions). Reflection is load-only
+(`MetadataLoadContext`), usage-scanning reads raw IL via in-box `System.Reflection.Metadata`, and
+decompilation is in-process (`ICSharpCode.Decompiler`), so nothing executes the target package and no
+global tools are required.
 
 **Cross-platform**: works on Windows, macOS, and Linux — it uses portable .NET path/temp/runtime
 APIs and shells out only to `dotnet`. Paths, the NuGet cache (`$NUGET_PACKAGES` or `~/.nuget/packages`),
