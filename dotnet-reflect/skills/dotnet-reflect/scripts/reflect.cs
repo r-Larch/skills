@@ -192,7 +192,9 @@ static class Render
             try
             {
                 var kind = type.IsEnum ? "enum" : type.IsInterface ? "interface" : type.IsValueType ? "struct" : "class";
-                var baseName = type.BaseType is { } bt && bt.Name != "Object" && bt.Name != "ValueType" ? Sig.N(bt) : null;
+                var baseName = type.IsEnum
+                    ? (type.GetEnumUnderlyingType() is { Name: not "Int32" } ut ? Sig.N(ut) : null)   // enum: show underlying only when not int
+                    : (type.BaseType is { } bt && bt.Name is not ("Object" or "ValueType" or "Enum") ? Sig.N(bt) : null);
                 var bases = (baseName is null ? Enumerable.Empty<string>() : new[] { baseName })
                     .Concat(type.IsEnum ? Enumerable.Empty<string>() : DirectInterfaces(type).Select(Sig.N));
                 var clause = string.Join(", ", bases);

@@ -251,12 +251,54 @@ sealed class XmlDocs
         {
             var name = (string?)m.Attribute("name"); var s = m.Element("summary");
             if (name is null || s is null) continue;
-            var text = string.Join(" ", s.Value.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+            var text = string.Join(" ", Flatten(s).Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
             var id = name.Length > 2 ? name[2..] : name;
             var paren = id.IndexOf('('); if (paren >= 0) id = id[..paren];
             d._map.TryAdd(id, text);
         }
         return d;
     }
+
+    // Render summary text including inline doc elements that XElement.Value would otherwise drop:
+    // <see cref="M:Ns.Type.Member(...)"/> -> Member, <see langword="null"/> -> null,
+    // <paramref/>/<typeparamref name/> -> the name, <c>code</c> -> its text.
+    static string Flatten(System.Xml.Linq.XElement el)
+    {
+        var sb = new System.Text.StringBuilder();
+        foreach (var node in el.Nodes())
+        {
+            if (node is System.Xml.Linq.XText t) { sb.Append(t.Value); continue; }
+            if (node is not System.Xml.Linq.XElement e) continue;
+            switch (e.Name.LocalName)
+            {
+                case "see":
+                case "seealso":
+                    var cref = (string?)e.Attribute("cref");
+                    var lang = (string?)e.Attribute("langword");
+                    if (cref is not null) sb.Append(ShortRef(cref));
+                    else if (lang is not null) sb.Append(lang);
+                    else if (!string.IsNullOrWhiteSpace(e.Value)) sb.Append(e.Value);
+                    else if ((string?)e.Attribute("href") is { } href) sb.Append(href);
+                    break;
+                case "paramref":
+                case "typeparamref":
+                    sb.Append((string?)e.Attribute("name") ?? "");
+                    break;
+                default:
+                    sb.Append(Flatten(e));   // <c>, <para>, <b>, … -> inner text
+                    break;
+            }
+        }
+        return sb.ToString();
+    }
+
+    // "M:Ns.Type.Method(System.Int32)" / "T:Ns.Type" / "P:Ns.Type.Prop" -> the last name segment.
+    static string ShortRef(string cref)
+    {
+        var s = cref.Length > 2 && cref[1] == ':' ? cref[2..] : cref;
+        var paren = s.IndexOf('('); if (paren >= 0) s = s[..paren];
+        var dot = s.LastIndexOf('.'); return dot >= 0 ? s[(dot + 1)..] : s;
+    }
+
     public string? Summary(string key) => _map.TryGetValue(key, out var v) ? v : null;
 }
