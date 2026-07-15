@@ -1,8 +1,15 @@
-# dotnet-reflect
+# r-Larch/skills — Claude Code plugin marketplace (`rlarch`)
 
-A **Claude Code plugin** that inspects the API surface of any .NET **NuGet package or assembly** —
-read straight from the DLL on disk, so it's exact for the version you actually have, not whatever
-version the web docs happen to show.
+A personal [Claude Code](https://code.claude.com) plugin marketplace. Add it with
+`/plugin marketplace add r-Larch/skills`, then install any plugin below.
+
+## Plugins
+
+### `dotnet-reflect`
+
+Inspects the API surface of any .NET **NuGet package or assembly** — read straight from the DLL on
+disk, so it's exact for the version you actually have, not whatever version the web docs happen to
+show.
 
 It answers the questions you hit when using an unfamiliar package: *what's this type called, what's
 the real signature, which overload, is this nullable, what changed between versions, what does this
@@ -31,8 +38,8 @@ they expose.
 ## Install
 
 ```
-/plugin marketplace add <owner>/<repo>
-/plugin install dotnet-reflect@dotnet-tools
+/plugin marketplace add r-Larch/skills
+/plugin install dotnet-reflect@rlarch
 ```
 
 Requires the **.NET 10 SDK** (`dotnet --version` ≥ 10) on the machine — the scripts are file-based
@@ -70,12 +77,17 @@ details.
 ## Layout
 
 ```
-.claude-plugin/{plugin.json, marketplace.json}   # plugin + self-hosted marketplace
-skills/dotnet-reflect/
-  SKILL.md                                        # instructions Claude follows
-  scripts/{common,reflect}.cs                     # shared helpers (#:include'd)
-  scripts/{find,surface,decompile,diff,cache,bindir}.cs
+.claude-plugin/marketplace.json          # marketplace "rlarch" (repo root)
+dotnet-reflect/                          # the plugin
+  .claude-plugin/plugin.json
+  skills/dotnet-reflect/
+    SKILL.md                             # instructions Claude follows
+    scripts/{common,reflect}.cs          # shared helpers (#:include'd)
+    scripts/{find,surface,decompile,diff,cache,bindir}.cs
 ```
+
+Adding another plugin later: drop it in its own top-level folder and add an entry to
+`.claude-plugin/marketplace.json`.
 
 ## License
 

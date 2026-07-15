@@ -6,5 +6,7 @@
     "name": "René Larch",
     "email": "rene@dikaia.ai"
   },
+  "repository": "https://github.com/r-Larch/skills",
+  "license": "MIT",
   "keywords": ["dotnet", "nuget", "reflection", "api-surface", "decompile", "csharp", "metadata"]
 }
