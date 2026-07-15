@@ -154,16 +154,26 @@ The XML doc ships in the cache at `<cacheRoot>/<pkg-lower>/<version>/lib/<tfm>/<
 can `grep` it directly for summaries — but it has **no** return/property types or visibility and
 lists unusable `Internal*` members, so treat it as a fallback, not the primary route.
 
-## Maintaining this skill (IMPORTANT — do this, don't route around it)
+## Maintaining this skill — bugs & feature requests
+
+Source & issues: **https://github.com/r-Larch/skills** (plugin `dotnet-reflect`).
+Open a bug report or feature request at **https://github.com/r-Larch/skills/issues**.
 
 These scripts are meant to evolve. **If a script errors, produces wrong/partial output, is slow,
-or doesn't support what you need — fix it, then continue with the fixed version.** Examples:
-a package that only ships `netstandard2.0` and won't resolve; a needed view the scripts don't
-emit (attributes, generic constraints, nested types, interface members, `[Obsolete]` flags);
-a new mode (search by return type, dump a whole namespace tree, JSON output). Prefer improving
-the shared helpers (`common.cs` = cache/workbench/xml, `reflect.cs` = load + render) over
-duplicating logic in an action script. Add support rather than working around a gap. After any
-change, re-run the affected script once to confirm it still works before relying on the output.
+or doesn't support what you need**, do the right thing for where you're running it:
+
+- **Running the installed plugin** (path contains `…/plugins/cache/…`): that copy is **read-only and
+  regenerated on every update — do not edit it**. Instead, either open an issue at the URL above with
+  the command, package, and output, or (if you have push access) fix it in a checkout of the repo and
+  push; then `/plugin marketplace update rlarch` pulls the fix.
+- **Working in a checkout of the repo**: fix it, re-run the affected script to confirm, then commit &
+  push. No version bump needed — every commit is picked up as an update.
+
+Examples worth fixing/filing: a package that only ships `netstandard2.0` and won't resolve; a view the
+scripts don't emit (generic constraints, nested types, interface members, attributes beyond
+`[Obsolete]`); a new mode (search by return type, dump a whole namespace tree, JSON output). Prefer
+improving the shared helpers (`common.cs` = cache/workbench/xml, `reflect.cs` = load + render) over
+duplicating logic in an action script — add support rather than working around a gap.
 
 Layout: `SKILL.md` + `scripts/{common,reflect}.cs` (shared, `#:include`d) +
 `scripts/{find,surface,decompile,diff,cache,bindir}.cs` (actions). Reflection is load-only

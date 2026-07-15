@@ -89,6 +89,10 @@ dotnet-reflect/                          # the plugin
 Adding another plugin later: drop it in its own top-level folder and add an entry to
 `.claude-plugin/marketplace.json`.
 
+## Bugs & feature requests
+
+Open an issue: **https://github.com/r-Larch/skills/issues**
+
 ## License
 
 MIT (adjust to taste).
