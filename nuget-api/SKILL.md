@@ -131,8 +131,12 @@ set the env vars globally once, then either run the scripts from inside that rep
 `NUGET_API_CONFIG` to the config path globally so it works from anywhere:
 
 ```powershell
-# one-time, so private packages resolve no matter where you run the scripts from
+# Windows (PowerShell) — one-time, so private packages resolve wherever you run the scripts:
 setx NUGET_API_CONFIG "P:\Projects\Magic\Nomos\Nomos\nuget.config"
+```
+```bash
+# macOS / Linux — add to ~/.zshrc or ~/.bashrc:
+export NUGET_API_CONFIG="$HOME/projects/Nomos/nuget.config"
 ```
 
 `bindir.cs` prints which config it used. If a private package fails to restore with
@@ -161,5 +165,11 @@ Layout: `SKILL.md` + `scripts/{common,reflect}.cs` (shared, `#:include`d) +
 (`MetadataLoadContext`) and decompilation is in-process (`ICSharpCode.Decompiler`), so nothing
 executes the target package and no global tools are required.
 
-To force a clean workbench (e.g. after a failed restore): delete
-`%TEMP%\nuget-api-wb\<pkg>__<version>\` and re-run.
+**Cross-platform**: works on Windows, macOS, and Linux — it uses portable .NET path/temp/runtime
+APIs and shells out only to `dotnet`. Paths, the NuGet cache (`$NUGET_PACKAGES` or `~/.nuget/packages`),
+the temp workbench, and the shared-framework resolver all resolve per-OS. (On Linux, `--bin` assembly
+names are case-sensitive — the by-package form derives the exact name for you.)
+
+To force a clean workbench (e.g. after a failed restore): delete the workbench folder under your
+temp dir — `%TEMP%\nuget-api-wb\<pkg>__<version>\` on Windows, `${TMPDIR:-/tmp}/nuget-api-wb/<pkg>__<version>/`
+on macOS/Linux — and re-run.

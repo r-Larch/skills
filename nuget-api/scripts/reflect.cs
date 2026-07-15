@@ -163,7 +163,7 @@ sealed class Loaded : IDisposable
     {
         var rt = System.Runtime.InteropServices.RuntimeEnvironment.GetRuntimeDirectory();
         yield return rt;
-        var shared = Directory.GetParent(rt.TrimEnd(Path.DirectorySeparatorChar))?.Parent;   // …/shared
+        var shared = Directory.GetParent(rt.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar))?.Parent;   // …/shared
         if (shared is null) yield break;
         foreach (var fw in shared.GetDirectories())
         {
