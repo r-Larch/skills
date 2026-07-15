@@ -32,8 +32,9 @@ dotnet run find.cs <pkgId> <version> <pattern>
 #   e.g. find.cs OpenAI 2.12.0 Streaming   -> every Streaming* type & *Streaming* method + signatures
 
 # SURFACE — exact signatures + XML-doc summaries for matching types. The default digest.
-dotnet run surface.cs <pkgId> <version> [typeFilter]
+dotnet run surface.cs <pkgId> <version> [typeFilter] [--inherited]
 #   e.g. surface.cs OpenAI 2.12.0 Chat.ChatClient
+#   --inherited (or -i): also list base-type members, grouped under `  <BaseType>:` sections.
 
 # DECOMPILE — real C# WITH method bodies (behavior: defaults, control flow, delegation).
 dotnet run decompile.cs <pkgId> <version> [Namespace.TypeName]
@@ -76,6 +77,18 @@ the temp dir and **reused** on later calls, so repeated queries are fast.
 
 One member per line, C#-ish signatures, XML `<summary>` appended as `// …`. So you can
 `… | grep CompleteChat`, and `diff.cs` is just a structured diff of two surface dumps.
+
+## Signature fidelity (what `surface` shows)
+
+- **Members are declared-only (own) by default** — inherited members are hidden. The base type is
+  shown in the header (`class A : B`). Pass **`--inherited`** to append base members grouped under
+  `  <BaseType>:` sections. `find` searches only declared members too.
+- **Nullability is rendered**: nullable value types as `T?` (`HttpStatusCode?`, `Int32?`) and
+  nullable reference types as `string?` — decoded from `NullableAttribute`/`NullableContextAttribute`,
+  including nested generics (`Func<HttpContext,String?>?`). This is metadata-accurate to how the
+  library was compiled; it degrades to the plain name if the flags look unexpected.
+- **Modifiers & markers**: `static`, `virtual`, `override`, `abstract` on methods; `required` on
+  properties; `[SetsRequiredMembers]` on constructors; `[Obsolete("…")]` on any member or type.
 
 ## Advanced: reuse an existing bin (`--bin`)
 

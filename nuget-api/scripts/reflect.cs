@@ -5,10 +5,115 @@ using System.Text;
 
 static class Sig
 {
-    public static string N(Type t) => t.IsByRef ? N(t.GetElementType()!)
-        : t.IsArray ? N(t.GetElementType()!) + "[]"
-        : t.IsGenericType ? $"{t.Name.Split('`')[0]}<{string.Join(",", t.GetGenericArguments().Select(N))}>"
-        : t.Name;
+    // Type name with value-type nullability (Nullable<T> -> T?). No NRT (see Nl for that).
+    public static string N(Type t)
+    {
+        if (t.IsByRef) return N(t.GetElementType()!);
+        if (t.IsArray) return N(t.GetElementType()!) + "[]";
+        if (IsNullableValue(t, out var u)) return N(u) + "?";
+        if (t.IsGenericType) return $"{t.Name.Split('`')[0]}<{string.Join(",", t.GetGenericArguments().Select(N))}>";
+        return t.Name;
+    }
+
+    // MetadataLoadContext-safe Nullable<T> detection (typeof(Nullable<>) can't be compared across type systems).
+    public static bool IsNullableValue(Type t, out Type underlying)
+    {
+        underlying = t;
+        if (t.IsGenericType && t.GetGenericTypeDefinition().FullName == "System.Nullable`1")
+        { underlying = t.GetGenericArguments()[0]; return true; }
+        return false;
+    }
+}
+
+// Nullable-reference-type aware type rendering: decodes System.Runtime.CompilerServices.NullableAttribute
+// (per-member byte[] flags, or a single byte) + NullableContextAttribute (the enclosing default) so that
+// `string?`, `List<string?>?`, `HttpStatusCode?` render as written. Degrades to Sig.N on any surprise.
+static class Nl
+{
+    public static string Of(Type t, MemberInfo member, byte ctx)
+    {
+        try { var (f, s) = ReadNullable(member.GetCustomAttributesData(), ctx); return new Reader(f, s).Read(t); }
+        catch { return Sig.N(t); }
+    }
+
+    // For method return types the flags live on the return parameter; for params, on the parameter.
+    public static string OfParam(ParameterInfo p, byte ctx)
+    {
+        try { var (f, s) = ReadNullable(p.GetCustomAttributesData(), ctx); return new Reader(f, s).Read(p.ParameterType); }
+        catch { return Sig.N(p.ParameterType); }
+    }
+
+    // Walks a type tree consuming the flag stream in the same pre-order the compiler emits it.
+    sealed class Reader
+    {
+        readonly byte[] _f; readonly bool _single; int _i;
+        public Reader(byte[] f, bool single) { _f = f; _single = single; }
+        byte Take() => _single ? _f[0] : (_i < _f.Length ? _f[_i++] : (byte)0);
+
+        public string Read(Type t)
+        {
+            if (t.IsByRef) return Read(t.GetElementType()!);
+            if (t.IsArray) { var f = Take(); return Read(t.GetElementType()!) + "[]" + (f == 2 ? "?" : ""); }
+            if (Sig.IsNullableValue(t, out var u)) { Take(); return Read(u) + "?"; }   // Nullable<> consumes a 0 slot
+            if (t.IsValueType)
+            {
+                Take();                                                // value types consume a 0 slot
+                if (!t.IsGenericType) return t.Name;
+                return $"{t.Name.Split('`')[0]}<{string.Join(",", t.GetGenericArguments().Select(Read))}>";
+            }
+            var g = Take();                                            // reference type / type parameter
+            var q = g == 2 ? "?" : "";
+            if (t.IsGenericType)
+                return $"{t.Name.Split('`')[0]}<{string.Join(",", t.GetGenericArguments().Select(Read))}>{q}";
+            return t.Name + q;
+        }
+    }
+
+    static (byte[] flags, bool single) ReadNullable(IList<CustomAttributeData> attrs, byte ctx)
+    {
+        var at = attrs.FirstOrDefault(a => a.AttributeType.FullName == "System.Runtime.CompilerServices.NullableAttribute");
+        if (at is null) return (new[] { ctx }, true);                  // no member flag -> the enclosing context default
+        var arg = at.ConstructorArguments[0];
+        if (arg.Value is IReadOnlyCollection<CustomAttributeTypedArgument> arr)
+            return (arr.Select(x => (byte)x.Value!).ToArray(), false);
+        return (new[] { (byte)arg.Value! }, true);
+    }
+
+    // Nearest NullableContextAttribute (member, then declaring type, then module) — the default for
+    // positions the member's own NullableAttribute doesn't cover.
+    public static byte Context(MemberInfo member)
+    {
+        foreach (var provider in Providers(member))
+        {
+            var at = provider.FirstOrDefault(a => a.AttributeType.FullName == "System.Runtime.CompilerServices.NullableContextAttribute");
+            if (at is not null) return (byte)at.ConstructorArguments[0].Value!;
+        }
+        return 0;
+
+        static IEnumerable<IList<CustomAttributeData>> Providers(MemberInfo m)
+        {
+            yield return m.GetCustomAttributesData();
+            if (m.DeclaringType is { } d) yield return d.GetCustomAttributesData();
+        }
+    }
+}
+
+// Attribute-driven modifiers/markers read from metadata.
+static class Meta
+{
+    public static bool Has(MemberInfo m, string fullName) =>
+        m.GetCustomAttributesData().Any(a => a.AttributeType.FullName == fullName);
+
+    public static bool Required(MemberInfo m) => Has(m, "System.Runtime.CompilerServices.RequiredMemberAttribute");
+    public static bool SetsRequired(MemberInfo m) => Has(m, "System.Diagnostics.CodeAnalysis.SetsRequiredMembersAttribute");
+
+    public static string? Obsolete(MemberInfo m)
+    {
+        var at = m.GetCustomAttributesData().FirstOrDefault(a => a.AttributeType.FullName == "System.ObsoleteAttribute");
+        if (at is null) return null;
+        var msg = at.ConstructorArguments.Count > 0 ? at.ConstructorArguments[0].Value as string : null;
+        return msg is null ? "[Obsolete]" : $"[Obsolete(\"{msg}\")]";
+    }
 }
 
 // Loaded assembly with the full closure resolved. Surfaces ReflectionTypeLoadException as Diagnostics
@@ -71,9 +176,12 @@ sealed class Loaded : IDisposable
 
 static class Render
 {
-    // Full public surface (signatures + inline xml summaries) for types matching `filter`.
-    // Appends an "unresolved types" note when a type's members can't be introspected.
-    public static string Surface(Type[] types, string filter, XmlDocs docs)
+    const BindingFlags Own = BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static | BindingFlags.DeclaredOnly;
+
+    // Full public surface for types matching `filter`. Members are DECLARED-ONLY (own); pass
+    // showInherited to additionally group base-type members under `  <BaseType>:` sections.
+    // Signatures are nullable-aware (T?, string?) and carry required / [Obsolete] / static / override markers.
+    public static string Surface(Type[] types, string filter, XmlDocs docs, bool showInherited = false)
     {
         var sb = new StringBuilder();
         var unresolved = new List<string>();
@@ -83,22 +191,24 @@ static class Render
         {
             try
             {
-                // NB: kind/baseSuffix touch BaseType/IsValueType, which resolve the base type and can
-                // throw when a dependency is missing — keep them inside the try with everything else.
                 var kind = type.IsEnum ? "enum" : type.IsInterface ? "interface" : type.IsValueType ? "struct" : "class";
-                var baseSuffix = type.BaseType is { } b && b.Name != "Object" && b.Name != "ValueType" ? $" : {Sig.N(b)}" : "";
-                sb.Append($"\n{kind} {type.FullName}{baseSuffix}");
+                var baseSuffix = type.BaseType is { } bt && bt.Name != "Object" && bt.Name != "ValueType" ? $" : {Sig.N(bt)}" : "";
+                var obs = Meta.Obsolete(type) is { } to ? to + " " : "";
+                sb.Append($"\n{obs}{kind} {type.FullName}{baseSuffix}");
                 if (docs.Summary(type.FullName ?? "") is { } td) sb.Append($"   // {td}");
                 sb.AppendLine();
-                foreach (var c in type.GetConstructors().Where(c => c.IsPublic))
-                    sb.AppendLine($"  .ctor({Ps(c)})");
-                foreach (var p in type.GetProperties(BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static))
-                    sb.AppendLine($"  {Sig.N(p.PropertyType)} {p.Name} {{ {(p.CanRead ? "get; " : "")}{(p.GetSetMethod() is not null ? "set; " : "")}}}{Tail(type, p.Name, docs)}");
-                foreach (var m in type.GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static | BindingFlags.DeclaredOnly).Where(m => !m.IsSpecialName))
-                    sb.AppendLine($"  {Sig.N(m.ReturnType)} {m.Name}({Ps(m)}){Tail(type, m.Name, docs)}");
-                if (type.IsEnum)
-                    foreach (var f in type.GetFields(BindingFlags.Public | BindingFlags.Static))
-                        sb.AppendLine($"  = {f.Name}");
+
+                var emitted = new HashSet<string>(StringComparer.Ordinal);   // method key -> suppress overridden base copies
+                EmitMembers(sb, type, type, docs, emitted, indent: "  ");
+
+                if (showInherited)
+                    for (var b = type.BaseType; b is not null && b.Name != "Object" && b.Name != "ValueType"; b = b.BaseType)
+                    {
+                        var before = sb.Length;
+                        var section = new StringBuilder();
+                        EmitMembers(section, b, type, docs, emitted, indent: "    ");
+                        if (section.Length > 0) sb.Append($"  {Sig.N(b)}:\n").Append(section);
+                    }
             }
             catch (Exception ex)
             {
@@ -111,8 +221,66 @@ static class Render
                         + (unresolved.Count > 8 ? " …" : "") + ". Their listing above is partial.");
         return sb.ToString();
 
-        static string Ps(MethodBase mb) => string.Join(", ", mb.GetParameters().Select(p => $"{Sig.N(p.ParameterType)} {p.Name}"));
-        static string Tail(Type t, string member, XmlDocs d) => d.Summary($"{t.FullName}.{member}") is { } s ? $"   // {s}" : "";
         static string Safe(Type t) { try { return t.FullName ?? t.Name; } catch { return t.Name; } }
+    }
+
+    // Emit declared members of `declaring`. `docOwner` is the type used for xml-doc keys (the leaf type,
+    // so inherited members still look up docs on the base). `emitted` dedupes overridden methods.
+    static void EmitMembers(StringBuilder sb, Type declaring, Type docOwner, XmlDocs docs, HashSet<string> emitted, string indent)
+    {
+        bool classLike = !declaring.IsInterface && !declaring.IsEnum;
+        if (declaring == docOwner)
+            foreach (var c in declaring.GetConstructors().Where(c => c.IsPublic))
+                sb.AppendLine($"{indent}{Mark(c)}.ctor({Ps(c)})");
+
+        foreach (var p in declaring.GetProperties(Own))
+        {
+            var ctx = Nl.Context(p);
+            var acc = p.GetMethod ?? p.SetMethod;
+            var mods = (acc?.IsStatic == true ? "static " : "") + (Meta.Required(p) ? "required " : "");
+            sb.AppendLine($"{indent}{Mark(p)}{mods}{Nl.Of(p.PropertyType, p, ctx)} {p.Name} {{ {(p.CanRead ? "get; " : "")}{(p.GetSetMethod() is not null ? "set; " : "")}}}{Doc(p.Name)}");
+        }
+
+        foreach (var m in declaring.GetMethods(Own).Where(m => !m.IsSpecialName))
+        {
+            var key = m.Name + "(" + string.Join(",", m.GetParameters().Select(x => x.ParameterType.Name)) + ")";
+            if (!emitted.Add(key)) continue;                     // already shown (overridden in a derived type)
+            var ctx = Nl.Context(m);
+            sb.AppendLine($"{indent}{Mark(m)}{MethodMods(m, classLike)}{Nl.OfParam(m.ReturnParameter, ctx)} {m.Name}({Ps(m)}){Doc(m.Name)}");
+        }
+
+        if (declaring.IsEnum && declaring == docOwner)
+            foreach (var f in declaring.GetFields(BindingFlags.Public | BindingFlags.Static))
+                sb.AppendLine($"{indent}= {f.Name}");
+
+        string Doc(string member) => docs.Summary($"{docOwner.FullName}.{member}") is { } s ? $"   // {s}" : docs.Summary($"{declaring.FullName}.{member}") is { } s2 ? $"   // {s2}" : "";
+    }
+
+    static string Mark(MemberInfo m)
+    {
+        var parts = new List<string>();
+        if (Meta.Obsolete(m) is { } o) parts.Add(o);
+        if (m is ConstructorInfo c && Meta.SetsRequired(c)) parts.Add("[SetsRequiredMembers]");
+        return parts.Count > 0 ? string.Join(" ", parts) + " " : "";
+    }
+
+    static string MethodMods(MethodInfo m, bool classLike)
+    {
+        var parts = new List<string>();
+        if (m.IsStatic) parts.Add("static");
+        else if (classLike)
+        {
+            if (m.IsAbstract) parts.Add("abstract");
+            else if (m.IsVirtual && !m.IsFinal) parts.Add(IsOverride(m) ? "override" : "virtual");
+        }
+        return parts.Count > 0 ? string.Join(" ", parts) + " " : "";
+
+        static bool IsOverride(MethodInfo m) { try { return m.GetBaseDefinition().DeclaringType != m.DeclaringType; } catch { return false; } }
+    }
+
+    static string Ps(MethodBase mb)
+    {
+        byte ctx = mb is MethodInfo mi ? Nl.Context(mi) : Nl.Context(mb);
+        return string.Join(", ", mb.GetParameters().Select(p => $"{Nl.OfParam(p, ctx)} {p.Name}"));
     }
 }

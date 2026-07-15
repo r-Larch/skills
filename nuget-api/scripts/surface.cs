@@ -4,14 +4,17 @@
 #:include reflect.cs
 // surface.cs — public API surface (exact signatures) merged with XML-doc summaries.
 //
-//   dotnet run surface.cs <pkgId> <version> [typeFilter]     (version may be "latest")
-//   dotnet run surface.cs --bin <binDir> <Assembly.dll> [typeFilter]
+//   dotnet run surface.cs <pkgId> <version> [typeFilter] [--inherited]   (version may be "latest")
+//   dotnet run surface.cs --bin <binDir> <Assembly.dll> [typeFilter] [--inherited]
 //
 // Builds a workbench for the package automatically (no binDir hunting) and finds the XML itself.
 // Metapackages (e.g. OpenIddict.AspNetCore) expand to the real assemblies they expose.
+// Members are declared-only (own) by default; --inherited also lists base members grouped by type.
 using System;
 
-if (args.Length < 2) { Console.Error.WriteLine("usage: surface.cs <pkgId> <version> [typeFilter]   |   --bin <dir> <Assembly.dll> [typeFilter]"); return 1; }
+var showInherited = args.Contains("--inherited") || args.Contains("-i");
+args = args.Where(a => a is not ("--inherited" or "-i")).ToArray();
+if (args.Length < 2) { Console.Error.WriteLine("usage: surface.cs <pkgId> <version> [typeFilter] [--inherited]   |   --bin <dir> <Assembly.dll> [typeFilter] [--inherited]"); return 1; }
 
 string binDir, filter;
 List<(string dll, string xml)> targets;
@@ -36,7 +39,7 @@ int shown = 0;
 foreach (var (dll, xml) in targets)
 {
     using var loaded = Loaded.Open(binDir, dll);
-    var body = Render.Surface(loaded.Types, filter, XmlDocs.Load(xml));
+    var body = Render.Surface(loaded.Types, filter, XmlDocs.Load(xml), showInherited);
     if (string.IsNullOrWhiteSpace(body) && loaded.Diagnostics == "") continue;   // skip assemblies with no matching types
     if (targets.Count > 1) Console.WriteLine($"\n// ===================== {Path.GetFileName(dll)} =====================");
     if (loaded.Diagnostics != "") Console.Write(loaded.Diagnostics);
