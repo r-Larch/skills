@@ -91,6 +91,37 @@ does). If a dependency is missing, the scripts don't crash — they print a `// 
 or `// ERROR` note explaining what couldn't be resolved and telling you to use the by-package
 form instead. If you see that note, prefer `surface.cs <pkgId> <version> …`.
 
+## Private / authenticated feeds (nuget.config)
+
+Packages on a private feed (e.g. a GitHub Packages source) need that feed's `nuget.config`.
+The workbench builds in a temp dir, so NuGet's own directory walk won't find your repo's config —
+the scripts locate one and pass it to restore. Resolution order:
+
+1. **`NUGET_API_CONFIG`** env var — an explicit path to a `nuget.config`. Highest priority.
+2. **Auto-detect** — the nearest `nuget.config` walking up from the directory you run the script in.
+
+Credentials referenced as `%ENV_VAR%` in the config expand at restore time from the **inherited
+environment**, so globally-defined tokens just work (nothing secret is copied). For a config like:
+
+```xml
+<add key="github" value="https://nuget.pkg.github.com/<owner>/index.json" />
+<packageSourceCredentials><github>
+  <add key="Username" value="%GITHUB_PACKAGES_USER%" />
+  <add key="ClearTextPassword" value="%GITHUB_PACKAGES_TOKEN%" />
+</github></packageSourceCredentials>
+```
+
+set the env vars globally once, then either run the scripts from inside that repo, or set
+`NUGET_API_CONFIG` to the config path globally so it works from anywhere:
+
+```powershell
+# one-time, so private packages resolve no matter where you run the scripts from
+setx NUGET_API_CONFIG "P:\Projects\Magic\Nomos\Nomos\nuget.config"
+```
+
+`bindir.cs` prints which config it used. If a private package fails to restore with
+"no nuget.config found", that's the fix.
+
 ## Manual workaround (only if a script can't help)
 
 The XML doc ships in the cache at `<cacheRoot>/<pkg-lower>/<version>/lib/<tfm>/<Asm>.xml`

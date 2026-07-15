@@ -63,7 +63,7 @@ static class Proc
 sealed class Workbench
 {
     public bool Ok; public string Error = "";
-    public string BinDir = "", Version = "", Log = "";
+    public string BinDir = "", Version = "", Log = "", Config = "";
     // The assemblies this package exposes: its own lib for a normal package, or the real assemblies
     // contributed by its dependency subtree for a metapackage (lib/*/_._). Each with its xml doc (or "").
     public List<(string dll, string xml)> Targets = new();
@@ -90,14 +90,23 @@ sealed class Workbench
         var csproj = Path.Combine(dir, "wb.csproj");
         File.WriteAllText(csproj, ProjectXml(pkgId, reqVersion));
 
+        // Respect a nuget.config so private/authenticated feeds (e.g. a GitHub Packages source with
+        // credentials from env vars) resolve. The temp workbench isn't under the repo, so NuGet's own
+        // directory walk won't find it — we point restore at it explicitly. Credentials referenced as
+        // %ENV_VAR% expand at restore time from the inherited (global) environment.
+        wb.Config = ResolveConfig();
+        var configArg = wb.Config != "" ? $" -p:RestoreConfigFile=\"{wb.Config}\"" : "";
+
         var binDir = Path.Combine(dir, "bin", "Debug", "net10.0");
         var assets = Path.Combine(dir, "obj", "project.assets.json");
         bool built = File.Exists(assets) && Directory.Exists(binDir) && Directory.GetFiles(binDir, "*.dll").Length > 0;
         if (floating || !built)
         {
-            var (code, outp) = Proc.Run("dotnet", $"build \"{csproj}\" -c Debug -v q -nologo", dir);
+            var (code, outp) = Proc.Run("dotnet", $"build \"{csproj}\" -c Debug -v q -nologo{configArg}", dir);
             wb.Log = outp;
-            if (code != 0) { wb.Error = $"build failed for {pkgId} {reqVersion}:\n{Tail(outp)}"; return wb; }
+            if (code != 0) { wb.Error = $"build failed for {pkgId} {reqVersion}"
+                + (wb.Config != "" ? $" (using nuget.config: {wb.Config})" : " (no nuget.config found — private feeds won't resolve; see SKILL.md)")
+                + $":\n{Tail(outp)}"; return wb; }
         }
         if (!File.Exists(assets)) { wb.Error = "no project.assets.json produced (restore failed?)."; return wb; }
 
@@ -197,6 +206,20 @@ sealed class Workbench
           <ItemGroup><PackageReference Include="{id}" Version="{version}" /></ItemGroup>
         </Project>
         """;
+
+    // Which nuget.config to restore with: explicit override first, else the nearest one walking up from
+    // the invocation directory. Returns "" (use NuGet's default hierarchy) if none is found.
+    static string ResolveConfig()
+    {
+        var env = Environment.GetEnvironmentVariable("NUGET_API_CONFIG");
+        if (!string.IsNullOrWhiteSpace(env) && File.Exists(env)) return Path.GetFullPath(env);
+        for (var dir = new DirectoryInfo(Environment.CurrentDirectory); dir != null; dir = dir.Parent)
+        {
+            var hit = dir.GetFiles("nuget.config").FirstOrDefault();   // Windows FS is case-insensitive
+            if (hit != null) return hit.FullName;
+        }
+        return "";
+    }
 
     static string Sanitize(string s) => string.Concat(s.Select(c => char.IsLetterOrDigit(c) || c is '.' or '-' or '_' ? c : '_'));
     static string Tail(string s) { var lines = s.Replace("\r", "").Split('\n'); return string.Join("\n", lines.Where(l => l.Trim().Length > 0).TakeLast(12)); }

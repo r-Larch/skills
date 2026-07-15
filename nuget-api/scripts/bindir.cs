@@ -15,6 +15,7 @@ var wb = Workbench.Ensure(args[0], args[1]);
 if (!wb.Ok) { Console.Error.WriteLine("nuget-api: " + wb.Error); return 2; }
 
 Console.WriteLine($"package  : {args[0]} {wb.Version}");
+Console.WriteLine($"config   : {(wb.Config == "" ? "(NuGet default hierarchy — no nuget.config found)" : wb.Config)}");
 Console.WriteLine($"binDir   : {wb.BinDir}");
 Console.WriteLine($"assemblies ({wb.Targets.Count}):");
 foreach (var (dll, xml) in wb.Targets)
