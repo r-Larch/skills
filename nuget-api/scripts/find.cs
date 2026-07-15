@@ -1,46 +1,51 @@
 #:package System.Reflection.MetadataLoadContext@9.0.0
-#:property NoWarn=IL2026;IL2070;IL2072;IL2075
-// find.cs — locate types and members by name across an assembly (case-insensitive substring).
-// Answers "what is it called / where does it live" without dumping the whole surface.
+#:property NoWarn=IL2026;IL2070;IL2072;IL2075;CA2266
+#:include common.cs
+#:include reflect.cs
+// find.cs — locate types & members by name (case-insensitive substring) across an assembly.
 //
-//   dotnet run find.cs <binDir> <Assembly.dll> <pattern>
-//
-// Prints one match per line:  <kind>  <Type.Member>  <signature>
+//   dotnet run find.cs <pkgId> <version> <pattern>          (version may be "latest")
+//   dotnet run find.cs --bin <binDir> <Assembly.dll> <pattern>
+using System;
 using System.Reflection;
 
-if (args.Length < 3) { Console.Error.WriteLine("usage: find.cs <binDir> <Assembly.dll> <pattern>"); return 1; }
-var binDir = args[0];
-var target = Path.IsPathRooted(args[1]) ? args[1] : Path.Combine(binDir, args[1]);
-var pat = args[2];
+string binDir, dll, pat;
+if (args.Length >= 1 && args[0] == "--bin")
+{
+    if (args.Length < 4) { Console.Error.WriteLine("usage: find.cs --bin <dir> <Assembly.dll> <pattern>"); return 1; }
+    binDir = args[1]; dll = Path.IsPathRooted(args[2]) ? args[2] : Path.Combine(binDir, args[2]); pat = args[3];
+}
+else
+{
+    if (args.Length < 3) { Console.Error.WriteLine("usage: find.cs <pkgId> <version> <pattern>   |   --bin <dir> <Assembly.dll> <pattern>"); return 1; }
+    var wb = Workbench.Ensure(args[0], args[1]);
+    if (!wb.Ok) { Console.Error.WriteLine("nuget-api: " + wb.Error); return 2; }
+    binDir = wb.BinDir; dll = wb.Dll; pat = args[2];
+    Console.WriteLine($"// {args[0]} {wb.Version} — matches for \"{pat}\":");
+}
 bool M(string s) => s.Contains(pat, StringComparison.OrdinalIgnoreCase);
 
-var rtDir = System.Runtime.InteropServices.RuntimeEnvironment.GetRuntimeDirectory();
-var paths = Directory.GetFiles(binDir, "*.dll").Concat(Directory.GetFiles(rtDir, "*.dll")).Distinct().ToArray();
-using var mlc = new MetadataLoadContext(new PathAssemblyResolver(paths));
-var asm = mlc.LoadFromAssemblyPath(target);
-
-string N(Type t) => t.IsGenericType
-    ? $"{t.Name.Split('`')[0]}<{string.Join(",", t.GetGenericArguments().Select(N))}>"
-    : (t.IsArray ? N(t.GetElementType()!) + "[]" : t.Name);
-
-Type[] types;
-try { types = asm.GetExportedTypes(); }
-catch (ReflectionTypeLoadException e) { types = e.Types.Where(t => t is not null).ToArray()!; }
+using var loaded = Loaded.Open(binDir, dll);
+if (loaded.Diagnostics != "") Console.Write(loaded.Diagnostics);
 
 const BindingFlags F = BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static | BindingFlags.DeclaredOnly;
-foreach (var type in types.OrderBy(t => t.FullName, StringComparer.Ordinal))
+int hits = 0, skipped = 0;
+foreach (var type in loaded.Types.OrderBy(t => t.FullName, StringComparer.Ordinal))
 {
-    if (M(type.Name)) Console.WriteLine($"{(type.IsEnum ? "enum" : type.IsInterface ? "interface" : type.IsValueType ? "struct" : "class"),-9} {type.FullName}");
     try
     {
+        // IsValueType resolves the base type and can throw on a missing dependency — keep it inside the try.
+        if (M(type.Name)) { Console.WriteLine($"{(type.IsEnum ? "enum" : type.IsInterface ? "interface" : type.IsValueType ? "struct" : "class"),-9} {type.FullName}"); hits++; }
         foreach (var p in type.GetProperties(F).Where(p => M(p.Name)))
-            Console.WriteLine($"{"prop",-9} {type.FullName}.{p.Name}   {N(p.PropertyType)}");
+        { Console.WriteLine($"{"prop",-9} {type.FullName}.{p.Name}   {Sig.N(p.PropertyType)}"); hits++; }
         foreach (var m in type.GetMethods(F).Where(m => !m.IsSpecialName && M(m.Name)))
-            Console.WriteLine($"{"method",-9} {type.FullName}.{m.Name}({string.Join(", ", m.GetParameters().Select(x => N(x.ParameterType)))})   -> {N(m.ReturnType)}");
+        { Console.WriteLine($"{"method",-9} {type.FullName}.{m.Name}({string.Join(", ", m.GetParameters().Select(x => Sig.N(x.ParameterType)))})   -> {Sig.N(m.ReturnType)}"); hits++; }
         if (type.IsEnum)
             foreach (var f in type.GetFields(BindingFlags.Public | BindingFlags.Static).Where(f => M(f.Name)))
-                Console.WriteLine($"{"enum-val",-9} {type.FullName}.{f.Name}");
+            { Console.WriteLine($"{"enum-val",-9} {type.FullName}.{f.Name}"); hits++; }
     }
-    catch { /* unresolved member type — skip */ }
+    catch { skipped++; }   // a member type failed to resolve — count and report below
 }
+if (hits == 0) Console.WriteLine($"// no matches for \"{pat}\".");
+if (skipped > 0) Console.WriteLine($"// NOTE: {skipped} type(s) skipped — a member type could not be resolved (missing dependency). Matches may be incomplete.");
 return 0;

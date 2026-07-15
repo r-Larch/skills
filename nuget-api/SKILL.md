@@ -4,78 +4,105 @@ description: >-
   Inspect the API surface of a .NET NuGet package / assembly when you don't know
   how to use it — list types & members, get exact signatures (return types,
   property types, ctors, enum values) merged with XML-doc summaries, search for a
-  type/method by name, or decompile a type to real C# with method bodies. USE FOR:
-  "how do I call this package", unknown API surface, wrong overload, "what's the
-  type called", verifying a signature against the *installed* version, diffing the
-  surface across versions, understanding a method's behavior. Works offline against
-  the restored DLL — more accurate than web docs because it reads the exact version
-  on disk. DO NOT USE FOR: packages you already know, or non-.NET packages.
+  type/method by name, decompile a type to real C# with method bodies, or diff the
+  surface between two versions. USE FOR: "how do I call this package", unknown API
+  surface, wrong overload, "what's the type called", verifying a signature against
+  the *installed* version, understanding a method's behavior, "what changed between
+  vX and vY". Each action is ONE command that takes a package id + version and
+  builds everything it needs itself. Reads the DLL on disk — more accurate than web
+  docs because it's the exact version. DO NOT USE FOR: packages you already know, or
+  non-.NET packages.
 ---
 
 # nuget-api — analyze a .NET package's API surface
 
-Three file-based C# scripts under `scripts/` read the **restored DLL on disk** (the exact
-installed version) instead of guessing from web docs. Run them with `dotnet run <script>.cs …`
-(requires the .NET 10 SDK — the scripts use `#:package` directives).
+Six file-based C# scripts under `scripts/`. Each **action is one command**: give it a
+**package id + version** and it builds a throwaway project referencing that package (the
+"workbench"), resolves the primary assembly + XML doc, and reads it. You do **not** hunt for
+DLLs, dependencies, or XML paths — the scripts do that in code. Run with `dotnet run <script>.cs …`
+(needs the **.NET 10 SDK** — the scripts use `#:package`/`#:include` directives).
 
-## The escalation ladder (cheapest first)
-
-1. **grep the XML doc** — free, no build. Intent, params, exceptions, but *not* return/property types.
-2. **`find.cs`** — locate a type/member by name when you don't know what it's called.
-3. **`surface.cs`** — exact signatures + XML summaries for a type or namespace. **The default digest.**
-4. **`decompile.cs`** — real C# *with method bodies* when signatures aren't enough (defaults, control flow, how an overload delegates).
-
-## Step 0 — locate the two inputs (do this first)
-
-Everything needs a **binDir**: a folder holding the target DLL **plus its full transitive
-dependency closure**. Load-only reflection and the decompiler both fail on a bare cache DLL
-(e.g. `FileNotFoundException: System.ClientModel`) — so point them at a built project's output,
-which already has every dependency copied next to it.
-
-```bash
-ASM=OpenAI.dll            # the assembly file name (usually PackageId + .dll)
-# a) find a bin folder that already contains the full closure (prefer newest TFM):
-find . -path "*bin*" -name "$ASM" 2>/dev/null | grep -iE "net[0-9]" | sort | tail -1
-#    -> use its DIRECTORY as <binDir>. If none exists, `dotnet build` any project
-#       that references the package, then re-run.
-```
-
-The **XML doc** ships in the NuGet cache next to the cached DLL (bin output often omits it):
-
-```bash
-# cache root: $NUGET_PACKAGES if set, else ~/.nuget/packages
-XML="$NUGET_PACKAGES/openai/2.12.0/lib/net10.0/OpenAI.xml"     # <pkg-lowercase>/<version>/lib/<tfm>/<Asm>.xml
-grep -A3 'name="M:OpenAI.Chat.ChatClient.CompleteChat' "$XML"  # step-1 quick doc lookup
-```
+Version is a positional arg and may be the literal **`latest`** (newest cached, else fetched).
 
 ## The scripts
 
-Run from `scripts/`. `<binDir>` is the folder from Step 0; `<Assembly.dll>` is resolved inside it.
-
 ```bash
-# 2) FIND — case-insensitive substring across all type & member names
-dotnet run find.cs <binDir> <Assembly.dll> <pattern>
-#    e.g. …/net10.0 OpenAI.dll Streaming   -> every Streaming* type & *Streaming* method
+# LOCATE a name — start here when you don't know what a type/method is called.
+dotnet run find.cs <pkgId> <version> <pattern>
+#   e.g. find.cs OpenAI 2.12.0 Streaming   -> every Streaming* type & *Streaming* method + signatures
 
-# 3) SURFACE — signatures + XML summaries (public members only, Internal* filtered)
-dotnet run surface.cs <binDir> <Assembly.dll> [typeFilter] [--xml <path>]
-#    typeFilter = substring on type FullName; pass --xml to merge the cache doc.
-#    e.g. …/net10.0 OpenAI.dll Chat.ChatClient --xml …/OpenAI.xml
+# SURFACE — exact signatures + XML-doc summaries for matching types. The default digest.
+dotnet run surface.cs <pkgId> <version> [typeFilter]
+#   e.g. surface.cs OpenAI 2.12.0 Chat.ChatClient
 
-# 4) DECOMPILE — full C# with bodies (in-process; no ilspycmd needed)
-dotnet run decompile.cs <binDir> <Assembly.dll> [Namespace.TypeName]
-#    omit the type to list every public full type name in the assembly.
-#    e.g. …/net10.0 OpenAI.dll OpenAI.Chat.ChatClient
+# DECOMPILE — real C# WITH method bodies (behavior: defaults, control flow, delegation).
+dotnet run decompile.cs <pkgId> <version> [Namespace.TypeName]
+#   omit the type to list every public full type name.
+#   e.g. decompile.cs OpenAI 2.12.0 OpenAI.Chat.ChatClient
+
+# DIFF — API changelog between two versions (added/removed types & members).
+dotnet run diff.cs <pkgId> <v1> <v2> [typeFilter]
+#   e.g. diff.cs OpenAI 2.11.0 2.12.0
+
+# CACHE — where a package lives in the local NuGet cache, its versions, lib TFMs & files. No build.
+dotnet run cache.cs <pkgId> [version]
+
+# BINDIR — build the workbench and print its bin folder for reuse via the --bin form below.
+dotnet run bindir.cs <pkgId> <version>
 ```
 
-## Notes & gotchas
+## How to use it (escalation ladder)
 
-- **binDir must have the closure.** This is the #1 failure mode. Always use a `bin/<cfg>/<tfm>/`
-  folder, never the raw `…/lib/<tfm>/` cache dir (that one has only the package's own DLL).
-- **Pick the TFM the consumer targets** (e.g. `net10.0` here) so you see the right conditional API.
-- **XML summaries are keyed by member name**, so all overloads of a method share one summary line
-  (fine in practice). Return/property types and visibility come from reflection, which is exact.
-- **Greppable by design** — one member per line. Diff two versions to see what changed:
-  `dotnet run surface.cs <bin_v1> X.dll > a; dotnet run surface.cs <bin_v2> X.dll > b; diff a b`.
-- These read metadata **without executing** the assembly (`MetadataLoadContext` / decompiler), so
-  they're safe to run against any restored package.
+1. **Don't know the name?** → `find.cs` with a substring.
+2. **Know the type, need to call it?** → `surface.cs` — signatures + intent in one greppable dump.
+3. **Signatures aren't enough (behavior)?** → `decompile.cs` for the real body.
+4. **Porting across versions / "did this change"?** → `diff.cs`.
+5. **Just want to see what's in the cache?** → `cache.cs`.
+
+The first run for a given package+version builds the workbench (a few seconds); it's cached under
+the temp dir and **reused** on later calls, so repeated queries are fast.
+
+## Output is greppable by design
+
+One member per line, C#-ish signatures, XML `<summary>` appended as `// …`. So you can
+`… | grep CompleteChat`, and `diff.cs` is just a structured diff of two surface dumps.
+
+## Advanced: reuse an existing bin (`--bin`)
+
+`surface.cs`, `find.cs`, and `decompile.cs` also accept a pre-built bin folder instead of a
+package id — use this to inspect an assembly you already build (e.g. a project in this repo):
+
+```bash
+dotnet run surface.cs --bin "<bin/Debug/net10.0>" MyLib.dll <TypeFilter>
+```
+
+The folder **must contain the full dependency closure** (a normal project `bin/<cfg>/<tfm>/`
+does). If a dependency is missing, the scripts don't crash — they print a `// PARTIAL RESULT`
+or `// ERROR` note explaining what couldn't be resolved and telling you to use the by-package
+form instead. If you see that note, prefer `surface.cs <pkgId> <version> …`.
+
+## Manual workaround (only if a script can't help)
+
+The XML doc ships in the cache at `<cacheRoot>/<pkg-lower>/<version>/lib/<tfm>/<Asm>.xml`
+(cacheRoot = `$NUGET_PACKAGES` or `~/.nuget/packages`; `cache.cs` prints the exact paths). You
+can `grep` it directly for summaries — but it has **no** return/property types or visibility and
+lists unusable `Internal*` members, so treat it as a fallback, not the primary route.
+
+## Maintaining this skill (IMPORTANT — do this, don't route around it)
+
+These scripts are meant to evolve. **If a script errors, produces wrong/partial output, is slow,
+or doesn't support what you need — fix it, then continue with the fixed version.** Examples:
+a package that only ships `netstandard2.0` and won't resolve; a needed view the scripts don't
+emit (attributes, generic constraints, nested types, interface members, `[Obsolete]` flags);
+a new mode (search by return type, dump a whole namespace tree, JSON output). Prefer improving
+the shared helpers (`common.cs` = cache/workbench/xml, `reflect.cs` = load + render) over
+duplicating logic in an action script. Add support rather than working around a gap. After any
+change, re-run the affected script once to confirm it still works before relying on the output.
+
+Layout: `SKILL.md` + `scripts/{common,reflect}.cs` (shared, `#:include`d) +
+`scripts/{find,surface,decompile,diff,cache,bindir}.cs` (actions). Reflection is load-only
+(`MetadataLoadContext`) and decompilation is in-process (`ICSharpCode.Decompiler`), so nothing
+executes the target package and no global tools are required.
+
+To force a clean workbench (e.g. after a failed restore): delete
+`%TEMP%\nuget-api-wb\<pkg>__<version>\` and re-run.
