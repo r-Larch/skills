@@ -15,7 +15,9 @@ if (args.Length >= 1 && args[0] == "--bin")
 {
     if (args.Length < 4) { Console.Error.WriteLine("usage: find.cs --bin <dir> <Assembly.dll> <pattern>"); return 1; }
     binDir = args[1];
-    targets = new() { (Path.IsPathRooted(args[2]) ? args[2] : Path.Combine(binDir, args[2]), "") };
+    var dll = Path.IsPathRooted(args[2]) ? args[2] : Path.Combine(binDir, args[2]);
+    if (Workbench.CheckAssembly(binDir, dll) is { Length: > 0 } err) { Console.Error.WriteLine("nuget-api: " + err); return 2; }
+    targets = new() { (dll, "") };
     pat = args[3];
 }
 else

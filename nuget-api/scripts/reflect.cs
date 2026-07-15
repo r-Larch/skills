@@ -192,9 +192,12 @@ static class Render
             try
             {
                 var kind = type.IsEnum ? "enum" : type.IsInterface ? "interface" : type.IsValueType ? "struct" : "class";
-                var baseSuffix = type.BaseType is { } bt && bt.Name != "Object" && bt.Name != "ValueType" ? $" : {Sig.N(bt)}" : "";
+                var baseName = type.BaseType is { } bt && bt.Name != "Object" && bt.Name != "ValueType" ? Sig.N(bt) : null;
+                var bases = (baseName is null ? Enumerable.Empty<string>() : new[] { baseName })
+                    .Concat(type.IsEnum ? Enumerable.Empty<string>() : DirectInterfaces(type).Select(Sig.N));
+                var clause = string.Join(", ", bases);
                 var obs = Meta.Obsolete(type) is { } to ? to + " " : "";
-                sb.Append($"\n{obs}{kind} {type.FullName}{baseSuffix}");
+                sb.Append($"\n{obs}{kind} {type.FullName}{(clause.Length > 0 ? " : " + clause : "")}");
                 if (docs.Summary(type.FullName ?? "") is { } td) sb.Append($"   // {td}");
                 sb.AppendLine();
 
@@ -222,6 +225,22 @@ static class Render
         return sb.ToString();
 
         static string Safe(Type t) { try { return t.FullName ?? t.Name; } catch { return t.Name; } }
+    }
+
+    // Interfaces DECLARED on this type: all implemented interfaces minus those coming from the base type
+    // or already implied by another interface in the set (so `class X : Base, IA, IB<T>` reads like C#).
+    static IEnumerable<Type> DirectInterfaces(Type type)
+    {
+        Type[] all;
+        try { all = type.GetInterfaces(); } catch { return Array.Empty<Type>(); }
+        if (all.Length == 0) return all;
+        string Key(Type t) => t.FullName ?? t.Name;
+        var fromBase = new HashSet<string>(SafeIfaces(() => type.BaseType?.GetInterfaces()).Select(Key));
+        var implied = new HashSet<string>(all.SelectMany(i => SafeIfaces(i.GetInterfaces)).Select(Key));
+        return all.Where(i => !fromBase.Contains(Key(i)) && !implied.Contains(Key(i)))
+                  .OrderBy(i => i.Name, StringComparer.Ordinal);
+
+        static Type[] SafeIfaces(Func<Type[]?> f) { try { return f() ?? Array.Empty<Type>(); } catch { return Array.Empty<Type>(); } }
     }
 
     // Emit declared members of `declaring`. `docOwner` is the type used for xml-doc keys (the leaf type,

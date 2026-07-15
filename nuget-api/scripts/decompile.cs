@@ -17,7 +17,9 @@ List<string> dlls; string? typeName;
 if (args.Length >= 1 && args[0] == "--bin")
 {
     if (args.Length < 3) { Console.Error.WriteLine("usage: decompile.cs --bin <dir> <Assembly.dll> [Type]"); return 1; }
-    dlls = new() { Path.IsPathRooted(args[2]) ? args[2] : Path.Combine(args[1], args[2]) };
+    var dll = Path.IsPathRooted(args[2]) ? args[2] : Path.Combine(args[1], args[2]);
+    if (Workbench.CheckAssembly(args[1], dll) is { Length: > 0 } err) { Console.Error.WriteLine("nuget-api: " + err); return 2; }
+    dlls = new() { dll };
     typeName = args.Length > 3 ? args[3] : null;
 }
 else

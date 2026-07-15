@@ -207,6 +207,20 @@ sealed class Workbench
         </Project>
         """;
 
+    // Validate a --bin assembly path; returns "" if OK, else a clean message listing what's available.
+    public static string CheckAssembly(string binDir, string dllPath)
+    {
+        if (File.Exists(dllPath)) return "";
+        if (!Directory.Exists(binDir)) return $"binDir not found: {binDir}";
+        var have = Directory.GetFiles(binDir, "*.dll").Select(f => Path.GetFileName(f)!).OrderBy(x => x, StringComparer.OrdinalIgnoreCase).ToList();
+        var want = Path.GetFileName(dllPath);
+        var stem = Path.GetFileNameWithoutExtension(want);
+        var near = have.Where(h => h.Contains(stem, StringComparison.OrdinalIgnoreCase)).ToList();
+        return $"assembly '{want}' not found in {binDir}."
+             + (near.Count > 0 ? $"\n  did you mean: {string.Join(", ", near)}" : "")
+             + $"\n  available ({have.Count}): {string.Join(", ", have.Take(30))}" + (have.Count > 30 ? " …" : "");
+    }
+
     // Which nuget.config to restore with: explicit override first, else the nearest one walking up from
     // the invocation directory. Returns "" (use NuGet's default hierarchy) if none is found.
     static string ResolveConfig()

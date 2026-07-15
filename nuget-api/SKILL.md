@@ -80,6 +80,9 @@ One member per line, C#-ish signatures, XML `<summary>` appended as `// …`. So
 
 ## Signature fidelity (what `surface` shows)
 
+- **The header reads like a C# declaration**: `class X : Base, IFoo, IBar<T>` — the base type plus
+  the type's *directly-declared* interfaces (those inherited from the base or implied by another
+  listed interface are omitted, so it stays minimal). `decompile` if you need the exhaustive list.
 - **Members are declared-only (own) by default** — inherited members are hidden. The base type is
   shown in the header (`class A : B`). Pass **`--inherited`** to append base members grouped under
   `  <BaseType>:` sections. `find` searches only declared members too.
