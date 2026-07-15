@@ -16,7 +16,7 @@ if (args.Length >= 1 && args[0] == "--bin")
     if (args.Length < 4) { Console.Error.WriteLine("usage: find.cs --bin <dir> <Assembly.dll> <pattern>"); return 1; }
     binDir = args[1];
     var dll = Path.IsPathRooted(args[2]) ? args[2] : Path.Combine(binDir, args[2]);
-    if (Workbench.CheckAssembly(binDir, dll) is { Length: > 0 } err) { Console.Error.WriteLine("nuget-api: " + err); return 2; }
+    if (Workbench.CheckAssembly(binDir, dll) is { Length: > 0 } err) { Console.Error.WriteLine("dotnet-reflect: " + err); return 2; }
     targets = new() { (dll, "") };
     pat = args[3];
 }
@@ -24,7 +24,7 @@ else
 {
     if (args.Length < 3) { Console.Error.WriteLine("usage: find.cs <pkgId> <version> <pattern>   |   --bin <dir> <Assembly.dll> <pattern>"); return 1; }
     var wb = Workbench.Ensure(args[0], args[1]);
-    if (!wb.Ok) { Console.Error.WriteLine("nuget-api: " + wb.Error); return 2; }
+    if (!wb.Ok) { Console.Error.WriteLine("dotnet-reflect: " + wb.Error); return 2; }
     binDir = wb.BinDir; targets = wb.Targets; pat = args[2];
     Console.WriteLine($"// {args[0]} {wb.Version} — matches for \"{pat}\" across {targets.Count} assembly(ies):");
 }

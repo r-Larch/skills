@@ -1,0 +1,10 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
+  "name": "dotnet-reflect",
+  "description": "Inspect the API surface of any .NET NuGet package or assembly — exact signatures with nullability, XML-doc summaries, decompiled method bodies, and version diffs — read straight from the DLL on disk. Six one-command scripts: surface, find, decompile, diff, cache, bindir.",
+  "author": {
+    "name": "René Larch",
+    "email": "rene@dikaia.ai"
+  },
+  "keywords": ["dotnet", "nuget", "reflection", "api-surface", "decompile", "csharp", "metadata"]
+}

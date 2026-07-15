@@ -12,7 +12,7 @@ using System;
 
 if (args.Length < 2) { Console.Error.WriteLine("usage: bindir.cs <pkgId> <version>"); return 1; }
 var wb = Workbench.Ensure(args[0], args[1]);
-if (!wb.Ok) { Console.Error.WriteLine("nuget-api: " + wb.Error); return 2; }
+if (!wb.Ok) { Console.Error.WriteLine("dotnet-reflect: " + wb.Error); return 2; }
 
 Console.WriteLine($"package  : {args[0]} {wb.Version}");
 Console.WriteLine($"config   : {(wb.Config == "" ? "(NuGet default hierarchy — no nuget.config found)" : wb.Config)}");

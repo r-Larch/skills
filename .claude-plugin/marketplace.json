@@ -1,0 +1,14 @@
+{
+  "name": "dotnet-tools",
+  "owner": {
+    "name": "René Larch",
+    "email": "rene@dikaia.ai"
+  },
+  "plugins": [
+    {
+      "name": "dotnet-reflect",
+      "source": "./",
+      "description": "Inspect .NET NuGet/assembly API surfaces (signatures, XML docs, decompiled bodies, version diffs) straight from the DLL on disk."
+    }
+  ]
+}

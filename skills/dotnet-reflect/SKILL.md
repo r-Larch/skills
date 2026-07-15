@@ -1,5 +1,5 @@
 ---
-name: nuget-api
+name: dotnet-reflect
 description: >-
   Inspect the API surface of a .NET NuGet package / assembly when you don't know
   how to use it — list types & members, get exact signatures (return types,
@@ -14,13 +14,18 @@ description: >-
   non-.NET packages.
 ---
 
-# nuget-api — analyze a .NET package's API surface
+# dotnet-reflect — analyze a .NET package's API surface
 
-Six file-based C# scripts under `scripts/`. Each **action is one command**: give it a
-**package id + version** and it builds a throwaway project referencing that package (the
-"workbench"), resolves the primary assembly + XML doc, and reads it. You do **not** hunt for
-DLLs, dependencies, or XML paths — the scripts do that in code. Run with `dotnet run <script>.cs …`
-(needs the **.NET 10 SDK** — the scripts use `#:package`/`#:include` directives).
+Six file-based C# scripts. Each **action is one command**: give it a **package id + version** and it
+builds a throwaway project referencing that package (the "workbench"), resolves the primary assembly +
+XML doc, and reads it. You do **not** hunt for DLLs, dependencies, or XML paths — the scripts do that
+in code. Run with `dotnet run <script>.cs …` (needs the **.NET 10 SDK** — the scripts use
+`#:package`/`#:include` directives).
+
+**Locating the scripts (do this first).** The `.cs` files live in the `scripts/` directory beside this
+SKILL.md. Resolve its absolute path, then `cd` there before running the commands below:
+- Installed as a **plugin**: `"$CLAUDE_PLUGIN_ROOT/skills/dotnet-reflect/scripts"` (run `echo "$CLAUDE_PLUGIN_ROOT"` to confirm it's set).
+- A **local skill** or a repo checkout: the `scripts/` folder next to this file.
 
 Version is a positional arg and may be the literal **`latest`** (newest cached, else fetched).
 
@@ -171,5 +176,5 @@ the temp workbench, and the shared-framework resolver all resolve per-OS. (On Li
 names are case-sensitive — the by-package form derives the exact name for you.)
 
 To force a clean workbench (e.g. after a failed restore): delete the workbench folder under your
-temp dir — `%TEMP%\nuget-api-wb\<pkg>__<version>\` on Windows, `${TMPDIR:-/tmp}/nuget-api-wb/<pkg>__<version>/`
+temp dir — `%TEMP%\dotnet-reflect-wb\<pkg>__<version>\` on Windows, `${TMPDIR:-/tmp}/dotnet-reflect-wb/<pkg>__<version>/`
 on macOS/Linux — and re-run.

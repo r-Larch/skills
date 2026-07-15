@@ -70,7 +70,7 @@ sealed class Workbench
     public string Dll => Targets.Count > 0 ? Targets[0].dll : "";   // convenience for single-target callers
     public string Xml => Targets.Count > 0 ? Targets[0].xml : "";
 
-    public static string RootDir() => Path.Combine(Path.GetTempPath(), "nuget-api-wb");
+    public static string RootDir() => Path.Combine(Path.GetTempPath(), "dotnet-reflect-wb");
 
     // Build (or reuse a cached build of) a temp project referencing <pkgId> <version>.
     // version "latest" => newest cached version if any, else floating "*" (fetches from nuget).

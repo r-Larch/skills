@@ -28,7 +28,7 @@ string Surface(string version)
 
 string s1, s2;
 try { s1 = Surface(v1); s2 = Surface(v2); }
-catch (Exception ex) { Console.Error.WriteLine("nuget-api: " + ex.Message); return 2; }
+catch (Exception ex) { Console.Error.WriteLine("dotnet-reflect: " + ex.Message); return 2; }
 
 var (order1, map1) = Parse(s1);
 var (order2, map2) = Parse(s2);

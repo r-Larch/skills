@@ -18,7 +18,7 @@ if (args.Length >= 1 && args[0] == "--bin")
 {
     if (args.Length < 3) { Console.Error.WriteLine("usage: decompile.cs --bin <dir> <Assembly.dll> [Type]"); return 1; }
     var dll = Path.IsPathRooted(args[2]) ? args[2] : Path.Combine(args[1], args[2]);
-    if (Workbench.CheckAssembly(args[1], dll) is { Length: > 0 } err) { Console.Error.WriteLine("nuget-api: " + err); return 2; }
+    if (Workbench.CheckAssembly(args[1], dll) is { Length: > 0 } err) { Console.Error.WriteLine("dotnet-reflect: " + err); return 2; }
     dlls = new() { dll };
     typeName = args.Length > 3 ? args[3] : null;
 }
@@ -26,7 +26,7 @@ else
 {
     if (args.Length < 2) { Console.Error.WriteLine("usage: decompile.cs <pkgId> <version> [Type]   |   --bin <dir> <Assembly.dll> [Type]"); return 1; }
     var wb = Workbench.Ensure(args[0], args[1]);
-    if (!wb.Ok) { Console.Error.WriteLine("nuget-api: " + wb.Error); return 2; }
+    if (!wb.Ok) { Console.Error.WriteLine("dotnet-reflect: " + wb.Error); return 2; }
     dlls = wb.Targets.Select(t => t.dll).ToList();
     typeName = args.Length > 2 ? args[2] : null;
     Console.WriteLine($"// {args[0]} {wb.Version} — {dlls.Count} assembly(ies)");
@@ -58,6 +58,6 @@ foreach (var dll in dlls)   // find the assembly that actually declares the type
         return 0;
     }
 }
-Console.Error.WriteLine($"nuget-api: type '{typeName}' not found in {string.Join(", ", dlls.Select(Path.GetFileName))}. "
+Console.Error.WriteLine($"dotnet-reflect: type '{typeName}' not found in {string.Join(", ", dlls.Select(Path.GetFileName))}. "
                       + "List types by omitting the type name, or check the namespace.");
 return 3;
