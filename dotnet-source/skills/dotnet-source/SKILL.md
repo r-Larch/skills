@@ -76,12 +76,17 @@ ds impls <TypeOrInterface> [--derived]
 ds calls <method> [--callers|--callees]
 
 # UNUSED — declared but never referenced. Scope it: this is the slow one.
-ds unused [--kind method,prop,field,type] [--proj <csproj>|--type <Ns.Type>]
+ds unused [--kind method,prop,field,type] [--proj <csproj>|--type <Ns.Type>] [--include-public]
+#   Non-public only by default (a public member may be called from outside the solution).
+#   --include-public includes them — right for a leaf app, misleading for a library.
+#   --proj/--type scope only WHAT IS REPORTED; usages are always searched solution-wide.
 
 # ---- Keep-alive (optional, Tier 2 only) -------------------------------------------------
 
-ds serve [--stop]        # hold the Solution in memory: find-usages 15s -> ~170ms
-ds status                # is a daemon serving this solution?
+# SERVE — starts in the background and RETURNS once warm. Do not background it yourself.
+ds serve --sln <path>     # find-usages: ~15s -> ~0.2s for every later query
+ds serve --stop           # stop it        ds serve --foreground   # block instead (debugging)
+ds status                 # is a daemon serving this solution? (pid, log)
 
 # ---- Utility ----------------------------------------------------------------------------
 
@@ -89,8 +94,16 @@ ds discover [--semantic]  # what the tool actually sees. START HERE if any count
 ds version
 ```
 
-**Target selection** (every command): `--sln <path>` | `--proj <csproj>` | `--root <dir>`.
-Default: walk up from cwd for `*.slnx`/`*.sln`, else treat cwd as root.
+**Target selection — every command, `serve` and `status` included:**
+
+| flag | meaning |
+|---|---|
+| `--sln <path>` | the solution to work on. **Prefer this.** It's authoritative, and for `serve` it's what *identifies* the daemon. |
+| `--root <dir>` | no solution file: scan this directory tree |
+| `--proj <csproj>` | just this one project — the workspace becomes a **single project**, so Tier-2 commands can't see references from sibling projects. (`unused` is the exception: there it only filters what's reported.) |
+
+Default: walk up from cwd for `*.slnx`/`*.sln`, else treat cwd as root — so running from anywhere
+inside the tree finds the same solution, and therefore the same daemon.
 `--include-generated` also scans `*.g.cs` / `*.Designer.cs` (off by default).
 
 ## How to use it (escalation ladder)
@@ -136,8 +149,38 @@ Two layers, because the two tiers have different costs:
 find-usages on Nomos:   stateless 15,200 ms   ->   with `ds serve` 170 ms
 ```
 
-`serve` is **opt-in**. Commands use a daemon if one is running and silently fall back to stateless
-if not; they never spawn one for you. It idles out after 30 minutes; `ds serve --stop` ends it.
+**`ds serve` starts in the background and returns** once the daemon is warm — you do **not** need
+`&`, `Start-Job`, or `nohup`, and you should not use them. It prints the pid and then exits:
+
+```bash
+ds serve --sln P:/…/Nomos.slnx
+# daemon started (pid 15304) — warm in 3198 ms
+#           21 projects, 1086 files, 0 edit(s) applied since start
+```
+
+`serve` is **opt-in**: Tier-2 commands use a daemon if one is running and fall back to stateless if
+not, but they never start one for you (an auto-spawn would turn a burst of parallel agent commands
+into a herd of processes each building a whole Solution). It idles out after 30 min; `ds serve --stop`
+ends it. `--foreground` blocks instead, for debugging the daemon itself.
+
+### Parallel agents
+
+A daemon is identified by its **solution root** (plus the tool build). That makes the common cases
+safe without any coordination:
+
+| situation | what happens |
+|---|---|
+| agents on **different solutions** | independent daemons, different pipes — no interaction |
+| several agents `serve` the **same** solution | exactly one daemon is started; the others wait for it and return the same pid |
+| several agents **query** one daemon at once | requests queue and each is served in turn (~0.2–4 s), instead of falling back to the 15 s path |
+| no daemon running | commands detect that from a presence marker and go stateless immediately — no connect timeout |
+
+Requests are served **one at a time** on purpose: the command handlers capture output by swapping
+the process-global `Console.Out`, so concurrent handling would interleave two agents' results.
+Queueing is the correct trade.
+
+Since the daemon is keyed by root, `ds serve` from any directory inside the tree targets the same
+daemon (the solution is found by walking up). Pass `--sln` when you want to be sure.
 
 ## Accuracy & limits (what to trust)
 
@@ -155,10 +198,12 @@ if not; they never spawn one for you. It idles out after 30 minutes; `ds serve -
   **not** scanned — `discover` says so, and `--root` scans them anyway. This matters: Nomos has 95
   `.csproj` on disk but only 21 in its `.slnx`; the other 73 are full copies under
   `.claude/worktrees/`. A naive glob would ingest the codebase 4.5× and quietly corrupt every count.
-- **`unused` only reports non-public declarations**, and skips anything with an attribute or an
-  `override` — a public member may be used from outside the solution, and DI/EF/serialization/xunit
-  invoke members reflectively where no reference exists. It answers "nothing in this solution
-  references it", which is not the same as "it is dead".
+- **`unused` answers "nothing in this solution references it"**, which is not the same as "it is
+  dead". It skips anything with an attribute or an `override`, because DI/EF/serialization/xunit
+  invoke members reflectively where no reference exists. Non-public declarations only by default;
+  **`--include-public`** adds public/protected ones — correct for a leaf app where the solution is
+  the whole world, misleading for a library, where a public member with no local references *is* its
+  API. Verify before deleting.
 - **Explicit `<Compile Include/Remove>`** (i.e. `EnableDefaultCompileItems=false`) and linked files
   aren't honoured — files are assigned to their nearest ancestor `.csproj`.
 

@@ -16,11 +16,19 @@ static class Tier2
     /// </summary>
     public static LoadedSolution? Warm { get; set; }
 
-    static LoadedSolution Load(Args a, Stopwatch sw)
+    static LoadedSolution Load(Args a, Stopwatch sw, bool projIsFilter = false)
     {
         if (Warm is not null) return Warm;
 
-        var set = Discovery.Resolve(a, a.Has("include-generated"));
+        var set = Discovery.Resolve(a, a.Has("include-generated"), ignoreProjTarget: projIsFilter);
+
+        // Every Tier-2 answer is only as wide as the workspace. A single-project workspace cannot
+        // see a caller in a sibling project, so "no usages" there means "none in this project" —
+        // which reads identically to "none at all" unless we say so.
+        if (set.Projects.Count == 1 && set.SolutionFile is null)
+            Console.Error.WriteLine("// note: the workspace is a SINGLE project — references from other projects "
+                                  + "cannot be seen. Pass --sln <path> for solution-wide results.");
+
         var loaded = WorkspaceBuilder.Build(set);
         if (a.Has("verbose"))
             foreach (var n in loaded.Notes) Console.Error.WriteLine($"// note: {n}");
@@ -243,10 +251,13 @@ static class Tier2
 
     public static int Unused(Args a, Stopwatch sw)
     {
-        var loaded = Load(a, sw);
+        // projIsFilter: --proj scopes WHICH declarations we report, never how much of the solution
+        // we search for their usages.
+        var loaded = Load(a, sw, projIsFilter: true);
         var solution = loaded.Solution;
         var typeFilter = a.Str("type");
         var projFilter = a.Str("proj");
+        var includePublic = a.Has("include-public");
 
         if (typeFilter is null && projFilter is null)
             Console.Error.WriteLine("// note: scanning the WHOLE solution. This is the slow one — "
@@ -264,28 +275,42 @@ static class Tier2
         var kinds = a.Csv("kind");
         var n = 0;
 
+        // A partial type declares the SAME symbol in several files, so without this it gets
+        // reported once per part. Doc-comment id is the stable identity.
+        var reported = new HashSet<string>(StringComparer.Ordinal);
+
         foreach (var project in projects.OrderBy(p => p.Name, StringComparer.OrdinalIgnoreCase))
         {
-            var comp = project.GetCompilationAsync().GetAwaiter().GetResult();
-            if (comp is null) continue;
-
             foreach (var doc in project.Documents)
             {
-                var model = comp.GetSemanticModel(doc.GetSyntaxTreeAsync().GetAwaiter().GetResult()!);
+                // Document.GetSemanticModelAsync(), NOT compilation.GetSemanticModel(tree).
+                // Both give a working model, but only the document-level API yields symbols that
+                // SymbolFinder can map back onto the Solution's project graph. With the manual
+                // compilation the reference search silently only saw the DECLARING project — so a
+                // public member used from another project looked unused. That's a false positive
+                // that invites someone to delete live code, which is the worst thing this command
+                // could do.
+                var model = doc.GetSemanticModelAsync().GetAwaiter().GetResult();
                 var root = doc.GetSyntaxRootAsync().GetAwaiter().GetResult();
-                if (root is null) continue;
+                if (model is null || root is null) continue;
 
                 foreach (var node in root.DescendantNodes().Where(IsDeclaration))
                 {
                     var symbol = model.GetDeclaredSymbol(node);
                     if (symbol is null) continue;
+                    if (!reported.Add(symbol.GetDocumentationCommentId() ?? Symbols.Signature(symbol))) continue;
                     if (!Wanted(symbol, kinds)) continue;
                     if (typeFilter is not null &&
                         !Symbols.SuffixMatches(Symbols.FullName(symbol.ContainingType ?? (symbol as INamedTypeSymbol)!), typeFilter))
                         continue;
 
-                    // Public API can be used from outside the solution — "unused here" would be a lie.
-                    if (symbol.DeclaredAccessibility is Accessibility.Public or Accessibility.Protected) continue;
+                    // Public/protected members can be called from outside this solution, so
+                    // "unused" is unprovable here — excluded by default. --include-public opts in:
+                    // for a leaf app or an internal service nothing else consumes, the whole
+                    // solution IS the world and public dead code is exactly what you're hunting.
+                    var isPublicApi = symbol.DeclaredAccessibility is Accessibility.Public or Accessibility.Protected
+                                   or Accessibility.ProtectedOrInternal;
+                    if (isPublicApi && !includePublic) continue;
                     if (IsExempt(symbol)) continue;
 
                     var refs = SymbolFinder.FindReferencesAsync(symbol, solution).GetAwaiter().GetResult();
@@ -293,7 +318,8 @@ static class Tier2
                     if (uses > 0) continue;
 
                     var loc = symbol.Locations.FirstOrDefault(l => l.IsInSource);
-                    Console.WriteLine($"  {symbol.Kind,-9} {Symbols.Signature(symbol),-70} "
+                    var vis = symbol.DeclaredAccessibility.ToString().ToLowerInvariant();
+                    Console.WriteLine($"  {vis,-9} {symbol.Kind,-9} {Symbols.Signature(symbol),-70} "
                                     + (loc is null ? "" : Where(loaded, loc)));
                     n++;
                 }
@@ -302,8 +328,15 @@ static class Tier2
 
         Console.WriteLine();
         Console.WriteLine($"// {n} unused declaration(s) — {sw.ElapsedMilliseconds} ms");
-        Console.WriteLine("// only non-public declarations are reported: a public member may be used from "
-                        + "outside this solution, so 'unused' cannot be concluded here.");
+        Console.WriteLine(includePublic
+            ? "// --include-public: PUBLIC declarations are included. Nothing in THIS SOLUTION references\n"
+            + "//   them — which only means dead code if the solution is the whole world. If this is a\n"
+            + "//   library, a public member with no local references is its API, not garbage. Anything\n"
+            + "//   reached reflectively (DI, EF, serialization, xunit) or via an attribute or override is\n"
+            + "//   still skipped, but a reference search cannot see every caller. Verify before deleting."
+            : "// only non-public declarations are reported: a public member may be used from outside this\n"
+            + "//   solution, so 'unused' cannot be concluded here. Pass --include-public to include them\n"
+            + "//   (right for a leaf app; misleading for a library).");
         return 0;
     }
 

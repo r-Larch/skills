@@ -80,23 +80,39 @@ static class Program
           find-usages <symbol>    every reference incl. declarations, locals, overrides
           impls <TypeOrInterface> [--derived]
           calls <method>          [--callers|--callees]
-          unused                  [--kind …] [--proj <csproj>|--type <Ns.Type>]
+          unused                  [--kind …] [--proj <csproj>|--type <Ns.Type>] [--include-public]
+                                  Reports only NON-public declarations by default (a public member
+                                  may be called from outside the solution). --include-public to
+                                  include them — right for a leaf app, misleading for a library.
+                                  Here --proj/--type only scope WHAT IS REPORTED; usages are always
+                                  searched across the whole solution.
 
         Keep-alive (optional — Tier 2 only)
-          serve [--stop]          hold the Solution in memory so repeat Tier-2 queries skip the
-                                  ~15s workspace build. Tier-2 commands use it automatically if
-                                  it's running; they never start it for you.
-          status                  is a daemon serving this solution?
+          serve [--sln <path>]    START AND RETURN. Backgrounds itself and holds the Solution in
+                                  memory, so repeat Tier-2 queries skip the ~15s workspace build
+                                  (find-usages: ~15s -> ~0.2s). Tier-2 commands then use it
+                                  automatically. Returns once it's warm.
+                                  A daemon is identified by its SOLUTION ROOT, so: parallel agents
+                                  on different solutions get independent daemons and never collide;
+                                  any number of agents may `serve` the same solution — exactly one
+                                  is started and the rest just wait for it.
+            --foreground          block instead (Ctrl-C to stop) — for debugging the daemon
+            --stop                stop the daemon serving this solution
+          status                  is a daemon serving this solution? (pid, log path)
 
         Utility
           discover [--semantic]   what the tool sees: projects, files, reference health. Start here
                                   if counts look wrong.
           version
 
-        Target selection (all commands):
-          --sln <path> | --proj <csproj> | --root <dir>
+        Target selection (EVERY command, including serve/status):
+          --sln <path>            the solution to work on. Prefer this — it is authoritative, and
+                                  for `serve` it is what identifies the daemon.
+          --root <dir>            no solution file: scan this directory tree
+          --proj <csproj>         just this one project. NOTE: this makes the workspace a SINGLE
+                                  project, so Tier-2 commands cannot see references from sibling
+                                  projects. (`unused` is the exception — there it is only a filter.)
           default: walk up from cwd for *.slnx/*.sln, else treat cwd as root.
-          The solution file is authoritative when present — see `discover`.
           --include-generated     also scan *.g.cs / *.Designer.cs (off by default)
         """);
 }

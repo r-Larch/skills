@@ -93,17 +93,24 @@ static class Discovery
     /// <summary>
     /// Resolve the target from --sln / --proj / --root, else walk up from cwd for a *.slnx|*.sln.
     /// </summary>
-    public static SolutionSet Resolve(Args a, bool includeGenerated = false)
+    /// <param name="ignoreProjTarget">
+    /// Treat --proj as a FILTER rather than as the target. `unused --proj X` means "list unused
+    /// declarations of X" — but deciding whether X's members are used requires searching the WHOLE
+    /// solution. Letting --proj shrink the workspace to one project made every cross-project
+    /// reference invisible, so anything used only from a sibling project was reported as unused:
+    /// a false positive that invites deleting live code.
+    /// </param>
+    public static SolutionSet Resolve(Args a, bool includeGenerated = false, bool ignoreProjTarget = false)
     {
-        var set = ResolveCore(a, includeGenerated);
+        var set = ResolveCore(a, includeGenerated, ignoreProjTarget);
         set.IncludeGenerated = includeGenerated;
         return set;
     }
 
-    static SolutionSet ResolveCore(Args a, bool includeGenerated)
+    static SolutionSet ResolveCore(Args a, bool includeGenerated, bool ignoreProjTarget = false)
     {
         var sln = a.Str("sln");
-        var proj = a.Str("proj");
+        var proj = ignoreProjTarget ? null : a.Str("proj");
         var root = a.Str("root");
 
         if (proj is not null)
@@ -118,8 +125,13 @@ static class Discovery
 
         if (sln is null && root is null)
         {
-            sln = FindSolutionUpwards(Environment.CurrentDirectory);
-            if (sln is null) root = Environment.CurrentDirectory;
+            // When --proj is only a filter, start the search at the project rather than the cwd, so
+            // `unused --proj some/other/X.csproj` still finds and loads X's whole solution.
+            var start = ignoreProjTarget && a.Str("proj") is { } p
+                ? Path.GetDirectoryName(Path.GetFullPath(p)) ?? Environment.CurrentDirectory
+                : Environment.CurrentDirectory;
+            sln = FindSolutionUpwards(start);
+            if (sln is null) root = start;
         }
 
         if (sln is not null)

@@ -30,10 +30,41 @@ static class Server
 {
     static readonly TimeSpan IdleTimeout = TimeSpan.FromMinutes(30);
 
-    public static string PipeName(string root)
+    public static string PipeName(string root) => "dotnet-source-" + Key(root);
+
+    /// <summary>
+    /// Identity of a daemon: the solution root AND the tool build. Two agents serving two
+    /// DIFFERENT solutions get different keys, so their daemons are fully independent — that's the
+    /// common parallel-agent case and it needs no coordination at all. The MVID is in the key so a
+    /// rebuilt tool is never served by a daemon still running the old logic.
+    /// </summary>
+    static string Key(string root) =>
+        DeclIndex.Hash($"{root.ToLowerInvariant()}|{typeof(Server).Assembly.ManifestModule.ModuleVersionId}");
+
+    /// <summary>
+    /// Presence marker for a live daemon. Held open by the daemon with FileOptions.DeleteOnClose,
+    /// which makes it self-cleaning: the OS drops the handle even on a hard kill, so a stale marker
+    /// can't outlive the process that made it.
+    ///
+    /// It exists so a client can tell "no daemon" (skip the probe entirely — stateless commands
+    /// shouldn't pay for a connect timeout) apart from "daemon is busy serving someone else" (wait
+    /// and queue, instead of silently falling back to the 15s stateless path).
+    /// </summary>
+    static string PresencePath(string root) => Path.Combine(Paths.CacheRoot, "daemons", $"{Key(root)}.pid");
+
+    static int? LiveDaemonPid(string root)
     {
-        var mvid = typeof(Server).Assembly.ManifestModule.ModuleVersionId;
-        return "dotnet-source-" + DeclIndex.Hash($"{root.ToLowerInvariant()}|{mvid}");
+        try
+        {
+            var path = PresencePath(root);
+            if (!File.Exists(path)) return null;
+            using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            using var sr = new StreamReader(fs);
+            if (!int.TryParse(sr.ReadLine(), out var pid)) return null;
+            try { using var _ = Process.GetProcessById(pid); return pid; }
+            catch { return null; }   // marker outlived its process (shouldn't happen; be safe anyway)
+        }
+        catch { return null; }
     }
 
     // ---- wire format -------------------------------------------------------------------
@@ -72,8 +103,23 @@ static class Server
 
     // ---- client ------------------------------------------------------------------------
 
-    /// <summary>Ask a live daemon to run this command. Returns null if none is listening.</summary>
-    public static Response? TryAsk(string root, Request req, int timeoutMs = 300)
+    /// <summary>
+    /// Ask a live daemon to run this command. Returns null if none is listening (caller then runs
+    /// stateless).
+    ///
+    /// The daemon serves ONE request at a time on purpose — the command handlers capture output by
+    /// swapping Console.Out, which is process-global, so concurrent handling would interleave two
+    /// agents' results. Serializing is correct; the cost is that a second agent must wait its turn.
+    /// So: when the presence marker says a daemon is alive we wait (queueing in the OS until it
+    /// calls WaitForConnection again), and when there's no marker we don't probe at all.
+    /// </summary>
+    public static Response? TryAsk(string root, Request req)
+    {
+        if (LiveDaemonPid(root) is null) return null;   // no daemon: cost is one File.Exists, not a timeout
+        return Ask(root, req, timeoutMs: 20_000);
+    }
+
+    static Response? Ask(string root, Request req, int timeoutMs)
     {
         try
         {
@@ -83,17 +129,22 @@ static class Server
             var raw = ReadFrame(pipe);
             return raw is null ? null : JsonSerializer.Deserialize<Response>(raw);
         }
-        catch { return null; }   // no daemon, or it died mid-request: caller falls back to stateless
+        catch { return null; }   // died mid-request: caller falls back to stateless
     }
 
     public static int Status(Args a, Stopwatch sw)
     {
-        var set = Discovery.Resolve(a);
-        var resp = TryAsk(set.Root, new Request("ping", []));
-        Console.WriteLine($"root      {set.Root}");
-        Console.WriteLine($"pipe      {PipeName(set.Root)}");
-        Console.WriteLine($"daemon    {(resp is null ? "not running (commands run stateless)" : "running — Tier 2 is warm")}");
+        var root = Discovery.ResolveRootOnly(a);
+        var pid = LiveDaemonPid(root);
+        var resp = pid is null ? null : Ask(root, new Request("ping", []), 5000);
+
+        Console.WriteLine($"root      {root}");
+        Console.WriteLine($"pipe      {PipeName(root)}");
+        Console.WriteLine($"daemon    {(pid is null
+            ? "not running — Tier 2 runs stateless (~15s per query). `ds serve` to warm it."
+            : $"running (pid {pid}) — Tier 2 is warm")}");
         if (resp is not null) Console.WriteLine(resp.Output.TrimEnd());
+        if (pid is not null) Console.WriteLine($"log       {LogPath(root)}");
         Console.WriteLine($"cache     {Paths.CacheRoot}");
         Console.WriteLine($"version   {Program.Version}");
         return 0;
@@ -103,28 +154,166 @@ static class Server
 
     public static int Serve(Args a, Stopwatch sw)
     {
-        var set = Discovery.Resolve(a, a.Has("include-generated"));
+        var root = Discovery.ResolveRootOnly(a);
 
         if (a.Has("stop"))
         {
-            var r = TryAsk(set.Root, new Request("stop", []));
+            var r = Ask(root, new Request("stop", []), 5000);
             Console.WriteLine(r is null ? "no daemon running for this solution." : "daemon stopped.");
             return 0;
         }
 
-        if (TryAsk(set.Root, new Request("ping", [])) is not null)
+        if (LiveDaemonPid(root) is { } running)
         {
-            Console.WriteLine("a daemon is already serving this solution — nothing to do.");
+            Console.WriteLine($"already serving {root} (pid {running}) — nothing to do.");
             return 0;
         }
 
-        Console.Error.WriteLine($"dotnet-source: building the semantic workspace for {set.Root} …");
-        var loaded = WorkspaceBuilder.Build(set);
-        var state = new ServerState(loaded);
-        Console.Error.WriteLine($"dotnet-source: warm after {sw.ElapsedMilliseconds} ms "
-                              + $"({set.Projects.Count} projects, {set.FileCount} files). "
-                              + $"Idle timeout {IdleTimeout.TotalMinutes:0} min. Ctrl-C to stop.");
+        // `serve` BACKGROUNDS ITSELF by default. It used to block, which meant an agent that ran
+        // `ds serve` hung until its timeout, and a human had to know to append `&`. Neither is
+        // acceptable for a command whose entire job is "make later commands fast".
+        // --foreground keeps the old blocking behaviour (and is what the detached child runs).
+        return a.Has("foreground") ? Foreground(a, sw) : Detach(a, root, sw);
+    }
 
+    /// <summary>Spawn a detached copy running --foreground, wait for it to warm, then report.</summary>
+    static int Detach(Args a, string root, Stopwatch sw)
+    {
+        var entry = System.Reflection.Assembly.GetEntryAssembly()?.Location ?? "";
+        var host = Environment.ProcessPath ?? "dotnet";
+        var log = LogPath(root);
+        Directory.CreateDirectory(Path.GetDirectoryName(log)!);
+
+        var psi = new ProcessStartInfo(host);
+        if (entry.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)) psi.ArgumentList.Add(entry);
+        psi.ArgumentList.Add("serve");
+        psi.ArgumentList.Add("--foreground");
+        psi.ArgumentList.Add("--log");
+        psi.ArgumentList.Add(log);            // an arg, not an env var: ShellExecute forbids Environment
+        foreach (var flag in new[] { "sln", "proj", "root" })
+            if (a.Str(flag) is { } v) { psi.ArgumentList.Add($"--{flag}"); psi.ArgumentList.Add(v); }
+        if (a.Has("include-generated")) psi.ArgumentList.Add("--include-generated");
+
+        if (OperatingSystem.IsWindows())
+        {
+            // MUST be ShellExecute on Windows. With UseShellExecute=false .NET creates the process
+            // with bInheritHandles=true, so the daemon inherits a DUPLICATE of our caller's stdout
+            // handle — even though its own stdout is elsewhere. A caller that CAPTURES our output
+            // (`$o = & ds.ps1 serve`, i.e. every agent, and `Measure-Command`) then waits for EOF on
+            // a pipe the daemon holds open for its whole 30-minute life: `serve` appears to hang.
+            // It only looked fine interactively because an unredirected console has no EOF to wait
+            // for. ShellExecute starts the process with no inherited handles, which is the point.
+            psi.UseShellExecute = true;
+            psi.WindowStyle = ProcessWindowStyle.Hidden;
+        }
+        else
+        {
+            // No ShellExecute on unix (it would hand off to xdg-open). Redirecting is enough there:
+            // .NET marks inherited descriptors close-on-exec, so the child holds no caller fds.
+            psi.UseShellExecute = false;
+            psi.CreateNoWindow = true;
+            psi.RedirectStandardOutput = true;
+            psi.RedirectStandardError = true;
+            psi.RedirectStandardInput = true;
+        }
+
+        Process child;
+        try { child = Process.Start(psi)!; }
+        catch (Exception e) { throw new UserError($"could not start the daemon: {e.Message}"); }
+
+        // Wait until it actually answers, so "started" means warm rather than "probably fine".
+        var deadline = DateTime.UtcNow.AddSeconds(120);
+        while (DateTime.UtcNow < deadline)
+        {
+            if (Ask(root, new Request("ping", []), 200) is { } pong)
+            {
+                var pid = LiveDaemonPid(root) ?? child.Id;
+                Console.WriteLine($"daemon started (pid {pid}) — warm in {sw.ElapsedMilliseconds} ms");
+                Console.WriteLine(pong.Output.TrimEnd());
+                Console.WriteLine("Tier-2 commands (find-usages/impls/calls/unused) will use it automatically.");
+                Console.WriteLine($"`ds serve --stop` to stop it; it also idles out after {IdleTimeout.TotalMinutes:0} min.");
+                return 0;
+            }
+
+            // Our child exiting is NOT automatically a failure. When several agents `serve` the same
+            // solution at once, exactly one child wins the single-instance lock and the rest exit
+            // straight away — from those parents' point of view the daemon is still coming up, it
+            // just isn't theirs. So only give up once nothing holds the presence marker either.
+            if (child.HasExited && LiveDaemonPid(root) is null) break;
+
+            Thread.Sleep(200);
+        }
+
+        var waited = (int)sw.Elapsed.TotalSeconds;
+        var tail = ReadLogTail(log);
+        throw new UserError($"the daemon did not come up (gave up after {waited}s"
+                          + (child.HasExited ? $"; the process exited with {child.ExitCode}" : "") + ")."
+                          + (tail.Length > 0 ? $"\n--- {log} ---\n{tail}" : $"\nnothing was logged to {log}"));
+    }
+
+    static string LogPath(string root) => Path.Combine(Paths.CacheRoot, "daemons", $"{Key(root)}.log");
+
+    static string ReadLogTail(string log)
+    {
+        try { return string.Join('\n', File.ReadAllLines(log).TakeLast(15)); }
+        catch { return ""; }
+    }
+
+    /// <summary>Set by --log when we were spawned detached; null when run in the foreground.</summary>
+    static string? _log;
+
+    /// <summary>Where the daemon's own messages go: its log file when detached, else stderr.</summary>
+    static void Say(string msg)
+    {
+        if (string.IsNullOrEmpty(_log)) { Console.Error.WriteLine($"dotnet-source: {msg}"); return; }
+        try { File.AppendAllText(_log, $"{DateTime.Now:HH:mm:ss}  {msg}\n"); }
+        catch { /* logging must never take the daemon down */ }
+    }
+
+    static int Foreground(Args a, Stopwatch sw)
+    {
+        _log = a.Str("log");
+        var set = Discovery.Resolve(a, a.Has("include-generated"));
+
+        // Single-instance lock AND presence marker in one atomic step. CreateNew is the race
+        // resolver: if two agents `serve` the same solution at the same instant, exactly one
+        // creates the file and the other is told who won — instead of both spending 5s building a
+        // Solution and the loser then dying on a pipe collision.
+        // DeleteOnClose means the marker cannot outlive this process, even if it's killed.
+        FileStream presence;
+        var presencePath = PresencePath(set.Root);
+        Directory.CreateDirectory(Path.GetDirectoryName(presencePath)!);
+        try
+        {
+            presence = new FileStream(presencePath, FileMode.CreateNew, FileAccess.Write,
+                FileShare.Read | FileShare.Delete, 4096, FileOptions.DeleteOnClose);
+        }
+        catch (IOException)
+        {
+            var pid = LiveDaemonPid(set.Root);
+            Say($"another daemon is already serving {set.Root}"
+              + (pid is null ? " (its marker is stale — retry in a moment)" : $" (pid {pid})"));
+            return 0;
+        }
+
+        using (presence)
+        {
+            using var w = new StreamWriter(presence) { AutoFlush = true };
+            w.WriteLine(Environment.ProcessId);
+            w.WriteLine(set.Root);
+
+            Say($"building the semantic workspace for {set.Root} …");
+            var loaded = WorkspaceBuilder.Build(set);
+            var state = new ServerState(loaded);
+            Say($"warm after {sw.ElapsedMilliseconds} ms ({set.Projects.Count} projects, {set.FileCount} files). "
+              + $"Idle timeout {IdleTimeout.TotalMinutes:0} min.");
+
+            return Listen(set, state);
+        }
+    }
+
+    static int Listen(SolutionSet set, ServerState state)
+    {
         using var watcher = StartWatching(state);
         var stop = new ManualResetEventSlim(false);
         var lastUse = DateTime.UtcNow;
@@ -146,11 +335,21 @@ static class Server
             NamedPipeServerStream pipe;
             try
             {
+                // One instance: requests are served strictly one at a time because the command
+                // handlers capture output via the process-global Console.Out. Extra clients queue
+                // in the OS until the next WaitForConnection, which is why TryAsk waits when the
+                // presence marker says a daemon is alive.
                 pipe = new NamedPipeServerStream(pipeName, PipeDirection.InOut, 1,
-                    PipeTransmissionMode.Byte, PipeOptions.Asynchronous);
+                    PipeTransmissionMode.Byte, PipeOptions.None);
                 pipe.WaitForConnection();
             }
-            catch { break; }
+            catch (Exception e)
+            {
+                // This used to be `catch { break; }`, which meant the daemon vanished without ever
+                // saying why. If we can't listen, that's the one thing worth reporting.
+                Say($"stopped listening: {e.GetType().Name}: {e.Message}");
+                break;
+            }
 
             using (pipe)
             {
@@ -171,7 +370,7 @@ static class Server
             }
         }
 
-        Console.Error.WriteLine("dotnet-source: daemon stopped.");
+        Say("daemon stopped.");
         return 0;
     }
 
