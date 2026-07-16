@@ -5,6 +5,16 @@ A personal [Claude Code](https://code.claude.com) plugin marketplace. Add it wit
 
 ## Plugins
 
+| Plugin | Substrate | Use it for |
+|---|---|---|
+| [`dotnet-reflect`](#dotnet-reflect) | compiled DLLs | a **dependency you don't own** — signatures, docs, decompiled bodies, version diffs |
+| [`dotnet-source`](#dotnet-source) | your `.cs` via Roslyn | the **code you're editing** — search, outline (private included), find-usages, dead code |
+
+They're complementary, not competing: reflect reads *metadata* (public surface only, needs a built
+DLL), source reads *your source* (sees private, works unbuilt).
+
+---
+
 ### `dotnet-reflect`
 
 Inspects the API surface of any .NET **NuGet package or assembly** — read straight from the DLL on
@@ -78,16 +88,96 @@ it with the `NUGET_API_CONFIG` env var (or run from inside a repo that has one);
 referenced as `%ENV_VAR%` expand from the environment at restore time. See the skill's `SKILL.md` for
 details.
 
+---
+
+### `dotnet-source`
+
+ReSharper-class navigation for the **solution you're editing**, from the terminal. It parses your
+`.cs` with **Roslyn**, which buys the two things a metadata reader structurally cannot give you:
+it **works on a solution that doesn't compile**, and it **sees `private`/`internal` members** — the
+guts of the god-class you're actually untangling.
+
+#### What it does
+
+| Command | Answers |
+|---|---|
+| `search` | "what's it called" — by name **and kind**, with signatures |
+| `outline` | a type's full member list — **private included**, partial parts merged |
+| `tree` | project → namespace → type map |
+| `metrics` | rank types by size — **god-class detection** |
+| `find-usages` | "who uses this" — call-sites **and** declarations/locals/overrides |
+| `impls` | who implements this interface / derives from this base |
+| `calls` | call hierarchy (`--callers` / `--callees`) |
+| `unused` | declared but never referenced |
+| `serve` | keep the Roslyn compilation warm (see below) |
+| `discover` | what the tool actually sees — start here if a count looks wrong |
+
+**Tier 1** (`search`/`outline`/`tree`/`metrics`) needs **no build at all**.
+**Tier 2** (the semantic four) needs a `dotnet restore` — still **not** a build.
+
+#### Install
+
+```
+/plugin marketplace add r-Larch/skills
+/plugin install dotnet-source@rlarch
+```
+
+```bash
+# from $CLAUDE_PLUGIN_ROOT/skills/dotnet-source   (Windows: ./ds.ps1, unix: ./ds.sh)
+./ds.ps1 metrics --sort methods --top 20      # find the god-classes
+./ds.ps1 outline AknPersistenceService        # 30 members — 19 of them private
+./ds.ps1 find-usages WhereTenantRead          # 62 call-sites + the declaration
+./ds.ps1 impls ITenantContext
+./ds.ps1 discover --semantic                  # project set + reference health
+```
+
+#### Keeping the compilation alive
+
+The tool is **one compiled binary**, not a file-based script: it's built once into a hash-keyed
+cache (keyed on sources + pinned Roslyn versions + runtime band) and reused at **~100 ms startup**.
+On top of that, two layers keep work alive between calls:
+
+- **Tier 1** — an on-disk parse index keyed by `path + mtime + size`; only changed files re-parse.
+- **Tier 2** — can't use an index (it needs live syntax trees and a `Compilation`), so there's an
+  opt-in daemon:
+
+```
+find-usages on a 21-project / 1086-file solution:   stateless 15,200 ms  →  `ds serve` 170 ms
+```
+
+`serve` is opt-in — commands use it if it's running and fall back to stateless if not; they never
+spawn one for you. A file watcher applies your edits incrementally.
+
+#### How it works
+
+- **Roslyn**, no MSBuild. The `Solution` is assembled in memory: the `.slnx`/`.sln` gives the
+  authoritative project set, references come from each project's `obj/project.assets.json` plus the
+  shared frameworks, and `<ProjectReference>` edges are wired transitively.
+- **Never from `bin/`** — a project's own output dll would declare every one of its types a second
+  time and make symbols ambiguous. `assets.json` needs only a restore, never a compile.
+- Nothing executes your code; Roslyn only parses and binds it.
+
+Validated against `dotnet-reflect` on a real solution: both tools independently find the **same 62
+call-sites** for a symbol, and `dotnet-source` additionally reports the declaration that IL can't see.
+
 ## Layout
 
 ```
 .claude-plugin/marketplace.json          # marketplace "rlarch" (repo root)
-dotnet-reflect/                          # the plugin
+dotnet-reflect/                          # plugin: compiled-assembly inspection
   .claude-plugin/plugin.json
   skills/dotnet-reflect/
     SKILL.md                             # instructions Claude follows
     scripts/{common,reflect}.cs          # shared helpers (#:include'd)
     scripts/{find,find-usages,surface,decompile,diff,cache,bindir}.cs
+dotnet-source/                           # plugin: Roslyn source navigation
+  .claude-plugin/plugin.json
+  skills/dotnet-source/
+    SKILL.md
+    ds.ps1 / ds.sh                       # bootstrap launchers (build once, cache, exec)
+    tool/                                # one compiled console app (net10.0 + Roslyn)
+      Program.cs Discovery.cs Decls.cs Index.cs Tier1.cs
+      Workspace.cs Symbols.cs Tier2.cs Server.cs
 ```
 
 Adding another plugin later: drop it in its own top-level folder and add an entry to

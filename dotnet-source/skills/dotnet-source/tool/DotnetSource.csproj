@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- One compiled multi-command binary. Built once by ds.ps1/ds.sh into a hash-keyed
+       cache and reused (see Bootstrap.cs / the launchers). NOT a file-based app: a single
+       compiled process is what lets every command share one parse pass and lets `serve`
+       hold a Roslyn Solution in memory. -->
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <AssemblyName>DotnetSource</AssemblyName>
+    <RootNamespace>DotnetSource</RootNamespace>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <!-- Startup latency matters: this is an interactive CLI. -->
+    <TieredCompilationQuickStartupJit>true</TieredCompilationQuickStartupJit>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- PINNED. An older Roslyn parses C# 14 / net10 syntax as incomplete nodes and
+         SILENTLY DROPS declarations, which would make search/outline/find-usages quietly
+         wrong. Keep these in lockstep; the pair must be the same version. -->
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="5.6.0" />
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp.Workspaces" Version="5.6.0" />
+  </ItemGroup>
+
+</Project>

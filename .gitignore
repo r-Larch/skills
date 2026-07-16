@@ -1,0 +1,12 @@
+# Build output. dotnet-source/tool is a real .NET project, so building or debugging it locally
+# produces bin/obj here. The shipped artifact is the SOURCE — ds.ps1/ds.sh compile it on first use
+# into a hash-keyed cache under the temp dir, so nothing built ever belongs in the repo.
+bin/
+obj/
+
+# Rider / VS / VS Code
+.vs/
+.idea/
+*.user
+*.suo
+*.DotSettings.user

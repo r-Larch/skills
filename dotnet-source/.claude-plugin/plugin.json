@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
+  "name": "dotnet-source",
+  "description": "ReSharper-style source navigation for the .NET solution you're editing — search by name and kind, outline a type's full member list including private members with partials merged, project/namespace/type map, god-class metrics, and semantic find-usages / impls / calls / unused. Reads .cs with Roslyn, so it works on code that doesn't compile and sees the private guts a metadata reader can't. One compiled binary, built once and cached; optional `serve` daemon keeps the Roslyn compilation warm (find-usages 15s -> 170ms).",
+  "author": {
+    "name": "René Larch",
+    "email": "rene@dikaia.ai"
+  },
+  "repository": "https://github.com/r-Larch/skills",
+  "license": "MIT",
+  "keywords": ["dotnet", "roslyn", "csharp", "navigation", "find-usages", "refactoring", "source-analysis", "code-search"]
+}
