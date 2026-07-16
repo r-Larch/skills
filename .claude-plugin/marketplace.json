@@ -9,6 +9,11 @@
       "name": "dotnet-reflect",
       "source": "./dotnet-reflect",
       "description": "Inspect .NET NuGet/assembly API surfaces (signatures, XML docs, decompiled bodies, version diffs, and reverse find-usages) straight from the DLL on disk."
+    },
+    {
+      "name": "dotnet-source",
+      "source": "./dotnet-source",
+      "description": "ReSharper-style source navigation for the .NET solution you're editing — search, outline (private members included), god-class metrics, and semantic find-usages / impls / calls / unused, read from .cs with Roslyn. Works on code that doesn't compile."
     }
   ]
 }

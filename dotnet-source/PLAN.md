@@ -1,207 +1,142 @@
-# dotnet-source — design plan
+# dotnet-source — design & decisions
 
-Status: **proposal / not yet built.** Sibling to the `dotnet-reflect` plugin in this marketplace.
-Goal: ReSharper-class *source-level* navigation for a large .NET solution you are editing — search,
-outline, structural map, and semantic find-usages across all projects — driven from the terminal by an
-agent, greppable output, no IDE.
+Status: **built and shipped.** See `skills/dotnet-source/SKILL.md` for usage.
+This file records *why* it is shaped the way it is, including what the original proposal got wrong.
+It is a design record, not a roadmap.
 
 ---
 
 ## 1. Why this exists (and why not just dotnet-reflect)
 
-`dotnet-reflect` reads **compiled assemblies** (MetadataLoadContext + IL + decompiler). That is the right
-substrate for *a dependency you don't own*. It is the **wrong** substrate for *the code you are editing*,
-for four reasons that no amount of `--bin` cleverness fixes:
+`dotnet-reflect` reads **compiled assemblies** (MetadataLoadContext + IL + decompiler). That is the
+right substrate for *a dependency you don't own*. It is the **wrong** substrate for *the code you are
+editing*:
 
-1. **It needs a green build.** A mega-solution mid-refactor is often not compiling — exactly when you most
-   need to navigate. Roslyn parses broken source fine; `--bin` has nothing to read.
-2. **Public surface only** (`GetExportedTypes`). The `private`/`internal`/local guts of a god-class — the
-   stuff you're untangling — are invisible.
-3. **No true source spans.** Even with PDBs you get IL sequence points, not declaration sites, comments,
-   regions, or partial-class parts merged.
-4. **find-usages boundary.** Declaration-position and local-variable usages never appear in IL; ReSharper's
-   value is precisely those.
+1. **It needs a green build.** A mega-solution mid-refactor often isn't compiling — exactly when you
+   most need to navigate. Roslyn parses broken source fine.
+2. **Public surface only** (`GetExportedTypes`). The `private`/`internal` guts of the god-class you're
+   untangling are invisible. *(Measured: `outline AknPersistenceService` lists 30 members, 19 of them
+   private. dotnet-reflect can show 3.)*
+3. **No true source spans** — IL sequence points, not declaration sites, regions, or merged partials.
+4. **find-usages boundary.** Declaration-position and local-variable usages never appear in IL.
 
-So the two skills are **complementary, not overlapping**, and must stay **separate plugins** with a crisp
-routing boundary:
+The two skills are **complementary and stay separate plugins**:
 
 | Skill | Substrate | Answers | Precondition |
 |---|---|---|---|
-| `dotnet-reflect` | compiled DLLs | "shape of a dependency; who *executes* against a symbol" | a package/DLL on disk |
-| **`dotnet-source`** | **source `.cs` via Roslyn** | **"navigate the solution I'm editing; every reference incl. private/local/decl"** | **source tree (no build for Tier 1)** |
-| `graphify` (existing) | any input → graph | "architectural map, communities, god-nodes, relationships" | — |
+| `dotnet-reflect` | compiled DLLs | shape of a dependency; who *executes* against a symbol | a package/DLL on disk |
+| **`dotnet-source`** | **source `.cs` via Roslyn** | navigate the solution I'm editing; every reference incl. private/local/decl | source tree (Tier 1: nothing; Tier 2: a restore) |
+| `graphify` | any input → graph | architectural map, communities, relationships | — |
 
-`graphify` = the **map** (birds-eye relationships). `dotnet-source` = the **scalpel** (exact signatures,
-exact usages, exact spans). Don't rebuild community-detection here.
+**Cross-validated, not assumed:** on Nomos both tools independently find the **same 62 call-sites**
+for `WhereTenantRead`; dotnet-source additionally reports the declaration. Two unrelated
+implementations agreeing exactly is the strongest evidence available that either is right.
 
-**Do not merge into dotnet-reflect.** The verbs overlap (`find`/`surface`/`find-usages`) but the
-implementations share ~nothing (Roslyn vs reflection). Merging muddies the model's routing trigger and
-bloats one SKILL.md with two mental models. Cross-reference instead (each SKILL.md points at the other).
+## 2. Two tiers
 
----
+- **Tier 1 — syntax only** (`search`, `outline`, `tree`, `metrics`). `CSharpSyntaxTree.ParseText`,
+  no project system, no references. Works on broken code, sees private. The big lever, lowest risk.
+- **Tier 2 — semantic** (`find-usages`, `impls`, `calls`, `unused`). Needs a Roslyn `Compilation`.
 
-## 2. Core architectural bet: syntax-first, two tiers
+**`AdhocWorkspace`, not `MSBuildWorkspace`** — no design-time build per project. The `Solution` is
+assembled in memory, then all of `SymbolFinder` lights up, cross-project correct, with zero MSBuild.
 
-The god-class scenario decomposes by **cost and precision**, and most of the value is cheap:
+## 3. What changed from the original proposal
 
-### Tier 1 — syntax-only (no build, no MSBuild, works on broken code, sees private)
-Parse `.cs` directly with `CSharpSyntaxTree.ParseText`. No project system, no compilation, no reference
-resolution. Fast, robust, stateless. Covers:
-- **search** — typed symbol lookup across all projects
-- **outline** — a type's/file's full member list, private included, partials merged
-- **tree** — project → namespace → type structural map
-- **metrics** — members/LOC per type, ranked → **automatic god-class detection**
+### Compiled binary, not file-based apps *(the reason for this revision)*
 
-This tier is the big lever, lowest risk, and the part `grep`+LLM does worst.
+The proposal used `dotnet run search.cs` per command. Now: **one compiled multi-command binary**
+(`tool/DotnetSource.csproj`), built once by `ds.ps1`/`ds.sh` into a hash-keyed cache.
 
-### Tier 2 — semantic (needs a Roslyn `Compilation`)
-- **find-usages** (real ReSharper parity: declarations, locals, overrides, `file:line:col`)
-- **impls** (interface → implementors, base → derived)
-- **calls** (call hierarchy: callers/callees)
-- **unused** (declared-but-never-referenced; whole-solution)
+Be precise about *why*, because it is **not** build-caching — `dotnet run app.cs` already
+content-hash-caches its own build. The reasons are:
+- one process can share a parse pass across a command's whole run;
+- only a compiled, long-lived process can hold a Roslyn `Solution` in memory — i.e. `serve` is
+  impossible in the file-based model;
+- startup is ~100 ms, which matters for an interactive tool referencing Roslyn.
 
-**The key decision that makes Tier 2 feasible: use `AdhocWorkspace`, NOT `MSBuildWorkspace`.**
-`MSBuildWorkspace.OpenSolutionAsync` runs a design-time build of every project — slow at scale, fragile
-about SDK resolution, and re-paid on *every* command (a file-based script has no persistent process).
-Instead we **assemble a Roslyn `Solution` in memory ourselves**:
-- discover the `.csproj` graph;
-- for each project, add its parsed `.cs` as documents;
-- add `MetadataReference`s pulled from the project's **`bin`** (or, if absent, from `project.assets.json`
-  packages + the shared-framework dirs — reusing `dotnet-reflect`'s `FrameworkDirs` resolver);
-- add `ProjectReference`s from the csproj's `<ProjectReference>` items.
+Cache key = tool sources + csproj (which pins Roslyn) + **installed runtime band** (a
+framework-dependent binary is tied to its runtime major). Publish is guarded by a named mutex,
+staged to a temp dir and atomically moved, and gated on a `.ok` sentinel written *last* — a
+half-finished publish leaves a directory that looks built, and we'd exec a broken binary forever.
+*(Verified: 4 concurrent cold starts → 1 cache dir, 0 temp leftovers; corrupt dll → rebuild.)*
 
-Then **all of `SymbolFinder`** lights up (`FindReferencesAsync`, `FindImplementationsAsync`,
-`FindDerivedClassesAsync`, `FindCallersAsync`) — cross-project correct — with **zero MSBuild**. Tier 2's
-only precondition is that reference DLLs exist somewhere (a prior build, or restored packages); if they're
-missing, degrade with a clear message and note that Tier 1 still works build-free.
+### Keeping the compilation alive — two layers, because the tiers differ
 
-Cross-compilation symbol identity (a symbol defined in project A, used in B) is matched by
-`ISymbol.GetDocumentationCommentId()` when we resolve the CLI `<symbol>` string to a concrete `ISymbol`.
+- **Tier 1: an on-disk parse index** keyed by `path + mtime + size` → declaration records (never
+  SyntaxTrees — not serializable, and Tier 1 doesn't need them). Keyed *also* by the exclusion
+  profile and by the **tool's MVID**, so a rebuilt tool can't serve an index built by older
+  extraction logic. Warm `search` on Nomos: ~250 ms.
+- **Tier 2: the `serve` daemon.** No on-disk cache can hold a `Compilation`; assembling one costs
+  ~15 s on Nomos. The daemon holds the `Solution` resident.
+  **`find-usages`: 15,200 ms → 170 ms (~90×).**
+  Opt-in: commands probe and fall back to stateless, and never auto-spawn (that turns a burst of
+  parallel agent commands into a herd of Solution builds). Keyed by root **and tool MVID**.
+  `FileSystemWatcher.Error` triggers a full rebuild — the OS drops events on buffer overflow (bulk
+  `git checkout`), and ignoring that means silently serving a stale Solution.
 
----
+The original plan explicitly rejected a daemon ("*not* a persistent daemon"). Measurement changed
+the answer: 15 s per semantic query is too slow to leave alone, and the index provably cannot fix it.
 
-## 3. Command specs
+## 4. Correctness rules learned the hard way
 
-All commands are file-based C# apps (`dotnet run <cmd>.cs …`), `#:include source-common.cs`, output is
-**one record per line, greppable**, `file:line` clickable, columns aligned. Package:
-`Microsoft.CodeAnalysis.CSharp` (Tier 1) + `Microsoft.CodeAnalysis.Workspaces.Common` (Tier 2).
+Each of these silently produces *wrong* answers. All were found by spiking before writing commands.
 
-### Discovery (shared)
-- Target selection: `--sln <path>` | `--proj <csproj>` | `--root <dir>` | default = walk up from cwd for
-  `*.slnx`/`*.sln`, else treat cwd as root.
-- `.slnx` (Nomos uses `Nomos.slnx`) parses as simple XML; `.sln` classic format; fallback = glob all
-  `*.csproj`. Each csproj dir roots a project; each `.cs` is assigned to its nearest ancestor csproj.
-- Exclusions by default: `bin/`, `obj/`, `*.g.cs`, `*.Designer.cs`, generated `obj/**` sources.
-  `--include-generated` to opt in.
+1. **The solution file is authoritative.** Nomos has **95 `.csproj` on disk but 21 in `Nomos.slnx`** —
+   73 are full solution copies under `.claude/worktrees/`. The proposal's "fallback = glob all
+   `*.csproj`" would have ingested the codebase **4.5×**: duplicate FQNs, garbage metrics, duplicated
+   usages, 4.5× the parse cost. Glob is last-resort only, and always with hard directory exclusions.
+2. **References come from `obj/project.assets.json`, never `bin/`.** If project P is in the workspace
+   as source *and* `P/bin/P.dll` is a MetadataReference, every type in P is declared twice → ambiguous
+   symbols. assets.json lists only *package* paths and needs only a **restore**, never a compile.
+3. **Implicit usings must be supplied.** `AdhocWorkspace` has none. Without them `Task<>`, `List<>`,
+   `CancellationToken` don't bind: **10,392 CS0246** on Nomos, which would have made find-usages
+   silently miss references. Prefer the real generated `obj/**/*.GlobalUsings.g.cs` — it captures
+   *package-contributed* usings (`Xunit`, `Sentry`) that a csproj-only synthesis cannot know — and
+   fall back to synthesising the SDK set for a never-built project.
+4. **ProjectReferences must be transitive.** MSBuild flows them to the compiler; Roslyn's
+   `ProjectReference` does not. `Nomos.Web` → `Nomos.Core` → `LarchSys.Ai`, and Web uses
+   `LarchSys.Ai.Citation` without referencing it directly. Direct-refs-only left **317 CS0246**, all
+   of them Nomos's own types.
+5. **Preprocessor symbols matter.** Without `DEBUG;TRACE` + `<DefineConstants>` in `ParseOptions`,
+   every reference inside `#if DEBUG` is invisible. *(Regression-tested.)*
+6. **`GetDeclaredSymbol` returns null for `FieldDeclarationSyntax`** (`int a, b;` is one node, two
+   symbols) — ask the `VariableDeclaratorSyntax`. Asking the wrong node doesn't error, it just
+   silently never reports fields.
 
-### Tier 1
+**Residual, accepted:** `.razor` components. Razor's source generator runs in-memory and emits no
+`.cs`, so Blazor component *types* don't resolve. On Nomos that's 18 CS0246 from 4 components, with
+20 of 21 projects fully clean. `discover --semantic` reports it explicitly rather than leaving a
+mystery. Fixing it means hosting the Razor generator — a large, fragile detour for a bounded loss.
 
-```
-# SEARCH — typed symbol lookup across all projects (beyond grep: filter by kind, show signatures).
-search.cs <pattern> [--kind class,interface,method,prop,field,enum,record] [--regex] [--sln|--root …]
-#   -> kind  Ns.Type.Member(sig)   file:line   [modifiers]
+## 5. Packaging
 
-# OUTLINE — the source "surface" of a type (or file): every member + signature + line, PRIVATE included,
-#   partial parts merged (each part's file listed). The god-class overview.
-outline.cs <TypeName|pattern> [--members] [--sln|--root …]     |     outline.cs --file <path.cs>
-
-# TREE — project → namespace → type map across the whole solution, with per-type member counts.
-tree.cs [namespaceFilter] [--sln|--root …]
-
-# METRICS — rank types by size to surface god-classes.
-metrics.cs [--top 30] [--sort members|loc|methods|params] [--sln|--root …]
-#   -> LOC  Members  Methods  MaxMethodLOC  Ctors  Ns.Type   file
-```
-
-Implementation: a `CSharpSyntaxWalker` collects declarations (class/struct/record/interface/enum/delegate/
-method/ctor/property/field(×N vars)/event/indexer/operator) → (kind, FQN, modifiers, syntactic signature,
-file, line). FQN from ancestor walk; partials keyed by FQN. Parallel parse (`Parallel.ForEach`) over the
-file set. No semantics needed — signatures are rendered from syntax text (not resolved), which is fine for
-navigation.
-
-### Tier 2 (semantic; builds the AdhocWorkspace `Solution` once per invocation)
-
-```
-# FIND-USAGES — ReSharper parity: every reference incl. declarations, locals, overrides.
-find-usages.cs <symbol> [--sln|--root …]
-#   <symbol> = Ns.Type.Member | Type.Member | Member (disambiguates by overload if resolvable)
-#   -> grouped by project → file, `line,col  <source line>` (like the screenshot)
-
-# IMPLS — interface implementors / base's derived classes.
-impls.cs <TypeOrInterface> [--derived] [--sln|--root …]
-
-# CALLS — call hierarchy.
-calls.cs <method> [--callers|--callees] [--sln|--root …]
-
-# UNUSED — declared but never referenced (scope to a project/type to bound cost).
-unused.cs [--kind …] [--proj <csproj>|--type <Ns.Type>] [--sln|--root …]
-```
-
-Implementation: build the in-memory `Solution` (see §2), resolve `<symbol>` to an `ISymbol` (by walking
-declarations and matching name/overload, or by doc-comment-ID), then delegate to `SymbolFinder`. Output
-mirrors ReSharper's grouping (project → file → `line,col code`) but stays greppable.
-
----
-
-## 4. Shared helper: `source-common.cs`
-- **Discovery**: locate sln/root, enumerate csproj, `.cs`→project mapping, exclusion filters.
-- **Parse cache**: parallel parse → `(path, SyntaxTree, projectId)`; reused by every Tier-1 command.
-- **Syntax render**: FQN-from-ancestors, signature-from-syntax, modifier extraction, LOC/line spans.
-- **Workspace build (Tier 2)**: assemble `AdhocWorkspace` `Solution` — projects, documents,
-  bin/assets-derived `MetadataReference`s, `ProjectReference`s. Reuse dotnet-reflect's shared-framework
-  resolver for framework refs.
-- **Output**: column formatter, project/file grouping, `file:line` emitter.
-
----
-
-## 5. Risks & mitigations
-- **MSBuildWorkspace fragility/slowness** → avoided entirely via `AdhocWorkspace` + bin/assets references.
-  Only fallback if reference resolution proves impractical (measure first).
-- **Tier 2 needs reference DLLs** → try each project's `bin` first; else `project.assets.json` +
-  shared-framework; else emit a clear "build once for semantic queries; Tier 1 works without it."
-- **Scale / per-command parse cost** → parallel parse; measure on Nomos. If interactive latency bites, add
-  an optional on-disk index (parsed-declaration cache keyed by file mtime) — *not* a persistent daemon.
-- **Generated-file noise** → exclude `obj/`, `*.g.cs`, `*.Designer.cs` by default; `--include-generated`.
-- **Roslyn vs project LangVersion** → parse with `LanguageVersion.Latest`; reading newer syntax is safe.
-- **`.slnx` newness** → XML parse is trivial; `*.csproj` glob is the always-works fallback.
-
----
-
-## 6. Packaging (mirrors dotnet-reflect)
 ```
 dotnet-source/
-  .claude-plugin/plugin.json            # name dotnet-source, no version (SHA updates), repo, MIT
+  .claude-plugin/plugin.json            # no version (SHA updates), repo, MIT
   skills/dotnet-source/
-    SKILL.md                            # trigger, escalation ladder, tier note, cross-refs, maintenance
-    scripts/source-common.cs            # shared (#:include'd)
-    scripts/{search,outline,tree,metrics}.cs        # Tier 1
-    scripts/{find-usages,impls,calls,unused}.cs     # Tier 2
+    SKILL.md
+    ds.ps1 / ds.sh                      # bootstrap launchers (hash → publish once → exec)
+    tool/                               # one compiled console app, net10.0, Roslyn 5.6.0 pinned
+      Program.cs Args.cs Common.cs      # dispatch, arg parsing, shared helpers
+      Discovery.cs                      # slnx/sln parse, project set, .cs→project, exclusions
+      Decls.cs Index.cs Tier1.cs        # syntax walker, parse index, Tier-1 commands
+      Workspace.cs Symbols.cs Tier2.cs  # Solution assembly, symbol resolution, Tier-2 commands
+      Server.cs                         # the serve daemon
 ```
-- Add a `dotnet-source` entry to the root `.claude-plugin/marketplace.json` `plugins` array.
-- SKILL.md `description` trigger centers on: *"navigate / search / outline / find-usages across a large
-  .NET **source** solution I'm editing."* Explicit cross-refs: compiled dependency → `dotnet-reflect`;
-  architectural map → `graphify`. Include the same "maintaining this skill — issues/PRs" section.
-- Install: `/plugin install dotnet-source@rlarch`. Requires .NET 10 SDK (file-based apps).
 
----
+Reused from `dotnet-reflect`: the `FrameworkDirs()` shared-framework resolver and the
+`Cache`/`CompareVer`/`Proc` helpers, so both skills resolve the NuGet cache identically.
 
-## 7. Phased rollout
-1. **Phase 1 — Tier 1** (`search`, `outline`, `tree`, `metrics`), syntax-only. Prove on the Nomos solution
-   (`P:\Projects\Magic\Nomos\Nomos\Nomos.slnx`). Guaranteed win, ~no risk. **Ship this first.**
-2. **Phase 2 — `find-usages`** via AdhocWorkspace. The ReSharper-parity headline. Validate against the
-   same `IsDevelopment` case and cross-check with dotnet-reflect's IL find-usages (should agree on
-   call-sites, and source should additionally show declarations/locals).
-3. **Phase 3 — `impls`, `calls`, `unused`.**
-4. **Phase 4 — polish**: cross-refs both directions, optional index if latency warrants.
+Roslyn is **pinned** (5.6.0): an older Roslyn parses C# 14 / net10 syntax as incomplete nodes and
+silently drops declarations.
 
----
+## 6. Known gaps / worth doing next
 
-## 8. Open decisions to confirm before Phase 1
-1. **Skill name**: `dotnet-source` (recommended) vs `dotnet-nav` / `dotnet-code`.
-2. **Tier-2 references**: prefer project `bin` first, fall back to `assets.json` + framework (recommended)
-   — accept "build once" as the semantic-tier precondition?
-3. **search default**: substring (recommended) vs regex; `--regex` for the other.
-4. **Output default**: flat greppable with optional `--group` (recommended) vs ReSharper-style grouped by
-   default for `find-usages`.
-5. Anything in the Tier-1/Tier-2 command set to add or drop for v1? (e.g. `go-to-def` is mostly covered by
-   `search`; a `namespace-tree` mode; a `--json` output for all commands.)
+- `--json` output for every command.
+- Honour explicit `<Compile Include/Remove>` (`EnableDefaultCompileItems=false`) and linked files;
+  today files are assigned to their nearest ancestor `.csproj`.
+- Host the Razor source generator so component types resolve (see §4 residual).
+- `metrics` ranks by member count, so DTO/property-bags dominate `--sort members`; a real complexity
+  measure (branching, fan-out) would beat counting.
+- `unused` is O(declarations × FindReferences) — scope it with `--proj`/`--type`.
