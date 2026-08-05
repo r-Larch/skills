@@ -1,13 +1,16 @@
 # Ledger — <undertaking name>
 
-> Append-only. Written for a fresh orchestrator with zero context: if this
-> session were killed right now, reading this file must be enough to continue.
+> Written for a fresh orchestrator with zero context: if this session were killed
+> right now, this file must be enough to continue. The header block below is the
+> recovery payload — keep it current. The task log is a table; write prose only
+> when a row can't carry it. If the commit message already says it, don't repeat it.
 
 ## Status
 - **Phase:** <n> of <N> — <name>
 - **Current task:** <id> — <state>
 - **Next action:** <the literal next thing to do>
 - **Branch:** <branch> · **Last commit:** <sha>
+- **Mode:** full | light
 
 ## Open assumptions
 | # | Assumption | Evidence level | Reversal cost | Revisit when |
@@ -18,26 +21,34 @@
 - [ ] <item> — from task <id>
 
 ## Orchestrator edits
-<≤3-line mechanical unblocks made directly, with task id. Empty is the good case.>
-
-## Re-plans
-### <date/marker> — <what reality turned out to be>
-<One paragraph. What changed in PLAN.md and why.>
+<Zero-behaviour changes made directly (comments, docs), with task id. Empty is the good case.>
 
 ---
 
 ## Task log
 
-### <phase.task> <name> — <ACCEPTED | REWORKED | RE-PLANNED | ESCALATED> (commit <sha>)
-Worker: <agent type> · Attempt <n>
-Files: <path — what changed> (one per line)
-Verify: `<command>` <result>
-Deviations: <…> | none
-Assumptions: <…> | none
-Review: <rung 1 self | rung 2 agent> → <verdict>, <findings or clean>
-Follow-ups: <…> | none
+| Task | Verdict | Commit | Verify | Note |
+|---|---|---|---|---|
+| 1.1 <name> | ACCEPTED | <sha> | `<cmd>` <result> | — |
+| 1.2 <name> | REWORKED → ACCEPTED | <sha> | `<cmd>` <result> | see below |
 
-### Phase <n> gate — <PASSED | FAILED>
-Goal fit: <one or two sentences>
+Verdicts: ACCEPTED · REWORKED · RE-PLANNED · ESCALATED · SKIPPED
+`Note` carries the one thing worth knowing — a deviation, a skipped review and why, a red-check that mattered. Otherwise `—`.
+
+---
+
+## Exceptions
+<Only for what a table row can't carry. Most tasks have no entry here.>
+
+### <task id> — <deviation | assumption | failure>
+<What it was, what you decided, and what it cost or would cost to reverse.
+2–5 lines. If it changed the plan, say what changed.>
+
+### Phase <n> gate — <PASSED | FAILED | SKIPPED — no seam>
+Seams checked: <one line each>
 Findings: <…> | clean
 Last commit in phase: <sha>
+Re-gated after fixes: <yes — sha | no, fixes didn't touch the seam>
+
+### Re-plan — <marker>
+<What reality turned out to be, and what changed in PLAN.md. One paragraph.>
