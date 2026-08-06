@@ -4,6 +4,9 @@
 bin/
 obj/
 
+# Orchestrator run artifacts (plans, ledgers, briefs for a single run) — not a team artifact.
+.claude/orchestration/
+
 # Rider / VS / VS Code
 .vs/
 .idea/
