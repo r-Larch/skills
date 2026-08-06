@@ -257,7 +257,8 @@ Escalation is cheap and under-used: one clear question with a recommendation cos
 
 1. Full-repo validation: build + typecheck + full test suite, run by you. This is where the full suite belongs.
 2. One final review agent: does the delivered whole satisfy the goal paragraph? Given the diff scope and the goal, what's missing?
-3. Report to the user in plain terms: what was built, what was verified (with actual command results), assumptions taken, deferred follow-ups, anything you left out and why. If something failed, say so with the output — do not round up to done. Keep it tight; the user was watching.
+3. **Retro — improve this skill.** Only if the run earned it: a rework, a re-plan, a red verification, a gate blocker, or one traceable ≥10k-token waste caused by this skill's own guidance. A clean run teaches nothing — skip it, one ledger line, done. When it does fire, follow `references/retro.md`: it defines the noise floor, the duplicate search, and the exact issue schema, files at most one issue per run, and posts without asking. Build it only from the ledger, the reports, and the verification output you already hold — no new reads, no recon, no review agent.
+4. Report to the user in plain terms: what was built, what was verified (with actual command results), assumptions taken, deferred follow-ups, anything you left out and why. If something failed, say so with the output — do not round up to done. Keep it tight; the user was watching.
 
 ---
 
@@ -267,5 +268,6 @@ Read these when you reach the relevant step; don't preload them all.
 
 - `references/decompose.md` — task sizing, phase structure, plan and ledger format
 - `references/briefs.md` — worker brief, reviewer brief, gate brief, report contract, recon rules, test policy
+- `references/retro.md` — close-out retrospective: noise floor, dedupe, and the GitHub issue schema
 - `assets/CONVENTIONS.template.md` — per-run conventions file, written once in Phase 0
 - `assets/LEDGER.template.md` — ledger scaffold to copy
