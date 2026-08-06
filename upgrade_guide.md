@@ -162,11 +162,20 @@ a skill folder sitting directly in `~/.claude/skills/<name>/`. That is a real tr
 
 | You get | You give up |
 |---|---|
-| the bare name | one-command install and update — you re-copy by hand on every change |
+| the bare `/orchestrate` | one-command install and update — you re-copy by hand on every change |
 | | the marketplace as the source of truth for what version you're on |
+| | **`dotnet-reflect` and `dotnet-source`** — see below |
 
-And it is **either/or**: mirroring a skill you also have installed as a plugin is exactly the
-double-load described above. Uninstall the plugin, or don't mirror.
+And it is **either/or**. Mirroring a skill you *also* have installed as a plugin is exactly the
+double-load described above: `orchestrate` is then loaded twice in every session — once bare, once
+namespaced — and you pay for both copies of its description in every session's context, while edits
+to one copy silently don't apply to the other.
+
+So the only clean way to mirror is to uninstall the plugin — and **the plugin is indivisible**. There
+is no way to install `rlarch` without `orchestrate`, or to remove just that one skill; uninstalling
+takes `dotnet-reflect` and `dotnet-source` with it. The real choice is: all three skills, namespaced
+and auto-updating — or a bare `/orchestrate` you maintain by hand, and no .NET navigation skills at
+all.
 
 ```powershell
 # PowerShell — from a clone of this repo

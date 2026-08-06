@@ -127,8 +127,10 @@ gh issue close <number> \
   --comment "Rejected: <one or two sentences — which rejection test it failed and why>. Reopen with a recurrence if this costs a run again."
 ```
 
-Give a real reason. The retro reads open issues before filing; a closed issue with a reason is the only
-way that judgment gets back into the loop.
+Give a real reason. The retro's duplicate search covers closed issues too and treats a
+`CLOSED`/`NOT_PLANNED` match on the same `## Target` as **do not re-file** — so a closed issue with a
+stated reason is the only way that judgment gets back into the loop. Close it without one and the
+retro sees a rejection it cannot read.
 
 At the end of step 2 you should have four lists: **apply**, **rework-and-apply**, **leave open**,
 **reject**. Show them to the user before you start editing.

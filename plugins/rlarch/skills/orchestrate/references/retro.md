@@ -89,11 +89,18 @@ Mark the proposal's mode explicitly: `replace`, `tighten`, `move`, or `add`. `ad
 
 ---
 
-## Safety — the issue is public and automatic
+## Safety — post only where you can push
 
-**It posts without asking.** The owner chose no confirmation prompt; do not add one, and do not ask "shall I file this?" — either the triggers fired and you file, or they didn't and you skip.
+You are running inside **someone else's repo**, usually private. The retro's subject is this skill, which lives in `r-Larch/skills` — a repo most installers have no write access to. An unattended `gh issue create` there is then either dropped on the floor or a public post arising from a private engagement. So posting is gated on capability, not on asking. Check it once, before any write:
 
-Because it posts unattended into a world-readable repo, the body carries **findings and ledger excerpts only**:
+```bash
+gh repo view r-Larch/skills --json viewerPermission --jq .viewerPermission
+```
+
+- **`ADMIN`, `MAINTAIN` or `WRITE`** → **post automatically, no confirmation prompt.** That is deliberate: do not add one, and do not ask "shall I file this?" — either the triggers fired and you file, or they didn't and you skip.
+- **Anything else** (`READ`, `NONE`, blank), or `gh` is absent, unauthenticated, or the command errors → **write the retro to `.claude/orchestration/<slug>/RETRO.md` and post nothing.** Same body, same headings as the issue schema below. Tell the user in one line where it is and that they can open an issue upstream if they think the finding generalises. This is a normal outcome, not a failure — do not retry, do not escalate, do not fall back to any other repo.
+
+Either way the body carries **findings and ledger excerpts only** — the local file is written to be pasteable upstream, so the same redaction rules apply:
 
 - **Allowed:** ledger rows, verdicts, verify commands and their result lines, worker-report lines (`DEVIATIONS`, `RED-CHECK`), and verbatim text from this skill's own files.
 - **Never:** source file contents, diffs, code from the repo being worked on, credentials, tokens, connection strings, absolute paths outside the repo, customer or client names, anything from a private codebase.
@@ -104,7 +111,15 @@ If a ledger row you want to quote contains any of that, redact the part and keep
 
 ## Procedure
 
-### 0. Label bootstrap — once per repo
+### 0. Check the noise floor
+
+Read the ledger's task log. If no trigger fired, write the skip line and stop. This is the common outcome, and it costs nothing — do it before the access check.
+
+### 1. Check access, then bootstrap the label
+
+Run the `viewerPermission` check above. If it does not come back `ADMIN` / `MAINTAIN` / `WRITE`, skip straight to step 5 — steps 1–4 all end in a write you cannot make, so the dedupe search in step 2 would buy you nothing but tokens.
+
+On the push path only, create the label once per repo:
 
 ```bash
 gh label create orchestrate-retro \
@@ -113,29 +128,33 @@ gh label create orchestrate-retro \
   --color 5319E7
 ```
 
-This fails with *already exists* on every run after the first. That is the expected steady state — do not retry it, and do not add `--force`, which would overwrite the owner's colour and description.
-
-### 1. Check the noise floor
-
-Read the ledger's task log. If no trigger fired, write the skip line and stop. This is the common outcome.
+*Already exists* is the expected steady state on every run after the first — do not retry it, and do not add `--force`, which would overwrite the owner's colour and description. **`HTTP 403` is a different thing and is not normal:** the permission check was wrong or the token lacks the scope. Do not continue to `gh issue create`; take the no-access path in step 5.
 
 ### 2. Search for an existing issue with the same root cause
 
-**Required before creating anything.**
+**Required before creating anything.** `--state all`, not `--state open`: `/apply-retro` closes a rejected proposal, and a search that sees only open issues would re-file that same idea every run, forever, against an owner who already said no.
 
 ```bash
 gh issue list \
   --repo r-Larch/skills \
   --label orchestrate-retro \
-  --state open \
+  --state all \
   --limit 50 \
-  --json number,title,body \
-  --jq '.[] | "#\(.number)\t\(.title)"'
+  --json number,title,body,state,stateReason \
+  --jq '.[] | "#\(.number)\t\(.state)\t\(.stateReason)\t\(.title)"'
 ```
 
-Match on **root cause, not wording** — same file and same section is a duplicate even if the symptom looked different. Pull the full body of a candidate with `--jq '.[] | select(.number==<n>) | .body'` on the same command rather than a second fetch.
+Match on **root cause, not wording** — the same `## Target` (same file *and* same section) is a match even if the symptom looked different. Pull the full body of a candidate with `--jq '.[] | select(.number==<n>) | .body'` on the same command rather than a second fetch. Three outcomes:
 
-If a match exists, **comment; do not open a near-duplicate**:
+| Matching issue | What you do |
+|---|---|
+| **`OPEN`** | Comment on it — do not open a near-duplicate. See below. |
+| **`CLOSED` / `NOT_PLANNED`** — rejected | **File nothing and comment nothing.** The owner judged this proposal and stated a reason. One ledger line: `Retro: skipped — #<n> already rejected (<reason>).` Then stop. |
+| **`CLOSED` / `COMPLETED`** — applied | A genuine recurrence: the edit landed and the failure happened anyway. File a new issue (step 3), and say in `## Symptom` that #`<n>` was applied and did not hold. |
+
+A rejection is the only judgment in this loop that did not come from a model reasoning about its own instructions. Re-filing past it is the mechanism arguing with its owner, and you have no budget to litigate it.
+
+If an **open** match exists, **comment; do not open a near-duplicate**:
 
 ```bash
 gh issue comment <number> \
@@ -154,7 +173,7 @@ Proposal: unchanged | revised — <what changed and the new token delta>
 
 If the issue already carries two recurrence comments, add yours and note in the ledger that this finding has now recurred three times. A third recurrence is the owner's signal that the proposed edit is under-specified, not that it is unimportant.
 
-### 3. Otherwise, create the issue
+### 3. No match, or a `COMPLETED` one — create the issue
 
 Write the body to a file first — multi-line Markdown through `--body` is a quoting hazard on PowerShell.
 
@@ -169,6 +188,10 @@ gh issue create \
 ### 4. Record it
 
 One ledger line with the issue number or URL, and one line in your closing report to the user. Do not summarize the issue back to them — they can open it.
+
+### 5. No push access — write it locally instead
+
+Write the body — same headings, same schema, nothing extra — to `.claude/orchestration/<slug>/RETRO.md`. Post nothing. One ledger line (`Retro: no push access to r-Larch/skills — written to RETRO.md`) and one line to the user naming the path and saying they can open an issue upstream if they think it generalises. Then stop; this outcome is finished, not degraded.
 
 ---
 

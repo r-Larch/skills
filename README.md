@@ -230,15 +230,20 @@ unless an escalation trigger fires.
 1. **Retro.** At close-out, *only if the run earned it* — a rework, a re-plan, a red verification, a
    gate blocker, or one traceable ≥10k-token waste caused by the skill's own guidance — the skill
    files a GitHub issue against this repo, labelled `orchestrate-retro`, proposing **one** concrete
-   edit to **one** of its own files. It's built from the ledger it already holds: no new reads, no
-   recon. A clean run teaches nothing and is skipped. Rules and the exact issue schema live in
+   edit to **one** of its own files. It's built from the ledger it already holds, plus at most one
+   read — the file it proposes to edit, so the before/after is verbatim. No recon, no review agent.
+   A clean run teaches nothing and is skipped. It posts unasked **only where you have push access
+   to this repo**; anyone else gets the same retro written to `.claude/orchestration/<slug>/RETRO.md`
+   and nothing is posted. Rules and the exact issue schema live in
    `plugins/rlarch/skills/orchestrate/references/retro.md`.
 2. **Triage and apply.** The repo-local `/apply-retro` command
    (`.claude/commands/apply-retro.md`) reads the open issues, ranks them by *recurrence* — the only
    signal here that isn't a model's opinion of its own instructions — enforces an aggregate token
    budget on the batch, applies what survives, and opens a PR.
-3. **Close the loop.** Applied issues close with a link to the PR; rejected ones close with a stated
-   reason, so the next retro reads that judgment before re-filing the same idea.
+3. **Close the loop.** Applied issues close with a link to the PR; rejected ones close as *not
+   planned* with a stated reason. The retro's duplicate search covers closed issues, so a rejected
+   proposal is read as **do not re-file** and never comes back — while a *closed-as-applied* match
+   that recurs does, because that edit demonstrably didn't hold.
 
 The label is created once per repo:
 
