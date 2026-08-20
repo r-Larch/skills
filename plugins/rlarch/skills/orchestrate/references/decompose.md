@@ -77,6 +77,11 @@ Verify: <command>
 
 Repo conventions, stack facts, and safety rules do **not** go here — they go in `CONVENTIONS.md`, once, and every brief points at that file.
 
+Two rules about that task line, both learned by being burned:
+
+- **A `Verify:` command must be able to fail.** Write the filter against a class the task will *create*, not one that already exists. `--filter ~DatasetRun` matching eight passing tests reports `Passed! 8` against an endpoint nobody implemented, the worker reports the task verified, and you confirm it by running the same command. If you cannot name a command that goes red on unimplemented work, the done-criterion isn't real yet.
+- **A superseded task is deleted, not annotated.** A struck-through or "(old)" task list is still greppable and its numbers still collide with the live ones — and the agent that greps the number builds the thing a later decision forbade. Replace it with a one-line stub pointing at what supersedes it.
+
 Update `PLAN.md` in place when re-planning; the ledger records *that* it changed and why.
 
 ## LEDGER.md
@@ -108,9 +113,11 @@ Maintain at the top:
 
 ## Re-planning
 
-When a re-plan trigger fires:
+A re-plan trigger from `SKILL.md` › *Phase 1..N — The execution loop*, and a blocker from a plan audit, both land here.
+
 1. Write what reality turned out to be — one paragraph in the ledger.
 2. Edit `PLAN.md` — remaining phases/tasks only; never rewrite history of completed work.
 3. **If a committed spec was proven wrong, add a task to fix the spec.** Fixing only the code leaves the team artifact lying to the next reader.
-4. Tell the user what changed and why, briefly. Don't ask permission unless the scope or cost moved materially.
-5. Resume the loop.
+4. **If the revision reshaped a phase or rewrote a section, audit it** — `SKILL.md` › *The plan audit*. A re-plan of that size is surgery on a long markdown file, and it reliably leaves behind duplicate task numbers, an orphaned half-sentence, or the losing side of a settled decision still alive forty lines down. **The round that fixes blockers is the round most likely to create one**, so the audit belongs after the edit, not instead of it. Re-scoping a single task doesn't earn one.
+5. Tell the user what changed and why, briefly. Don't ask permission unless the scope or cost moved materially.
+6. Resume the loop.

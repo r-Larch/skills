@@ -11,6 +11,7 @@
 - **Next action:** <the literal next thing to do>
 - **Branch:** <branch> · **Last commit:** <sha>
 - **Mode:** full | light
+- **Last plan audit:** <phase boundary, or "none"> — <verdict> · **Next due:** <the cadence, so a fresh orchestrator can compute it>
 
 ## Open assumptions
 | # | Assumption | Evidence level | Reversal cost | Revisit when |
@@ -43,6 +44,11 @@ Verdicts: ACCEPTED · REWORKED · RE-PLANNED · ESCALATED · SKIPPED
 ### <task id> — <deviation | assumption | failure>
 <What it was, what you decided, and what it cost or would cost to reverse.
 2–5 lines. If it changed the plan, say what changed.>
+
+### Plan audit — after phase <n>, over phases <n+1..N>
+Verdict: <ready | ready-with-minors | not-ready>
+Blockers: <one line each, and what changed in PLAN.md / CONVENTIONS.md> | clean
+Re-audited after fixes: <yes — verdict | no, the fixes were not text surgery>
 
 ### Phase <n> gate — <PASSED | FAILED | SKIPPED — no seam>
 Seams checked: <one line each>

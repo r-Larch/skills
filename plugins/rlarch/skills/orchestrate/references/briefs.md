@@ -8,6 +8,7 @@
 | Answer a scoped question about the codebase | `Explore` | Yes, up to 4, disjoint questions |
 | Review finished work | `general-purpose` (review brief) | One at a time |
 | Design/architecture options for a hard task | `Plan` | Rarely; usually you decide |
+| Audit the phases not yet executed | `Plan` (read-only) | One at a time |
 
 Always `run_in_background: false` for writers and reviewers — you need the result before the next step.
 
@@ -175,6 +176,88 @@ SEAMS CHECKED: <one line each, and what you concluded>
 GOAL FIT: <does this phase deliver its slice of the goal?>
 Under 25 lines. No code blocks.
 ```
+
+---
+
+## The plan audit brief
+
+Fires on the cadence in `SKILL.md` › *The plan audit*. Use the `Plan` agent, **read-only**: it audits, you edit `PLAN.md`. Reach for `general-purpose` with write access scoped to the run directory only when the re-shape is large enough that transcribing the answer costs more than making the edit — and then re-audit, because surgery on a long markdown file breaks things.
+
+Three rules separate an audit that pays from one that returns an essay:
+
+- **Hand it the facts, marked as established.** Everything recon and the completed phases already proved goes into the brief as *take these as established, do not re-verify*. An audit that re-derives what you already hold charges full price for information you had.
+- **Give it the real controls.** It must be able to run the verification commands and probe the real system. That is how it proves a `Verify:` filter is decorative, and how it checks a claim against the data rather than against the document asserting it.
+- **Point it at the ledger and forbid reading it through.** A mature run's ledger is thousands of lines. Say: *search it for specific claims; do not read it cover to cover.*
+
+```markdown
+## What this is
+<Undertaking, branch, HEAD.> Phases <1..n> are complete, committed and gated; `<verify command>`
+is <result>. You are auditing the phases **not yet executed**: <list them>.
+
+**Think abstract first, then go deeper.** A task list that is right in detail and wrong in shape is
+worse than useless. If the shape is wrong, say so before enumerating anything.
+
+## Read these — they are the authority
+- `.claude/orchestration/<slug>/PLAN.md` — <state explicitly which section supersedes which>
+- `.claude/orchestration/<slug>/CONVENTIONS.md` — the binding safety rules
+- `<the spec, if one exists>`
+- `.claude/orchestration/<slug>/LEDGER.md` — **do not read cover to cover.** Search it for
+  specific claims only.
+
+## Established — take as fact, do not re-verify
+<What recon and the completed phases already proved: what exists, what doesn't, the precedent to
+copy, which decisions are settled and by whom. Be generous here; it is what keeps the audit cheap.>
+
+## Load-bearing claims — verify these specifically
+<The claims the remaining design rests on, each with the consequence of being false:
+"<task X> exists only because <claim>. If that does not hold in the real data, say so loudly —
+<task X> comes back out.">
+
+## Your job — find what would make an executing agent fail
+Not to praise the plan, not to restate it. Assume the reader is competent, has never seen this
+repo, and will follow these documents literally.
+
+1. **Could each remaining `Verify:` command fail?** Run them. Report any that pass today — a filter
+   matching tests that already exist verifies nothing, and the task gets accepted unimplemented. A
+   filter naming a class the task will create is correct; a command that passes regardless is not.
+2. **Dependencies.** Does everything the remaining tasks name — endpoint, helper, table, fixture,
+   file path — either exist now or get built by an earlier task? Name anything assumed and
+   uncommissioned.
+3. **Numbering.** Is every task number defined exactly once, across every document? Does anything
+   still cite a number that resolves to superseded work?
+4. **Accuracy.** Spot-check the load-bearing claims against the code and the real system. Report
+   anything stated as fact that is not true.
+5. **Contradictions.** Where do two documents disagree, or one still describe a superseded state?
+6. **Red lines.** Does `CONVENTIONS.md` still forbid everything the *remaining* tasks could
+   destroy? It was written before these phases existed. Name what a worker briefed only on that
+   file could break.
+7. **Ordering.** Does anything depend on work scheduled after it — in sequence, or in contract?
+8. **The one thing most likely to be misread.** Be specific and opinionated.
+
+## Bar for a finding
+Name a concrete consequence: *an agent reading X would do Y, which breaks Z*. "Could be clearer" is
+not a finding. Verify before reporting. Max 8, ranked, each BLOCKER (real damage or wasted work) or
+MINOR.
+
+## Do not
+Do not modify any file — this is an audit. Do not write code. Do not fix what you find; report it.
+
+## Report format
+VERDICT: ready | ready-with-minors | not-ready
+FINDINGS: <BLOCKER|MINOR> <file:section> — <what an agent would do, and what breaks> (max 8, ranked)
+VERIFY COMMANDS: <one line per remaining task — command → does it go red on unimplemented work?>
+VERIFIED: <one line per load-bearing claim checked, and whether it held>
+SHAPE: <is the remaining plan still the right shape, given what the completed phases taught?>
+MOST LIKELY MISREAD: <your answer to 8>
+Under 30 lines. No code blocks.
+```
+
+### Handling the result
+
+- **BLOCKER** → edit `PLAN.md` (or `CONVENTIONS.md`) before the next task runs; log it as a re-plan.
+- **MINOR** → ledger follow-ups. Don't stop the phase.
+- **Re-audit after fixing blockers** → `SendMessage` the same agent rather than spawning a new one; it still holds the documents and whatever harness it built, so confirming the fixes costs a fraction of the first pass. **Not optional when the fix was text surgery on a long file** — the round that repairs blockers is the round most likely to introduce one.
+- **not-ready twice on the same axis** → the shape is the problem, not the details. Escalate; do not audit a third time.
 
 ---
 

@@ -203,6 +203,7 @@ that runs out first. The skill spends it deliberately:
 | **Disk is the memory, not context** | every decision, assumption and result lands in a run ledger the moment it happens, so a fresh session can resume from `LEDGER.md` alone |
 | **Red-checks** | any test defending a fix must be confirmed *failing* against the un-fixed code — the cheapest proof in the system, run in a context that's being thrown away anyway |
 | **Reviews are rare and priced** | a review agent costs more than an extra worker task; there's an explicit risk dial for when to spend one, and a phase gate that looks only at the seams between tasks |
+| **The plan is audited, not just executed** | every couple of phases a fresh agent checks the phases you *haven't* run yet — above all whether each task's verification command could actually go red, because a filter that already passes gets an unimplemented task accepted by every control in the system |
 
 It also carries a hard ceiling on deliberation — an evidence budget per open question, a
 reversibility test, and explicit escalation triggers — because rigor that never terminates isn't

@@ -59,9 +59,12 @@ You cannot budget without prices. Rough order of magnitude:
 | Recon `Explore` agent | 10–30k |
 | Worker task | 30–80k |
 | **Review agent** | **60–150k** |
+| **Plan audit** | **60–150k** |
 | **Phase gate** | **100–150k** |
 
 **A review costs more than an extra worker task.** Spend one only where a worker could not have proved the same thing itself. Most of the time it could — see *red-checks*, which cost nothing and run in a context you're throwing away anyway.
+
+**A plan audit is priced against something else entirely.** It doesn't check work that exists; it checks briefs that haven't run yet. What it buys is a phase you don't execute wrongly and then rework — several worker tasks and a gate. See *The plan audit*.
 
 ---
 
@@ -85,6 +88,8 @@ You cannot budget without prices. Rough order of magnitude:
 5. **Decompose** into phases → tasks, per `references/decompose.md`. Sizing is the highest-leverage decision you make. **When a detailed spec already exists, `PLAN.md` is a thin task list pointing at it** — never a restatement. Two overlapping planning artifacts means you maintain both and trust neither.
 
 6. **Gate: present the plan and get approval before the first writing agent runs.** Show phases, task list, verification command per phase, and the open assumptions. Then stop and wait. This is the only mandatory user gate; after it, run to completion unless an escalation trigger fires.
+
+   **If the plan is not yours** — a spec someone else wrote, a handoff document, a plan from an earlier session — run a **plan audit** before this gate, not after. See *The plan audit*. You are about to ask for approval on a document whose defects you have no way to have seen.
 
 **Recon is just-in-time.** Run it at the start of the phase that needs it — **never more than one phase ahead**, because intel gathered against code that doesn't exist yet is stale by the time you reach it. Up to 4 read-only `Explore` agents in parallel, one disjoint question each, ≤15-line answers with file paths.
 
@@ -127,6 +132,7 @@ brief → delegate → report → verify → judge → commit → record → nex
 - A worker's report reveals the codebase doesn't work how the plan assumed.
 - A task's real scope turns out >2× its estimate.
 - A phase gate finds the phase delivers something other than its intended slice.
+- A **plan audit** returns a blocker against a phase you have not run yet. Every other trigger here is a post-mortem; this is the one that fires before the damage.
 
 Re-planning is a success mode. Discovering the plan was wrong in phase 2 is worth more than executing five wrong phases faithfully.
 
@@ -195,6 +201,57 @@ Name the seam classes explicitly in the gate brief: shared state, ordering and t
 ### When verification is interrupted
 
 If an agent dies mid-run or a limit is hit, look for evidence that is **already structural** before paying to re-run anything. A test that cannot pass against the old code is stronger evidence than a red-check that was never executed. Cite what you found and say plainly that the direct check didn't run.
+
+---
+
+## The plan audit — re-planning before reality forces it
+
+Every re-plan trigger above is **reactive**: something already failed, and the plan's defect is the post-mortem. A plan audit buys the same correction earlier — a fresh agent pointed at the phases you have **not yet executed**, asked what would make them fail.
+
+It is the phase gate's twin, aimed the other way:
+
+| | Looks at | Asks |
+|---|---|---|
+| Phase gate | the N tasks just completed | these are each correct — what breaks where they meet? |
+| **Plan audit** | the phases not yet started | these were written before the code existed — what is no longer true? |
+
+The plan rots for reasons no per-task control can see. Phase 0 wrote it against a repo that has since moved under it; five phases of accepted work have taught things the plan doesn't know; every re-plan edited a long markdown file in place and may have left a superseded task list sitting one screen above its replacement. **A worker executes what the brief says, correctly. When the brief is wrong, every control in this skill passes it through** — including your own verification, because you run the command the plan told you to run.
+
+### When to run one
+
+Run a plan audit when **any** of these holds. The routine cadence fires at most once per phase boundary; the trigger-driven ones fire when they fire, but never twice on the same text.
+
+- **The plan came from somewhere else** and you are about to approve it in Phase 0: a spec you didn't write, a handoff document, a plan authored in an earlier session. You have no ledger telling you where it rots, so audit before the gate rather than discovering it in phase 2.
+- **Two phases have completed since the last audit** (or since Phase 0) and **≥2 phases remain**. This is the routine cadence — what *every once in a while* means here.
+- **You have just re-planned, and the revision reshaped a phase or rewrote a section.** Audit your own edit; see `references/decompose.md` › *Re-planning*. Re-scoping one task doesn't earn an audit.
+- **A gate blocker's real cause was in the plan**, not in the execution.
+- **The next phase has high blast radius** — schema or migration, auth or tenancy, a published contract, anything touching production.
+- **Before a handoff** to a fresh context: a compaction you can see coming, or an explicit "hand this to a new session". The audit's question and the handoff's question are the same one — *could a competent stranger execute this from the documents alone?*
+
+Skip it when ≤1 phase remains and it is small, when the remaining plan text hasn't changed and no phase has completed since the last audit, or in light mode. Never audit the same unchanged text twice.
+
+**A clean audit is a legitimate and common result**, and it is not a wasted spend — it is the same insurance a gate buys, on the half of the undertaking that hasn't cost anything yet.
+
+### What it checks
+
+Ranked by what has actually been caught. The brief is in `references/briefs.md`; these are the questions it exists to answer.
+
+1. **Could each remaining `Verify:` command fail?** Have the agent *run* them. A filter that already matches passing tests is decorative: the worker runs `--filter ~DatasetRun`, reads `Passed! 8` against an endpoint it never implemented, and reports the task verified — and you, running the same command yourself, confirm it. **This is the highest-yield check in the audit and it is structurally invisible to every other control**, because the defect lives in the brief rather than in the code.
+2. **Does everything the remaining tasks depend on either exist, or get built by an earlier task?** Two tasks naming the same endpoint as their reconnect path and no task commissioning it is a phase that wires itself to a 404.
+3. **Is every task number defined exactly once?** A superseded task list that was annotated instead of deleted is still greppable, and the agent that greps it builds the thing a later decision forbade — with a `Verify:` that passes on it.
+4. **Are the plan's load-bearing facts still true?** Test counts, "X isn't enforced anywhere", file paths, a schema's shape. Name the claims the design *rests* on and say what should happen if one is false — *"this table exists only because 21 rows share one identifier; if that doesn't hold in the real data, say so loudly and the table comes back out."* A confidently wrong plan is worse than a vague one.
+5. **Do the run's documents contradict each other?** Incremental edits leave the losing side of a settled decision alive somewhere — a task still saying *poll* forty lines after the owner chose streaming.
+6. **Does `CONVENTIONS.md` still cover what the *upcoming* tasks can destroy?** It was written in Phase 0 against Phase 1's blast radius. The phase that first uploads a file, or first issues a `DELETE`, needs red lines nobody had a reason to write down yet.
+7. **Ordering — including contract inversions, not just sequence.** Two tasks in the right order can still disagree about the contract that passes between them.
+8. **Shape.** Given what the completed phases taught, is the remaining plan still the right shape? This is the finding that pays for the whole audit when it lands, and it only lands if you ask for it explicitly: *abstract first, then deeper*.
+
+### What to do with the result
+
+Findings come back BLOCKER/MINOR against the same bar as a review: *an agent reading X would do Y, which breaks Z*. Blockers edit `PLAN.md` — or `CONVENTIONS.md` — before the next task runs, and the audit is logged as a re-plan. Minors go to the ledger's follow-ups.
+
+**Then re-audit, if you fixed blockers by editing the plan.** Same rule as re-gating after gate-produced fixes, and the same reason. A fix round has already been observed to drop a line mid-sentence and to leave four decorative `Verify:` filters standing after the round that was supposed to fix them.
+
+**Two not-ready verdicts on the same axis means the shape is wrong, not the details.** Stop and escalate rather than auditing a third time — that is the paralysis loop wearing a different hat.
 
 ---
 
@@ -267,7 +324,7 @@ Escalation is cheap and under-used: one clear question with a recommendation cos
 Read these when you reach the relevant step; don't preload them all.
 
 - `references/decompose.md` — task sizing, phase structure, plan and ledger format
-- `references/briefs.md` — worker brief, reviewer brief, gate brief, report contract, recon rules, test policy
+- `references/briefs.md` — worker brief, reviewer brief, gate brief, plan-audit brief, report contract, recon rules, test policy
 - `references/retro.md` — close-out retrospective: noise floor, dedupe, and the GitHub issue schema
 - `assets/CONVENTIONS.template.md` — per-run conventions file, written once in Phase 0
 - `assets/LEDGER.template.md` — ledger scaffold to copy
