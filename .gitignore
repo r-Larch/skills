@@ -1,8 +1,11 @@
-# Build output. dotnet-source/tool is a real .NET project, so building or debugging it locally
+# Build output. plugins/rlarch/skills/dotnet-source/tool is a real .NET project, so building or debugging it locally
 # produces bin/obj here. The shipped artifact is the SOURCE — ds.ps1/ds.sh compile it on first use
 # into a hash-keyed cache under the temp dir, so nothing built ever belongs in the repo.
 bin/
 obj/
+
+# Orchestrator run artifacts (plans, ledgers, briefs for a single run) — not a team artifact.
+.claude/orchestration/
 
 # Rider / VS / VS Code
 .vs/
