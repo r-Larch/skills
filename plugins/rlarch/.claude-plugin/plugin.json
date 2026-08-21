@@ -2,7 +2,7 @@
   "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
   "name": "rlarch",
   "version": "1.0.0",
-  "description": "Three skills for .NET work and large multi-step jobs. dotnet-reflect: inspect any NuGet package or assembly's API surface — exact signatures, XML-doc summaries, decompiled method bodies, reverse find-usages from IL, and version diffs, read straight from the DLL on disk. dotnet-source: ReSharper-style navigation of the .NET solution you're editing — search by name and kind, outline a type including private members with partials merged, god-class metrics, and semantic find-usages / impls / calls / unused, read from .cs with Roslyn so it works on code that doesn't compile. orchestrate: execute a large plan or spec by delegating every task to subagents, verifying each result against the goal, and re-planning when reality diverges, keeping the main context clean.",
+  "description": "Three skills for working in large codebases. dotnet-reflect — inspect any NuGet package or assembly's API surface straight from the DLL on disk: exact signatures merged with XML docs, decompiled method bodies, reverse find-usages read from IL, and version diffs. dotnet-source — ReSharper-style navigation of the solution you're editing, read from .cs with Roslyn, so it sees private members and still works on code that doesn't compile. orchestrate — execute a plan too large for one context window by delegating every task to subagents, verifying each result against the goal, and re-planning when reality diverges.",
   "author": {
     "name": "René Larch",
     "email": "rene@dikaia.ai"

@@ -9,7 +9,7 @@
     {
       "name": "rlarch",
       "source": "./plugins/rlarch",
-      "description": "All three skills in one plugin: dotnet-reflect (inspect .NET NuGet/assembly API surfaces — signatures, XML docs, decompiled bodies, version diffs, reverse find-usages, straight from the DLL on disk), dotnet-source (ReSharper-style source navigation for the solution you're editing — search, outline with private members, god-class metrics, semantic find-usages / impls / calls / unused via Roslyn, works on code that doesn't compile), and orchestrate (execute a large plan or spec by delegating every task to subagents, verifying each result, and re-planning when reality diverges)."
+      "description": "Three skills for working in large codebases. dotnet-reflect — inspect any NuGet package or assembly's API surface straight from the DLL on disk: exact signatures merged with XML docs, decompiled method bodies, reverse find-usages read from IL, and version diffs. dotnet-source — ReSharper-style navigation of the solution you're editing, read from .cs with Roslyn, so it sees private members and still works on code that doesn't compile. orchestrate — execute a plan too large for one context window by delegating every task to subagents, verifying each result against the goal, and re-planning when reality diverges."
     }
   ]
 }
