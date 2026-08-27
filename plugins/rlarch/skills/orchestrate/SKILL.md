@@ -155,7 +155,9 @@ Worker self-reports of "tests pass" are the claim you would most regret trusting
 
 **Any test that defends a fix, or backs a claim that behaviour is preserved, must be confirmed failing against the un-fixed code, and the failure count reported.**
 
-Blockers hide behind green suites. A test written after the fix, against the fixed code, is structurally incapable of catching the regression it claims to defend — and it *looks* exactly like a test that works. Red-checking has repeatedly caught vacuous test sweeps and fixtures that could never fail under any implementation.
+Blockers hide behind green suites. A test written after the fix, against the fixed code, is structurally incapable of catching the regression it claims to defend — and it *looks* exactly like a test that works.
+
+**But a red-check proves only that the test fails against the one bug you fixed**, not that the fixture can discriminate the rule — one row per case stays blind to every other shape. **Make the worker name the wrong implementations its fixture still passes, and defeat those.**
 
 **A test that passes against the broken code is deleted, not kept.** It costs maintenance and buys false confidence.
 
