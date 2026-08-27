@@ -58,6 +58,12 @@ usually shows as **`### Recurrence —` comments on one issue**, not as several 
 - separate open issues whose `## Target` names the **same file and the same section** — those are a
   duplicate the producer failed to match on, and they count as recurrences of one finding.
 
+**Two open issues on one section get one edit, not two.** They are two symptoms of one gap, and
+applying both bolts two overlapping bullets onto a list that had none. Find the abstraction that
+covers both — often a rule the skill already states at a different stage, in another file — write the
+single sentence that carries it, and count it once against the budget. If no one rule covers both,
+they were never siblings: rank them separately.
+
 Rank by total recurrence count, descending. **Two or more recurrences → apply this one first.** The
 run produced the same failure more than once; that is the only evidence in this whole system that
 isn't a single model's opinion of its own instructions.
@@ -171,7 +177,34 @@ For mode `add`, `BEFORE:` is `n/a` — but the AFTER text still has to land some
 to the nearest sentence the issue's root cause quotes. If the issue gives you no anchor, treat it as
 malformed (2.4), not as licence to place it where you like.
 
-One issue = one edit. Do not batch unrelated tidy-ups into this branch.
+### Align the siblings — one issue, one *rule*, however many files state it
+
+The skill states the same rule in several places on purpose: `SKILL.md` tells the orchestrator,
+`references/briefs.md` tells the worker, `references/decompose.md` tells the planner. Correcting one
+copy and leaving its twin standing does not fix the skill — it makes the skill disagree with itself,
+and the copy you left behind is often the one that gets read at the moment it matters.
+
+After each edit lands, search the other files for the rule you just changed:
+
+```bash
+git grep -n -i "<a load-bearing phrase from the text you changed>" -- plugins/rlarch/skills/orchestrate/
+```
+
+Fix only these three things:
+
+- **a restatement of the sentence you corrected** — bring it into line; it is the same fix, not a new one;
+- **a dangling reference your edit created** — a marker, term, or report field one file now tells an
+  agent to write and no file tells anyone to read;
+- **a sentence that now contradicts the edit** — change it, or revert your edit rather than ship both.
+
+The test is *does this text state the rule I just changed?*, not *could this be better?* Anything else
+you notice is out of scope: leave it, or let the retro file it.
+
+An alignment edit rides on the issue that motivated it — same commit, same PR-table row, and its delta
+counts toward the batch budget (2.3). It is not an unattributed edit; it is the rest of the edit you
+already justified.
+
+Beyond that: one issue = one edit. Do not batch unrelated tidy-ups into this branch.
 
 ## 4. Verify
 
@@ -190,7 +223,7 @@ edited file, read the surrounding section and confirm:
 - the edit landed in the section `## Target` named, not a similar-looking one elsewhere;
 - the new sentence reads coherently with the sentences on either side of it — no dangling "the above",
   no duplicated rule, no list item that no longer parallels its siblings;
-- nothing else in the file now contradicts it;
+- nothing else in the **skill** now contradicts it — you ran the sibling search above and the twins agree;
 - the actual token change is roughly what the issue claimed. If a `+20` proposal landed as `+90`,
   you rewrote it — go back to 2.3 and re-check the aggregate.
 
@@ -222,7 +255,8 @@ gh pr create \
 ```
 
 The body must list, one row per applied proposal: **issue number**, **target file › section**, **mode**,
-**token delta**, and whether it was applied as proposed or reworked. Then the **net delta for the
+**token delta**, and whether it was applied as proposed, reworked, or merged with a sibling issue.
+List an alignment edit as its own row under the issue it rides on. Then the **net delta for the
 batch**, and one line each for anything left open or rejected, so the next run of this command starts
 from a written record rather than re-deriving your triage.
 
@@ -263,7 +297,8 @@ recurrences later.
 - PRs target `master`. Never commit straight to it.
 - Only `plugins/rlarch/skills/orchestrate/**` is in scope for the edits. If a proposal targets anything
   else, it is off-contract — reject it (2.4).
-- Every proposal that lands must trace to an issue number in the PR body. No unattributed edits.
+- Every proposal that lands must trace to an issue number in the PR body. No unattributed edits — an
+  alignment edit traces to the issue it rides on.
 - Verification is `claude plugin validate plugins/rlarch --strict` **plus** the step 4 read-back. Green
   validation alone is not verification of prose.
 - When the batch is borderline, ship fewer proposals. A skill that grows a little every week stops

@@ -145,6 +145,7 @@ Re-planning is a success mode. Discovering the plan was wrong in phase 2 is wort
 Worker self-reports of "tests pass" are the claim you would most regret trusting, and checking costs seconds. This is what makes a `FAIL` verdict a fact rather than one agent's opinion. Also confirm the changed-file list matches what the worker reported — unreported files are a finding.
 
 - **Run the narrowest command that can fail for this task.** Filtered tests during tasks; the full suite only at phase gates and close-out. Re-running a 40-second full suite mid-phase is the easiest saving available and it proves nothing the filtered run didn't.
+- **A check that could not have come out the other way verifies nothing.** One run of a measurement is not a verdict — take ≥3, record median and range. A setup the system silently rejected makes a driven check a false defect — read the state back before believing a red.
 - **Never re-confirm an already-green state.**
 - **Read the real output line, not the exit code.** An `exit 0` at the end of a pipe belongs to the `tail`, not the build. Read the actual `Built …` / `N passed` line. Proxies lie, and chasing a lying proxy costs more than reading the output once.
 - **Run the real thing** whenever the work is environment-specific: production-only code paths, container images, real device artifacts, anything visual. Green local tests will happily call an image "deployable" while it crash-loops on a Production-only guard that no Development run ever executes.
@@ -155,7 +156,9 @@ Worker self-reports of "tests pass" are the claim you would most regret trusting
 
 **Any test that defends a fix, or backs a claim that behaviour is preserved, must be confirmed failing against the un-fixed code, and the failure count reported.**
 
-Blockers hide behind green suites. A test written after the fix, against the fixed code, is structurally incapable of catching the regression it claims to defend — and it *looks* exactly like a test that works. Red-checking has repeatedly caught vacuous test sweeps and fixtures that could never fail under any implementation.
+Blockers hide behind green suites. A test written after the fix, against the fixed code, is structurally incapable of catching the regression it claims to defend — and it *looks* exactly like a test that works.
+
+**But a red-check proves only that the test fails against the one bug you fixed**, not that the fixture can discriminate the rule — one row per case stays blind to every other shape. **Make the worker name the wrong implementations its fixture still passes, and defeat those.**
 
 **A test that passes against the broken code is deleted, not kept.** It costs maintenance and buys false confidence.
 

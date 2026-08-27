@@ -38,6 +38,8 @@ method has no caller, the component doesn't do what I claimed, the approach
 can't work — **stop and report that instead of forcing it through.** A correct
 "this doesn't work because X" is worth more than a plausible-looking
 implementation, and it is the single most useful thing you can return.
+Anything marked `unverified` is a claim I did not check — check it before
+you build on it.
 
 ## Your task
 <One or two sentences of intent — the outcome, not a keystroke script.>
@@ -268,6 +270,7 @@ Use `Explore` when you need to *know* something, not change it.
 - **Just-in-time.** At the start of the phase that needs it — never more than one phase ahead. Intel about code that doesn't exist yet is stale before you use it.
 - One question per agent, disjoint from the others. Overlapping questions produce redundant reading and answers you have to reconcile.
 - Ask for **≤15 lines with file paths**. Coordinates, not content.
+- **An asserted capability or behaviour is not evidence — yours included.** Confirm it against `--help`, the code, or a probe before it reaches a brief or a doc, or mark it `unverified` so the worker checks it rather than builds on it.
 - Max 4 at once, one round. If the answers raise new questions, that's usually the evidence budget telling you to decide and move on.
 - **Run recon anyway, even when the plan names files**, if the plan predates commits on this branch or targets a system you don't control. Stale `file:line` references are the most confident-looking wrong information a plan can contain.
 
@@ -295,7 +298,7 @@ Bad recon questions return essays: *"Tell me about the auth system."* → 200 li
 
 **Don't build the harness.** If an area has no test infrastructure, do not have a worker invent one mid-task — that's its own task, planned deliberately, or explicitly out of scope. Where the repo has an established testing style, follow it; two competing styles is worse than one imperfect one.
 
-**A test that can't fail is worse than no test.** This is what the red-check exists to prove, and it has caught fixtures that could never fail under any implementation. If a proposed test would pass against a deliberately broken implementation, drop it.
+**A test that can't fail is worse than no test.** A red-check proves only that the test fails against the one bug you fixed — not that the fixture can discriminate the rule. If a proposed test would pass against a deliberately broken implementation, drop it.
 
 ---
 
