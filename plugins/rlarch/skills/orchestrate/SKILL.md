@@ -145,6 +145,7 @@ Re-planning is a success mode. Discovering the plan was wrong in phase 2 is wort
 Worker self-reports of "tests pass" are the claim you would most regret trusting, and checking costs seconds. This is what makes a `FAIL` verdict a fact rather than one agent's opinion. Also confirm the changed-file list matches what the worker reported — unreported files are a finding.
 
 - **Run the narrowest command that can fail for this task.** Filtered tests during tasks; the full suite only at phase gates and close-out. Re-running a 40-second full suite mid-phase is the easiest saving available and it proves nothing the filtered run didn't.
+- **A check that could not have come out the other way verifies nothing.** One run of a measurement is not a verdict — take ≥3, record median and range. A setup the system silently rejected makes a driven check a false defect — read the state back before believing a red.
 - **Never re-confirm an already-green state.**
 - **Read the real output line, not the exit code.** An `exit 0` at the end of a pipe belongs to the `tail`, not the build. Read the actual `Built …` / `N passed` line. Proxies lie, and chasing a lying proxy costs more than reading the output once.
 - **Run the real thing** whenever the work is environment-specific: production-only code paths, container images, real device artifacts, anything visual. Green local tests will happily call an image "deployable" while it crash-loops on a Production-only guard that no Development run ever executes.
