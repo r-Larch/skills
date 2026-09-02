@@ -391,7 +391,9 @@ upgrade_guide.md
 ```
 
 Adding another skill later: drop it in `plugins/rlarch/skills/<name>/`. A plugin auto-discovers its
-`skills/` directory — nothing to declare in `plugin.json`.
+`skills/` directory — nothing to declare in `plugin.json`. **You must still bump `version` in
+`plugin.json`**: the updater gates on that field and caches the payload per version, so a pushed
+commit without a bump reaches nobody. See **[AGENTS.md](AGENTS.md)** for the release checklist.
 
 ## Bugs & feature requests
 

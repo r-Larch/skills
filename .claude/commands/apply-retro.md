@@ -210,10 +210,11 @@ Beyond that: one issue = one edit. Do not batch unrelated tidy-ups into this bra
 
 ```bash
 claude plugin validate plugins/rlarch --strict
+git diff --cached plugins/rlarch/.claude-plugin/plugin.json   # the version bump must be staged
 ```
 
 `--strict` turns warnings into a non-zero exit. Read the actual result line; it must be green before
-you open a PR.
+you open a PR — and the version must actually have moved.
 
 **Then read back every section you edited.** This is not optional and it is not a formality. There is
 no test suite for prose — validation checks manifest and structure, and would happily pass a skill
@@ -232,14 +233,22 @@ not ship prose you had to squint at.
 
 ## 5. Open the PR
 
-Branch from `master`, not from whatever you are on:
+Branch from `master`, not from whatever you are on. **Bump the plugin version in the same commit** —
+an applied proposal that never reaches an installed user is not applied (see `AGENTS.md` › *Shipping
+a change*; the updater gates on `version`, not on the commit sha):
 
 ```bash
 git switch -c retro/apply-<YYYY-MM-DD> master
-git add plugins/rlarch/skills/orchestrate/
+# patch bump: prose fixes inside a skill
+#   plugins/rlarch/.claude-plugin/plugin.json  ->  "version": "1.1.1"
+git add plugins/rlarch/skills/orchestrate/ plugins/rlarch/.claude-plugin/plugin.json
 git commit -m "orchestrate: apply retro proposals #<n>, #<n>"
 git push -u origin HEAD
 ```
+
+The bump is a **patch** — a retro batch corrects wording inside an existing skill. It is the one edit
+in this command that does not trace to an issue number, and it is exempt from the token budget (2.3):
+it is release mechanics, not skill content.
 
 Write the PR body to a file first — multi-line Markdown through `--body` is a quoting hazard on
 PowerShell. `.claude/orchestration/` is gitignored, so a body file there can never ride along in the
@@ -295,8 +304,12 @@ recurrences later.
 ## Conventions
 
 - PRs target `master`. Never commit straight to it.
-- Only `plugins/rlarch/skills/orchestrate/**` is in scope for the edits. If a proposal targets anything
-  else, it is off-contract — reject it (2.4).
+- **Bump `version` in `plugins/rlarch/.claude-plugin/plugin.json` (patch) in the same commit.** Without
+  it the merged PR changes nothing for anyone: `/plugin` answers "already at the latest version" and
+  the installed copy keeps serving the old prose. This is the only file outside the orchestrate skill
+  you may touch here.
+- Only `plugins/rlarch/skills/orchestrate/**` is in scope for the edits — plus the version bump above.
+  If a proposal targets anything else, it is off-contract — reject it (2.4).
 - Every proposal that lands must trace to an issue number in the PR body. No unattributed edits — an
   alignment edit traces to the issue it rides on.
 - Verification is `claude plugin validate plugins/rlarch --strict` **plus** the step 4 read-back. Green
