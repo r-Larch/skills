@@ -206,7 +206,10 @@ or doesn't support what you need**, do the right thing for where you're running 
   commit/PR. Never leave a cache-only fix undocumented; `/plugin marketplace update rlarch` will
   otherwise overwrite it.
 - **Working in a checkout of the repo**: fix it, re-run the affected script to confirm, then commit &
-  push. No version bump needed — every commit is picked up as an update.
+  push. Then **bump `version` in `plugins/rlarch/.claude-plugin/plugin.json`** — the
+  installed copy is cached per version (`…/plugins/cache/rlarch/rlarch/<version>/`) and the updater
+  gates on that field, not on the commit sha. Without a bump, `/plugin` answers "already at the
+  latest version" and your commit never reaches anyone.
 
 Examples worth fixing/filing: a package that only ships `netstandard2.0` and won't resolve; a view the
 scripts don't emit (generic constraints, nested types, interface members, attributes beyond

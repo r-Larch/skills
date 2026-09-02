@@ -229,7 +229,10 @@ doesn't support what you need**, do the right thing for where you're running it:
   otherwise overwrite it. After editing `tool/`, the launcher rebuilds automatically (the cache key
   covers the sources).
 - **Working in a checkout of the repo**: fix it, re-run the affected command to confirm, then commit
-  & push. No version bump needed — every commit is picked up as an update.
+  & push. Then **bump `version` in `plugins/rlarch/.claude-plugin/plugin.json`** — the
+  installed copy is cached per version (`…/plugins/cache/rlarch/rlarch/<version>/`) and the updater
+  gates on that field, not on the commit sha. Without a bump, `/plugin` answers "already at the
+  latest version" and your commit never reaches anyone.
 
 Worth fixing/filing: a `--json` mode; honouring explicit `<Compile>` items; hosting the Razor source
 generator so component types resolve; `go-to-def`; ranking `metrics` by a real complexity measure

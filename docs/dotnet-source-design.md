@@ -113,7 +113,8 @@ mystery. Fixing it means hosting the Razor generator — a large, fragile detour
 
 ```
 dotnet-source/
-  .claude-plugin/plugin.json            # no version (SHA updates), repo, MIT
+  .claude-plugin/plugin.json            # repo, MIT. NOTE: a `version` field was added during the
+                                        # one-plugin merge; updates now gate on it, not the SHA.
   skills/dotnet-source/
     SKILL.md
     ds.ps1 / ds.sh                      # bootstrap launchers (hash → publish once → exec)
