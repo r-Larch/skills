@@ -1,0 +1,17 @@
+{
+  "//": "Dev-only. The tool ships as plain .mjs and is never compiled; this exists so `npx tsc --noEmit` type-checks the JSDoc annotations in an editor and in CI. Nothing at runtime reads it.",
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "lib": ["ES2023"],
+    "types": ["node"],
+    "allowJs": true,
+    "checkJs": true,
+    "noEmit": true,
+    "strict": false,
+    "noImplicitAny": false,
+    "skipLibCheck": true
+  },
+  "include": ["*.mjs"]
+}

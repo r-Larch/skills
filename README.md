@@ -1,7 +1,8 @@
 # r-Larch/skills — Claude Code plugin marketplace (`rlarch`)
 
 A personal [Claude Code](https://code.claude.com) marketplace with **one plugin, `rlarch`**, carrying
-three skills: two for .NET code navigation, one for running work too big for a single context window.
+four skills: three for code navigation (.NET and TypeScript), one for running work too big for a
+single context window.
 
 ## Install
 
@@ -17,28 +18,31 @@ claude plugin marketplace add r-Larch/skills
 claude plugin install rlarch@rlarch
 ```
 
-Restart Claude Code afterwards. Confirm with `claude plugin details rlarch` — it should list three
+Restart Claude Code afterwards. Confirm with `claude plugin details rlarch` — it should list four
 skills.
 
 > **Already have `dotnet-reflect@rlarch` / `dotnet-source@rlarch` installed?** Those were separate
 > plugins and are gone. Follow **[upgrade_guide.md](upgrade_guide.md)** — it takes two minutes, and
 > there is one scope trap in it that will bite you if you improvise.
 
-## The three skills
+## The four skills
 
 | Skill | Substrate | Use it for |
 |---|---|---|
 | [`dotnet-reflect`](#dotnet-reflect) | compiled DLLs | a **dependency you don't own** — signatures, docs, decompiled bodies, version diffs |
-| [`dotnet-source`](#dotnet-source) | your `.cs` via Roslyn | the **code you're editing** — search, outline (private included), find-usages, dead code |
+| [`dotnet-source`](#dotnet-source) | your `.cs` via Roslyn | the **.NET code you're editing** — search, outline (private included), find-usages, dead code |
+| [`ts-source`](#ts-source) | your `.ts`/`.tsx` via the TS compiler API | the **frontend you're editing** — search, outline, JSX-aware find-usages, module graph, dead code |
 | [`orchestrate`](#orchestrate) | your plan + subagents | an **undertaking that won't fit in one context** — delegate, verify, re-plan, commit |
 
 The two .NET skills are complementary, not competing: reflect reads *metadata* (public surface only,
-needs a built DLL), source reads *your source* (sees private, works unbuilt).
+needs a built DLL), source reads *your source* (sees private, works unbuilt). `ts-source` is
+`dotnet-source`'s twin on the other side of the stack — same commands, same tiering, same output
+shape, so the two halves of a full-stack repo are navigated the same way.
 
 ### On names
 
 Skills that ship in a plugin are namespaced: typed as slash commands they are `/rlarch:dotnet-reflect`,
-`/rlarch:dotnet-source`, `/rlarch:orchestrate`. **You rarely need to type them.** Automatic invocation
+`/rlarch:dotnet-source`, `/rlarch:ts-source`, `/rlarch:orchestrate`. **You rarely need to type them.** Automatic invocation
 is unaffected by the prefix — describe the task and Claude loads the skill from its description. The
 namespace cannot be turned off; see the upgrade guide if you want the trade-offs.
 
@@ -181,6 +185,96 @@ The design notes behind the tool live in [`docs/dotnet-source-design.md`](docs/d
 
 ---
 
+## `ts-source`
+
+`dotnet-source`'s twin for the **TypeScript/JavaScript project you're editing**. It parses your
+`.ts`/`.tsx`/`.js`/`.jsx` with the **TypeScript compiler API**, so it works on a project that
+doesn't compile, sees declarations that aren't exported, and — unlike grep — knows that `<Badge/>`
+in JSX is a reference to `Badge` while `BadgeProps` is not.
+
+Built for Vite + SolidJS/React apps and pnpm/npm workspaces.
+
+### What it does
+
+| Command | Answers |
+|---|---|
+| `search` | "what's it called" — by name **and kind** (`component`, `hook`, `primitive`, `type`, …) |
+| `outline` | a declaration's members, or a whole file in line order — **non-exported included** |
+| `tree` | directory → files / declarations / exports / lines |
+| `metrics` | rank files or types by size — **god-file detection** |
+| `graph` | the import graph for one module: who pulls it in, and which names they take |
+| `dead` | **three levels of dead code** — see below |
+| `find-usages` | "who uses this" — JSX usage, imports, call sites, the declaration |
+| `impls` | who implements this interface / extends this class |
+| `calls` | call hierarchy (`--callers` / `--callees`) |
+| `serve` | keep the LanguageService warm (see below) |
+| `discover` | what the tool actually sees — start here if a count looks wrong |
+
+**Tier 1** (`search`/`outline`/`tree`/`metrics`/`graph`/`dead`) needs **no build and no typecheck**.
+**Tier 2** (`find-usages`/`impls`/`calls`) needs `node_modules` installed — still **not** a build.
+
+```bash
+# from $CLAUDE_PLUGIN_ROOT/skills/ts-source   (Windows: ./tss.ps1, unix: ./tss.sh)
+./tss.ps1 metrics --sort loc --top 20         # find the files that got out of hand
+./tss.ps1 outline --file src/utils/http.ts    # 42 declarations, most of them not exported
+./tss.ps1 find-usages Badge                   # 106 JSX usages + 25 imports + the declaration
+./tss.ps1 graph src/utils/http.ts --importers # blast radius of a change
+./tss.ps1 dead                                # what can I delete?
+```
+
+### Dead code, in three levels
+
+The reason this skill exists. An ES-module codebase can answer a strictly stronger question than a
+.NET solution can: not "does any reference exist" but **"is this reachable from an entry point"** —
+from syntax alone, no program build. So `dead` is seconds, not minutes.
+
+| Level | Question | Confidence |
+|---|---|---|
+| `--files` | no entry point reaches this module | highest — also catches **transitively dead** clusters |
+| `--exports` | no other module imports this name | high — split into **deletable** vs **over-exported** |
+| `--locals` | declared in a file, never read there | exact, but needs a Program (slower) |
+
+That `--exports` split is the part most tools get wrong. "Nobody imports this" covers both a function
+you can delete and a helper that is merely exported for no reason, and they need opposite actions.
+On a real 644-file SolidJS app: **75 deletable, 405 just over-exported** — drop the `export` keyword,
+don't delete the code.
+
+The safety rails matter as much as the findings, because people act on this output by deleting
+files. With **no entry points found** the command **refuses to run** rather than declare the whole
+project dead; if **>35% of files** come back unreachable it warns that you are almost certainly
+missing an entry point; `import * as ns` and bare dynamic imports make a module's exports all-live;
+Solid `use:` directives are never reported; and barrels are **charged through**, so
+`export * from './PagedList'` does not make `PagedList` look used.
+
+### Keeping the compilation alive
+
+- **Tier 1** — an on-disk parse index keyed by `path + mtime + size`; only changed files re-parse.
+  One parse yields both the declarations and the import edges, so nothing pays twice.
+- **Tier 2** — a `LanguageService` can't be serialised, so there's an opt-in daemon:
+
+```
+on a 644-file SolidJS app:   find-usages   stateless 4,612 ms  →  `tss serve` 391 ms
+                             impls         stateless 4,958 ms  →  `tss serve` 153 ms
+```
+
+`serve` is opt-in and returns once warm — same contract as `ds serve`, same herd-avoidance.
+
+### How it works
+
+- **No build step and no install.** The tool is plain ES modules with `// @ts-check` JSDoc types, run
+  directly by Node — nothing to compile, nothing to cache-invalidate, ~150 ms cold start.
+- **It analyses with the project's own TypeScript**, resolved from `node_modules`. This is the
+  opposite of `dotnet-source`'s pinned-Roslyn rule and lands there for the same reason: an older
+  parser turns newer syntax into error nodes and silently drops declarations, and in the npm world
+  it's the project — not the tool — that decides how new the syntax is. Using its compiler makes
+  that self-pinning. A project with no TypeScript gets a pinned copy installed into the cache once.
+- **The `tsconfig.json` is authoritative for the file set**, the way the `.slnx` is for
+  `dotnet-source` — a naive `**/*.ts` glob would ingest `node_modules`, `dist` and every worktree
+  copy and quietly corrupt every count.
+- Nothing executes your code; the compiler API only ever parses and binds it.
+
+---
+
 ## `orchestrate`
 
 For work that will not fit in one context window: executing a written plan, implementing a spec
@@ -280,6 +374,14 @@ plugins/rlarch/                          # the plugin
       DotnetSource.csproj
       Args.cs Common.cs Decls.cs Discovery.cs Index.cs Program.cs
       Server.cs Symbols.cs Tier1.cs Tier2.cs Workspace.cs
+  skills/ts-source/
+    SKILL.md
+    tss.ps1 / tss.sh                     # launchers (~10 lines: no build, no install)
+    tool/                                # plain ES modules (@ts-check + JSDoc), Node 18+
+      tsconfig.json                      # dev-only: `tsc --noEmit` checks the JSDoc types
+      cli.mjs main.mjs args.mjs common.mjs tsapi.mjs
+      discovery.mjs decls.mjs cache.mjs tier1.mjs
+      graph.mjs dead.mjs program.mjs tier2.mjs discover.mjs server.mjs
   skills/orchestrate/
     SKILL.md
     references/{decompose,briefs,retro}.md
