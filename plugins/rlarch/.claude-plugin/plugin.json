@@ -2,7 +2,7 @@
   "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
   "name": "rlarch",
   "version": "1.0.0",
-  "description": "Three skills for working in large codebases. dotnet-reflect — inspect any NuGet package or assembly's API surface straight from the DLL on disk: exact signatures merged with XML docs, decompiled method bodies, reverse find-usages read from IL, and version diffs. dotnet-source — ReSharper-style navigation of the solution you're editing, read from .cs with Roslyn, so it sees private members and still works on code that doesn't compile. orchestrate — execute a plan too large for one context window by delegating every task to subagents, verifying each result against the goal, and re-planning when reality diverges.",
+  "description": "Four skills for working in large codebases. dotnet-reflect — inspect any NuGet package or assembly's API surface straight from the DLL on disk: exact signatures merged with XML docs, decompiled method bodies, reverse find-usages read from IL, and version diffs. dotnet-source — ReSharper-style navigation of the .NET solution you're editing, read from .cs with Roslyn, so it sees private members and still works on code that doesn't compile. ts-source — the same shape for the TypeScript/JavaScript project you're editing, read with the TypeScript compiler API: search, outline, JSX-aware find-usages, the module import graph, and dead-code detection that separates what you can delete from what is merely over-exported. orchestrate — execute a plan too large for one context window by delegating every task to subagents, verifying each result against the goal, and re-planning when reality diverges.",
   "author": {
     "name": "René Larch",
     "email": "rene@dikaia.ai"
@@ -25,6 +25,15 @@
     "code-search",
     "orchestration",
     "subagents",
-    "planning"
+    "planning",
+    "typescript",
+    "javascript",
+    "solidjs",
+    "react",
+    "vite",
+    "dead-code",
+    "tree-shaking",
+    "module-graph",
+    "jsx"
   ]
 }
