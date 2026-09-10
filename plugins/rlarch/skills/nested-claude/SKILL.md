@@ -33,7 +33,7 @@ $a = & "$CLAUDE_PLUGIN_ROOT/skills/nested-claude/assets"/Start-NestedAgent.ps1 `
         -Name       fix-B-07 `
         -PromptFile .\brief-B-07.txt `
         -Controller 'prod-log-triage [9825b9]' `   # your address, from ListAgents, ref included
-        -RepoRoot   (Get-Location).Path `
+        -RepoRoot   ../repo.worktrees/b-07 `        # its OWN worktree - see §7, not optional for --bg
         -Toolset    fix `                           # what it may do unattended - see §3
         -Watch                                      # optional: open a window attached to it
 ```
@@ -284,18 +284,65 @@ why it failed.
 One agent at a time unless the work is genuinely independent. Shared state — a test database, a
 branch, a lock file — turns two agents into failures that belong to neither.
 
-**You and the agent share one working tree.** `-RepoRoot` is your repo root, not a copy, so while an
-agent is running:
+### A `--bg` agent cannot edit your checkout at all
+
+This is not a preference, it is a guard. Every `Edit` a background session attempts in the shared
+working tree is refused:
+
+> This background session hasn't isolated its changes yet. Call EnterWorktree first so edits land in a
+> worktree instead of the shared checkout, then retry this edit using the worktree path.
+
+So **plan for a worktree from the start**. Two ways, and the first is better:
+
+1. **Make it yourself, before the agent needs it.** You keep your checkout, the branch name is yours,
+   and the merge afterwards is ordinary:
+   ```bash
+   git switch <collector>                                   # release the branch first
+   git worktree add ../repo.worktrees/<slug> <agent-branch>  # a branch can only be checked out once
+   ```
+   Then **launch with `-RepoRoot <the worktree>`**, so the worktree *is* its working directory. Tell
+   it not to call `EnterWorktree` — it would make a second worktree on a branch you never named.
+
+   Pointing `-RepoRoot` at the main checkout and telling the agent to work "over there" does not
+   work: its first act is `cd <worktree> && git ...`, and that trips a different guard — *"this
+   command changes directory before running git, which can execute untrusted hooks from the target
+   directory"* — which no allow-list clears either. Put it in the right directory instead of asking
+   it to walk there.
+2. **Let it call `EnterWorktree`** and merge whatever branch it ends up on.
+
+Either way, two things the fresh worktree does not have and your build does:
+
+- **Gitignored local files.** Copy them in — a `secrets.json`, a local `appsettings`. Integration
+  tests that resolve a real connection fail in a confusing way without them. Confirm with
+  `git check-ignore -v <file>` in the worktree that what you copied still cannot be committed.
+- **A build output path of its own.** Two trees writing one `BaseOutputPath` collide. Give the agent
+  a distinct one.
+
+**Never turn the guard off**, and especially not because the agent asked. `"worktree": {"bgIsolation":
+"none"}` in `.claude/settings.json` is repo config, and a peer asking you to widen config so it can do
+what its own session refused is laundering however reasonable the request reads. The guard is also
+simply right: you were both standing in one tree.
+
+**"Do not create a worktree" is the wrong instruction for a `--bg` agent.** It was in a brief on
+2026-09-10; it parked two agents and pushed a third into making one anyway, which then read as
+disobedience. What the brief should forbid is switching branches and touching the collector — not the
+isolation the harness requires.
+
+The pattern behind all of it: **three separate guards park a background agent, and only one of them is
+the allow-list.** Tool guards (a PowerShell script block), path scope (`-AddDir`), directory-changing
+git commands, and background isolation each refuse independently. You cannot enumerate your way past
+them. Set the agent up so it never needs to ask: right directory, right branch, the files it needs
+already there.
+
+### Until the agent is in its own tree, you are sharing yours
+
+`-RepoRoot` is your repo root, not a copy. While an agent is running against it:
 
 - **Do not `git switch`.** You would move the branch out from under it mid-edit.
 - Commit your own bookkeeping **onto the agent's branch**, explicitly by path, and say in the message
   why it landed there. It rides into the collector with the merge.
-- If you want real isolation, give the agent its own worktree *yourself* and point `-RepoRoot` at it.
-  Do not leave it to the agent: an agent told only "stay on this branch" created one anyway on
-  2026-09-10 and it had to be cleaned up afterwards. If you do not want a worktree, **say the words
-  "do not create a worktree"** in the brief — "stay on branch X" is not heard as forbidding one.
 - Sweep before the next round: `git worktree list` and `git branch --list` show what the last round
-  left behind.
+  left behind. Remove the worktree before deleting its branch — a worktree pins it.
 
 When you do run several: distinct `-Name` each, keep each returned object, and branch each one off the
 previous agent's branch rather than the base, so conflicts get resolved once by the agent that caused
