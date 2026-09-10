@@ -5,6 +5,10 @@ description: Run Claude Code inside Claude Code — spawn nested `claude` sessio
 
 # Nested Claude
 
+The two scripts referenced below live with this skill. Installed as a plugin they are at
+`"$CLAUDE_PLUGIN_ROOT/skills/nested-claude/assets/"` — run `echo "$CLAUDE_PLUGIN_ROOT"` to confirm.
+A project may vendor a copy, but then the copy is the one that drifts; prefer calling these.
+
 You are about to become a **controller**: a Claude Code session that starts other Claude Code
 sessions, addresses them, answers them, and stops them.
 
@@ -25,7 +29,7 @@ Otherwise use the `Agent` tool.
 ## 1. Launch — always `--bg`
 
 ```powershell
-$a = & <assets>/Start-NestedAgent.ps1 `
+$a = & "$CLAUDE_PLUGIN_ROOT/skills/nested-claude/assets"/Start-NestedAgent.ps1 `
         -Name       fix-B-07 `
         -PromptFile .\brief-B-07.txt `
         -Controller 'prod-log-triage [9825b9]' `   # your address, from ListAgents, ref included
@@ -165,8 +169,8 @@ for exactly that, one-shot.
 4. Stop it.
 
 ```powershell
-& <assets>/Stop-NestedAgent.ps1 -Id $a.Id -Name $a.Name
-& <assets>/Stop-NestedAgent.ps1 -Id $a.Id -Name $a.Name -Remove   # and delete the session
+& "$CLAUDE_PLUGIN_ROOT/skills/nested-claude/assets"/Stop-NestedAgent.ps1 -Id $a.Id -Name $a.Name
+& "$CLAUDE_PLUGIN_ROOT/skills/nested-claude/assets"/Stop-NestedAgent.ps1 -Id $a.Id -Name $a.Name -Remove   # and delete the session
 ```
 
 `claude stop` **keeps the conversation** — `claude attach <id>` reopens it and `claude --resume` works
