@@ -20,7 +20,7 @@ Signals, each emitted once per occurrence rather than once per poll:
 Coverage is the point: a watch that only greps for success is silent through a crashloop, and
 silence is indistinguishable from progress.
 """
-import argparse, glob, json, os, subprocess, sys, time
+import argparse, glob, io, json, os, subprocess, sys, time
 
 def rows():
     try:
@@ -37,13 +37,15 @@ def last_text(path, limit=220):
     try:
         with io.open(path, encoding="utf-8", errors="replace") as f:
             lines = f.readlines()[-400:]
-    except Exception:
-        return ""
+    except Exception as e:
+        # Say so rather than reporting an empty tail: a silent "" here read as "the agent has said
+        # nothing", which is exactly what a missing `import io` looked like for a whole round.
+        return f"(cannot read transcript: {type(e).__name__})"
     for line in reversed(lines):
         try:
             o = json.loads(line)
         except Exception:
-            continue
+            continue          # a half-written last line while the agent is mid-append
         m = o.get("message") or {}
         if m.get("role") != "assistant":
             continue
