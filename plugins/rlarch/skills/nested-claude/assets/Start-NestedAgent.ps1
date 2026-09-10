@@ -73,8 +73,11 @@ Set-Content -Path $briefPath -Value ($header + (Get-Content -Raw -Encoding UTF8 
 
 # One quote-free line naming the brief. A multi-line prompt passed positionally is truncated at its
 # first quote, and this brief's own header contains quotes.
-$args = @("--bg", "--name", $Name, "--permission-mode", $PermissionMode)
+# --allowedTools is variadic too, so a flag has to follow it or it eats the prompt exactly the way
+# --add-dir does. --permission-mode is that flag; do not move it back above.
+$args = @("--bg", "--name", $Name)
 if ($AllowedTools.Count) { $args += @("--allowedTools") + $AllowedTools }
+$args += @("--permission-mode", $PermissionMode)
 $args += "Read the file $briefPath and follow it exactly. It is your brief. Start now."
 
 Push-Location $RepoRoot

@@ -61,6 +61,7 @@ because the transcript was on disk.
 |---|---|---|
 | Multi-line prompt as an argument | agent replies *"I'm ready. What would you like me to work on?"* | The prompt is **one quote-free line naming a brief file**. A positional prompt is truncated at its first quote — and a protocol header contains quotes. |
 | `--add-dir` before the prompt | window opens with **no instructions at all** | `--add-dir` takes `<directories...>`; it swallows the prompt as another directory. Put the brief **in the repo** instead. |
+| `--allowedTools` before the prompt | same — **no instructions at all** | Same variadic shape, and the launcher hit it too. Any variadic flag needs **another flag after it** to close the list; the launcher now puts `--permission-mode` there. |
 | Brief under `%TEMP%` | the agent's first act is a permission prompt | Same fix: `.claude/briefs/`, gitignored. |
 | `wt.exe new-tab` | `0x80070002 — cannot find the file specified` | Launch a **plain console process**. Windows Terminal hosts it anyway when it is the default terminal; wt's parser collapses everything after the tab options into one path, whatever the quoting. |
 
