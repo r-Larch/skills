@@ -4,12 +4,12 @@
     "name": "René Larch",
     "email": "rene@dikaia.ai"
   },
-  "description": "René Larch's Claude Code skills — .NET API-surface inspection, ReSharper-style .NET and TypeScript source navigation, and subagent orchestration for large multi-phase work.",
+  "description": "René Larch's Claude Code skills — .NET API-surface inspection, ReSharper-style .NET and TypeScript source navigation, subagent orchestration for large multi-phase work, and running Claude Code inside Claude Code as controllable background agents.",
   "plugins": [
     {
       "name": "rlarch",
       "source": "./plugins/rlarch",
-      "description": "Four skills for working in large codebases. dotnet-reflect — inspect any NuGet package or assembly's API surface straight from the DLL on disk: exact signatures merged with XML docs, decompiled method bodies, reverse find-usages read from IL, and version diffs. dotnet-source — ReSharper-style navigation of the .NET solution you're editing, read from .cs with Roslyn, so it sees private members and still works on code that doesn't compile. ts-source — the same shape for the TypeScript/JavaScript project you're editing, read with the TypeScript compiler API: search, outline, JSX-aware find-usages, the module import graph, and dead-code detection that separates what you can delete from what is merely over-exported. orchestrate — execute a plan too large for one context window by delegating every task to subagents, verifying each result against the goal, and re-planning when reality diverges."
+      "description": "Five skills for working in large codebases. dotnet-reflect — inspect any NuGet package or assembly's API surface straight from the DLL on disk: exact signatures merged with XML docs, decompiled method bodies, reverse find-usages read from IL, and version diffs. dotnet-source — ReSharper-style navigation of the .NET solution you're editing, read from .cs with Roslyn, so it sees private members and still works on code that doesn't compile. ts-source — the same shape for the TypeScript/JavaScript project you're editing, read with the TypeScript compiler API: search, outline, JSX-aware find-usages, the module import graph, and dead-code detection that separates what you can delete from what is merely over-exported. orchestrate — execute a plan too large for one context window by delegating every task to subagents, verifying each result against the goal, and re-planning when reality diverges. nested-claude — run Claude Code inside Claude Code: spawn nested `claude` sessions as background agents with their own context windows, address them by name, drive them over a READY/BLOCKED/DONE protocol, and attach a terminal to watch or unblock one."
     }
   ]
 }
