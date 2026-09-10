@@ -133,6 +133,11 @@ The tell is in `claude agents --json`:
 **`git push` is deliberately absent from every profile.** An allow-list is the only thing between a
 nested agent and a remote its controller was told never to touch. Do not add it.
 
+**Nor is `dotnet tool run`, and that one is easy to miss.** A repo's `.config/dotnet-tools.json` is a
+list of commands the agent can reach by another name — Gaia's holds `dotnet-ef`, so granting
+`dotnet tool` would hand back the production database you just forbade. Before you widen a profile
+for a *runner* (`dotnet tool`, `npx`, `uvx`, `pnpm exec`), read what it can run.
+
 A narrower list is not safer, it is just later: the agent parks instead of being refused, and you
 find out when nothing has happened for an hour.
 
@@ -158,6 +163,14 @@ enumerate the shapes:
 
 > Run bare commands only — no pipes, no redirection, no `&&`, no `;`, no `cd`. If the output is too
 > long, narrow the command's own filter. To search a file, use `Grep`, not a shell pipe.
+
+And add the critical path, because most parks are the agent exploring rather than working:
+
+> Your critical path is: read the finding, write the fix, write the test, red-check, build, test,
+> commit. Do not probe the environment for tooling you were not told to use.
+
+An agent parked on `dotnet tool run dotnet-format --version` in a repo with no formatter and no
+`.editorconfig`. The probe would have told it nothing, and the command was one it must never run.
 
 **Some prompts no allow-list can clear.** They come from tool guards rather than the permission list —
 *"Command contains script block that may execute arbitrary code"* fires on a PowerShell script block
@@ -202,7 +215,15 @@ duplicate insert. Re-read the ### Fix section: it asks you to look the URL up fi
 ```
 
 Steer when it drifts scope, invents a cause the brief did not claim, deletes a test instead of fixing
-code, or narrates its own change in a comment. **Escalate instead of steering** when the answer is not
+code, or narrates its own change in a comment.
+
+**Read its working tree, not just its messages.** `git diff` in the agent's worktree is the only
+honest account of what it is doing, and it catches things no report mentions. One agent's fix was
+behaviourally correct while writing **raw control bytes into C# source** — literal NULs in two test
+files, a raw `0x1F` in a char literal — so `file` called the sources `data` and git would have treated
+them as binary. Nothing in its transcript looked wrong. Check for: raw control characters where
+escapes belong, an XML-doc essay where the repo's rule says one line, a whitespace-only churn diff
+that hides the real change, and a red-check mutation left behind. **Escalate instead of steering** when the answer is not
 yours to give.
 
 Anchor a steer to the brief — *"re-read the ### Fix section"* beats a paragraph of new instruction,
@@ -255,6 +276,7 @@ Monitor(command: 'python -u "$CLAUDE_PLUGIN_ROOT/skills/nested-claude/assets/wat
 |---|---|---|
 | `BLOCKED` | `waitingFor` appears — a permission prompt with nobody to answer it | `claude attach <id>`, or stop and relaunch with the right `-Toolset` |
 | `STALL` | the transcript stopped growing for `--stall` minutes while the agent is still listed | look at what it last said; a hung tool call or a turn that died |
+| `STATUS` back to `busy` | it cleared its own prompt | you may steer again — messages only drain while it runs |
 | `STATUS` | `busy -> idle`, `idle -> done` | the turn ended; go verify |
 | `GONE` | it left `claude agents --json` | it exited or was stopped; the transcript on disk outlives it |
 | `HEARTBEAT` | every `--beat` minutes | one line: elapsed, status, the tail of its last message. `--beat 0` switches it off |
