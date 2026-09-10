@@ -230,6 +230,11 @@ duplicate insert. Re-read the ### Fix section: it asks you to look the URL up fi
 Steer when it drifts scope, invents a cause the brief did not claim, deletes a test instead of fixing
 code, or narrates its own change in a comment.
 
+**Verify only while it is stopped or idle, and re-verify after every steer.** Your `dotnet test` runs
+in the agent's worktree; if you steer it back to work while your run is in flight, you are testing a
+tree that is changing under you, and the result means nothing either way. Kill the run, steer, then
+verify again from the top.
+
 **Read its working tree, not just its messages.** `git diff` in the agent's worktree is the only
 honest account of what it is doing, and it catches things no report mentions. One agent's fix was
 behaviourally correct while writing **raw control bytes into C# source** — literal NULs in two test
