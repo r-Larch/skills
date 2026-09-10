@@ -85,6 +85,12 @@ when a name is ambiguous or when you never learned one.
 
 A name keeps working after an agent finishes — a send resumes it from its transcript.
 
+**A `notify_when_idle` subscription does not follow the name.** It is bound to the session that held
+the name when you subscribed, so after a stop-and-relaunch the notice arrives for the *dead* one:
+*"fix-B-02 has exited before going idle"*, while the live `fix-B-02` is busy working. Read the time
+before you believe it. Either re-subscribe after every relaunch, or give each attempt a distinct name
+(`fix-B-02-a`, `-b`) so a stale notice cannot be mistaken for the live agent dying.
+
 ---
 
 ## 3. The protocol
@@ -144,6 +150,14 @@ legitimately need with `-AddDir` — a package cache is the usual one:
 This is the same `--add-dir` that eats the prompt when it is last. The launcher puts it between
 `--allowedTools` and `--permission-mode`, so each variadic flag is closed by the next one and the
 prompt sits safely after a flag that takes exactly one value. **Do not reorder those three.**
+
+**An allow-list matches a command PREFIX, not a pipeline.** `PowerShell(dotnet test:*)` is granted and
+`dotnet test ... | Select-String ... | Select-Object -First 30` still parks: it is not that shape. Same
+for `2>&1`, `| head`, `&&`, `;` and `cd x && y`. Put the rule in the brief, because you cannot
+enumerate the shapes:
+
+> Run bare commands only — no pipes, no redirection, no `&&`, no `;`, no `cd`. If the output is too
+> long, narrow the command's own filter. To search a file, use `Grep`, not a shell pipe.
 
 **Some prompts no allow-list can clear.** They come from tool guards rather than the permission list —
 *"Command contains script block that may execute arbitrary code"* fires on a PowerShell script block
