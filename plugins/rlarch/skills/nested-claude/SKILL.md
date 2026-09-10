@@ -61,7 +61,7 @@ because the transcript was on disk.
 | Trap | Symptom | Rule |
 |---|---|---|
 | Multi-line prompt as an argument | agent replies *"I'm ready. What would you like me to work on?"* | The prompt is **one quote-free line naming a brief file**. A positional prompt is truncated at its first quote — and a protocol header contains quotes. |
-| `--add-dir` before the prompt | window opens with **no instructions at all** | `--add-dir` takes `<directories...>`; it swallows the prompt as another directory. Put the brief **in the repo** instead. |
+| `--add-dir` before the prompt | window opens with **no instructions at all** | `--add-dir` takes `<directories...>`; it swallows the prompt as another directory. Keep the brief **in the repo**, and pass extra dirs via `-AddDir`, which the launcher places where another flag closes it. |
 | `--allowedTools` before the prompt | same — **no instructions at all** | Same variadic shape, and the launcher hit it too. Any variadic flag needs **another flag after it** to close the list; the launcher now puts `--permission-mode` there. |
 | Brief under `%TEMP%` | the agent's first act is a permission prompt | Same fix: `.claude/briefs/`, gitignored. |
 | `wt.exe new-tab` | `0x80070002 — cannot find the file specified` | Launch a **plain console process**. Windows Terminal hosts it anyway when it is the default terminal; wt's parser collapses everything after the tab options into one path, whatever the quoting. |
@@ -129,6 +129,32 @@ nested agent and a remote its controller was told never to touch. Do not add it.
 
 A narrower list is not safer, it is just later: the agent parks instead of being refused, and you
 find out when nothing has happened for an hour.
+
+**On Windows, cover both shells.** `Bash(...)` patterns do not match the `PowerShell` tool, and an
+agent reaches for whichever fits the thought. The profiles above list both.
+
+**An allow-list grants tools, not paths.** `Bash(ls:*)` is granted and the agent still parks on
+`ls /p/packages/nuget`, because the target is outside `-RepoRoot`. Pass the directories it will
+legitimately need with `-AddDir` — a package cache is the usual one:
+
+```powershell
+-Toolset fix -AddDir @("P:\packages\nuget", "$env:USERPROFILE\.nuget\packages")
+```
+
+This is the same `--add-dir` that eats the prompt when it is last. The launcher puts it between
+`--allowedTools` and `--permission-mode`, so each variadic flag is closed by the next one and the
+prompt sits safely after a flag that takes exactly one value. **Do not reorder those three.**
+
+**Some prompts no allow-list can clear.** They come from tool guards rather than the permission list —
+*"Command contains script block that may execute arbitrary code"* fires on a PowerShell script block
+however you enumerate it. The only fix is to stop the agent wanting to run it, in the brief:
+
+> Prefer `Read`/`Grep`/`Glob` over shelling out. Never reflect over a library at runtime to discover
+> its API — use its symbolic constants and let the compiler check them.
+
+That is a better instruction anyway. An agent that reflected over `Npgsql.PostgresErrorCodes` to read
+its numeric values learned nothing the compiler would not have verified from
+`PostgresErrorCodes.UniqueViolation` directly, and parked itself doing it.
 
 **Check the repo's own allow-list too.** `.claude/settings.local.json` is inherited by everything you
 spawn. If it allows something your brief forbids — Gaia's allows `dotnet ef` and `dotnet run`, both of

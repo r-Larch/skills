@@ -35,6 +35,11 @@ param(
     [string]   $Toolset        = "fix",
 
     [string[]] $AllowedTools   = @(),
+
+    # Extra directories the agent may read. An allow-list grants TOOLS, not PATHS: `Bash(ls:*)` still
+    # prompts the moment the target is outside -RepoRoot. Package caches are the usual case.
+    [string[]] $AddDir         = @(),
+
     [switch]   $Watch
 )
 
@@ -87,14 +92,23 @@ $readonly = @(
     "Bash(ls:*)", "Bash(cat:*)", "Bash(head:*)", "Bash(tail:*)", "Bash(grep:*)", "Bash(rg:*)",
     "Bash(find:*)", "Bash(wc:*)", "Bash(sed:-n *)", "Bash(echo:*)", "Bash(which:*)",
     "Bash(git status:*)", "Bash(git diff:*)", "Bash(git log:*)", "Bash(git show:*)",
-    "Bash(git branch:*)", "Bash(git rev-parse:*)"
+    "Bash(git branch:*)", "Bash(git rev-parse:*)",
+    # On Windows the agent reaches for the PowerShell tool as readily as Bash, and a Bash(...)
+    # pattern does not cover it. Note this only widens the allow-list: some prompts come from tool
+    # guards rather than the allow-list ("script block that may execute arbitrary code") and no
+    # profile clears those - the brief has to stop the agent wanting them. See SKILL.md §3.
+    "PowerShell(Get-ChildItem:*)", "PowerShell(Get-Content:*)", "PowerShell(Select-String:*)",
+    "PowerShell(Test-Path:*)", "PowerShell(Get-Command:*)", "PowerShell(git status:*)",
+    "PowerShell(git diff:*)", "PowerShell(git log:*)"
 )
 # Writing and verifying. `git push` is deliberately absent and must stay absent: an allow-list is the
 # only thing between a nested agent and a remote its controller was told never to touch.
 $fix = $readonly + @(
     "Write", "Edit",
     "Bash(git add:*)", "Bash(git commit:*)",
-    "Bash(dotnet build:*)", "Bash(dotnet test:*)", "Bash(pnpm run:*)"
+    "Bash(dotnet build:*)", "Bash(dotnet test:*)", "Bash(pnpm run:*)",
+    "PowerShell(git add:*)", "PowerShell(git commit:*)",
+    "PowerShell(dotnet build:*)", "PowerShell(dotnet test:*)"
 )
 $tools = switch ($Toolset) {
     "readonly" { $readonly }
@@ -105,8 +119,12 @@ $tools = @($tools + $AllowedTools | Select-Object -Unique)
 
 # --allowedTools is variadic too, so a flag has to follow it or it eats the prompt exactly the way
 # --add-dir does. --permission-mode is that flag; do not move it back above.
+# Both --allowedTools and --add-dir are variadic. They are safe ONLY because each is followed by
+# another flag: --add-dir closes --allowedTools, and --permission-mode closes --add-dir. The prompt
+# comes last, after a flag that takes exactly one value. Reorder this and the prompt disappears.
 $args = @("--bg", "--name", $Name)
-if ($tools.Count) { $args += @("--allowedTools") + $tools }
+if ($tools.Count)   { $args += @("--allowedTools") + $tools }
+if ($AddDir.Count)  { $args += @("--add-dir") + $AddDir }
 $args += @("--permission-mode", $PermissionMode)
 $args += "Read the file $briefPath and follow it exactly. It is your brief. Start now."
 
