@@ -164,6 +164,13 @@ enumerate the shapes:
 > Run bare commands only — no pipes, no redirection, no `&&`, no `;`, no `cd`. If the output is too
 > long, narrow the command's own filter. To search a file, use `Grep`, not a shell pipe.
 
+**A command too long to parse cannot be allow-listed either.** Over ~1015 bytes the parser gives up
+with *"Command too long for parsing"* and prompts regardless of content — which a `git commit -m` with
+a real commit message reaches easily, and a heredoc or PowerShell here-string reaches faster. So:
+
+> Commit with `git commit -F <file>` — write the message with `Write` first. Never an inline `-m`
+> with a long body, no heredocs, no here-strings.
+
 And add the critical path, because most parks are the agent exploring rather than working:
 
 > Your critical path is: read the finding, write the fix, write the test, red-check, build, test,
