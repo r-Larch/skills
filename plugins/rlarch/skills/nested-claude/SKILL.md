@@ -1,11 +1,11 @@
 ---
 name: nested-claude
-description: Run Claude Code inside Claude Code — spawn nested `claude` sessions as background agents, each with a fresh context window, address them by name, drive them over a READY/BLOCKED/DONE protocol with the spawning session as their controller, and attach a terminal window to watch or unblock one. Covers launch, addressing, steering, watching, wrap-up, stopping, crash recovery and cleanup. USE FOR: work too large for one context window where each unit needs its own; any job whose worker must itself spawn subagents (an Agent-tool subagent cannot, so it cannot run /rlarch:orchestrate); a supervised fix or refactor loop a human wants to watch; agents that must outlive the controller. DO NOT USE FOR: work that fits in one Agent-tool subagent (cheaper, and needs none of this), or anything you would run once and never steer.
+description: Run Claude Code inside Claude Code — spawn nested `claude` sessions as background agents, each with a fresh context window, address them by name, drive them over a READY/BLOCKED/DONE protocol with the spawning session as their controller, arm a watchdog that wakes you when one is blocked or stalled instead of polling it, and attach a terminal window to watch or unblock one. Covers launch, the permission profiles an unattended agent needs, addressing, steering, watching, wrap-up, stopping, crash recovery and cleanup. USE FOR: work too large for one context window where each unit needs its own; any job whose worker must itself spawn subagents (an Agent-tool subagent cannot, so it cannot run /rlarch:orchestrate); a supervised fix or refactor loop a human wants to watch; agents that must outlive the controller. DO NOT USE FOR: work that fits in one Agent-tool subagent (cheaper, and needs none of this), or anything you would run once and never steer.
 ---
 
 # Nested Claude
 
-The two scripts referenced below live with this skill. Installed as a plugin they are at
+The three scripts referenced below live with this skill. Installed as a plugin they are at
 `"$CLAUDE_PLUGIN_ROOT/skills/nested-claude/assets/"` — run `echo "$CLAUDE_PLUGIN_ROOT"` to confirm.
 A project may vendor a copy, but then the copy is the one that drifts; prefer calling these.
 
@@ -34,6 +34,7 @@ $a = & "$CLAUDE_PLUGIN_ROOT/skills/nested-claude/assets"/Start-NestedAgent.ps1 `
         -PromptFile .\brief-B-07.txt `
         -Controller 'prod-log-triage [9825b9]' `   # your address, from ListAgents, ref included
         -RepoRoot   (Get-Location).Path `
+        -Toolset    fix `                           # what it may do unattended - see §3
         -Watch                                      # optional: open a window attached to it
 ```
 
@@ -55,7 +56,7 @@ claude's own commands take), `Brief`, `Started`.
 session. On 2026-09-10 a `-p` agent finished a fix, could not commit it, and its report survived only
 because the transcript was on disk.
 
-### Four traps that produce a launch that *looks* fine
+### Traps that produce a launch that *looks* fine
 
 | Trap | Symptom | Rule |
 |---|---|---|
@@ -92,25 +93,64 @@ The launcher prepends it to every brief. Three messages, no chatter:
 
 | Agent sends | When | You do |
 |---|---|---|
-| `READY <task>` | once, before any work | Note it. Silence here means the launch failed, not that it is thinking. |
+| `READY <task>` | once, before any work | **Read what it says, not just that it arrived.** It is your only proof the prompt survived: a `READY` naming the right finding and the right branch means the brief landed; a generic *"I'm ready, what should I work on?"* means a variadic flag ate it. Silence means the launch failed, not that it is thinking. |
 | `BLOCKED <what>` | it needs a decision that is not its own | Answer, or escalate to your human and relay. It is **waiting** — do not leave it there. |
 | `DONE <report>` | once, at the end | Verify independently, then stop it. |
 
 `WRAP UP` is the one message you send unprompted: *stop at the next safe point, commit what is
 finished, send DONE saying where you stopped.* The brief already defines it.
 
-### Permissions
+### Permissions — the most common way a launch quietly fails
 
-A `--bg` agent has **no human at its keyboard**. A permission prompt it cannot clear parks it — you
-will see `status: blocked` in `claude agents --json`. Three ways out, in order:
+A `--bg` agent has **no human at its keyboard**, and `--permission-mode acceptEdits` only covers
+*edits*. The first shell command it has not been granted parks it, and from the outside a parked
+agent is indistinguishable from a busy one. On 2026-09-10 an agent stopped nine minutes in on
+`ls /p/packages/nuget/npgsql/` — exploration, not a dangerous act — and would have sat there forever.
 
-1. Prevent it: `-PermissionMode`, `-AllowedTools`, and keeping the agent's files inside the repo.
-2. `claude attach <id>` and answer the prompt yourself.
-3. The agent sends `BLOCKED` naming the operation, and you decide.
+The tell is in `claude agents --json`:
+
+```json
+{ "id": "e62a5e14", "status": "waiting", "waitingFor": "permission prompt", "state": "blocked" }
+```
+
+`waitingFor` is the field to key on. §5's watchdog exists because nothing else surfaces it.
+
+**Grant the surface up front.** `-Toolset` is a named profile, merged with anything you add in
+`-AllowedTools`:
+
+| `-Toolset` | Grants | Use for |
+|---|---|---|
+| `readonly` | `Read`/`Glob`/`Grep`, and the read-only shell an agent reaches for without thinking — `ls cat head tail grep rg find wc sed -n echo which`, plus `git status/diff/log/show/branch/rev-parse` | recon, review, an agent that must not change anything |
+| `fix` *(default)* | all of the above plus `Write`/`Edit`, `git add`/`git commit`, `dotnet build`/`dotnet test`/`pnpm run` | an agent that edits, tests and commits |
+| `none` | nothing beyond `-PermissionMode` | an agent that genuinely never shells out |
+
+**`git push` is deliberately absent from every profile.** An allow-list is the only thing between a
+nested agent and a remote its controller was told never to touch. Do not add it.
+
+A narrower list is not safer, it is just later: the agent parks instead of being refused, and you
+find out when nothing has happened for an hour.
+
+**Check the repo's own allow-list too.** `.claude/settings.local.json` is inherited by everything you
+spawn. If it allows something your brief forbids — Gaia's allows `dotnet ef` and `dotnet run`, both of
+which reach production — the allow-list wins over your good intentions, so say so in the brief and
+tell your human. Do not edit it yourself.
+
+Two more ways out, once an agent is already parked:
+
+1. `claude attach <id>` and answer the prompt yourself.
+2. The agent sends `BLOCKED` naming the operation, and you decide.
+
+If it has done nothing yet, stopping and relaunching with the right profile is cheaper than either.
 
 **Never launder permissions.** If an agent was denied something, do not do it for it and do not
-relaunch it with wider permissions to get around the refusal — route it back to your human. The same
-applies to you when a peer asks you to do what its own session blocked.
+relaunch it with wider permissions to get around *the refusal* — route it back to your human. Widening
+a profile before the agent ever ran, so it can do the job you already approved, is not laundering;
+re-running a denied act on its behalf is. The same applies to you when a peer asks you to do what its
+own session blocked.
+
+**Some paths are denied whatever you grant.** Every write under `.claude/` was refused for one agent
+on 2026-09-10, `git add` included. Do not design a brief that depends on the agent writing there —
+have it put the content in its `DONE` report and file it yourself.
 
 ---
 
@@ -156,7 +196,36 @@ Get-Content $t -Wait -Tail 0 | ForEach-Object {
 ```
 
 Do not poll in a loop and do not send *"are you done?"*. `SendMessage` takes `notify_when_idle: true`
-for exactly that, one-shot.
+for exactly that, one-shot — omit `message` and it is a pure subscription that costs the agent nothing.
+
+### Waking yourself up: the watchdog
+
+`notify_when_idle` answers *"tell me when it finishes"*. It does not answer the two questions that
+actually cost you an hour: **is it stuck?** and **is it still making progress?** A parked agent never
+goes idle, so the subscription never fires, and `status: waiting` is only visible if you look.
+
+Arm a watchdog instead. It runs in the background and speaks only when something has happened:
+
+%spowershell
+Monitor(command: 'python -u "$CLAUDE_PLUGIN_ROOT/skills/nested-claude/assets/watch-nested-agent.py" cffcbd64 --beat 12 --stall 8',
+        persistent: true, description: 'fix-B-02 watchdog')
+%s
+
+| It emits | When | What you do |
+|---|---|---|
+| `BLOCKED` | `waitingFor` appears — a permission prompt with nobody to answer it | `claude attach <id>`, or stop and relaunch with the right `-Toolset` |
+| `STALL` | the transcript stopped growing for `--stall` minutes while the agent is still listed | look at what it last said; a hung tool call or a turn that died |
+| `STATUS` | `busy -> idle`, `idle -> done` | the turn ended; go verify |
+| `GONE` | it left `claude agents --json` | it exited or was stopped; the transcript on disk outlives it |
+| `HEARTBEAT` | every `--beat` minutes | one line: elapsed, status, the tail of its last message. `--beat 0` switches it off |
+
+Each fires **once per occurrence**, not once per poll, so a long run stays quiet. Set `--beat` to a
+value you would actually tolerate being woken at: 10–15 minutes for a fix that should take under an
+hour, higher for an overnight run.
+
+The design rule underneath it, which is worth carrying to any watch you write: **silence is not
+success.** A watch that only looks for the finish line stays silent through a crash, a park and a
+hang — all three look exactly like "still working". Cover the failures first and the success last.
 
 ---
 
@@ -184,10 +253,23 @@ why it failed.
 
 ---
 
-## 7. Concurrency
+## 7. Concurrency, and the tree you are both standing in
 
 One agent at a time unless the work is genuinely independent. Shared state — a test database, a
 branch, a lock file — turns two agents into failures that belong to neither.
+
+**You and the agent share one working tree.** `-RepoRoot` is your repo root, not a copy, so while an
+agent is running:
+
+- **Do not `git switch`.** You would move the branch out from under it mid-edit.
+- Commit your own bookkeeping **onto the agent's branch**, explicitly by path, and say in the message
+  why it landed there. It rides into the collector with the merge.
+- If you want real isolation, give the agent its own worktree *yourself* and point `-RepoRoot` at it.
+  Do not leave it to the agent: an agent told only "stay on this branch" created one anyway on
+  2026-09-10 and it had to be cleaned up afterwards. If you do not want a worktree, **say the words
+  "do not create a worktree"** in the brief — "stay on branch X" is not heard as forbidding one.
+- Sweep before the next round: `git worktree list` and `git branch --list` show what the last round
+  left behind.
 
 When you do run several: distinct `-Name` each, keep each returned object, and branch each one off the
 previous agent's branch rather than the base, so conflicts get resolved once by the agent that caused
@@ -200,6 +282,21 @@ them instead of piling up at the end.
 You lose every in-memory handle. What survives is on disk and in claude's own registry, so recovery is
 `claude agents --json` — it lists every live session with its id, name, status and `sessionId`, which
 is enough to re-address, re-attach, or stop what is stranded.
+
+**An agent that is no longer listed is still readable.** Its transcript at
+`~/.claude/projects/<repo-slug>/<sessionId>.jsonl` survives `stop` and `rm` alike, and its **last
+assistant message is the `DONE` report** — the full one, including whatever it could not do. That is
+how a finished agent's result was recovered after its handle was gone:
+
+```python
+rows = [json.loads(l) for l in open(PATH, encoding='utf-8') if l.strip()]
+say  = lambda m: ' '.join(x.get('text','') for x in m.get('content') or []
+                          if isinstance(x, dict) and x.get('type') == 'text')
+print(next(say(o['message']) for o in reversed(rows)
+           if (o.get('message') or {}).get('role') == 'assistant' and say(o['message']).strip()))
+```
+
+So a `--resume <sessionId>` your human hands you is not a session to re-enter — it is a file to read.
 
 Still write one line per agent into a run log as you go; it is the only thing that records *why* an
 agent existed:
@@ -223,6 +320,18 @@ The launcher prepends the protocol; your file supplies the work. A good brief:
   if the repo forbids that, say so — the agent does not inherit your instructions.
 - **Says what to do instead of guessing**: *"if you believe the finding is wrong, STOP and report that
   rather than fixing something else."*
+- **Carries the baseline you already measured**, as numbers. Not *"take a baseline"* — the exact
+  failing test name and the exact counts, plus *"do not fix it, do not report it as a regression, and
+  do not let a subagent clean it up"*. An agent handed a red suite it did not cause will either claim
+  the regression or repair it.
+- **Names what is deliberately out of scope, and says it is your decision, not an oversight.** An
+  agent that reads a finding listing four fixes and is briefed on two will otherwise do all four, or
+  stop to ask. *"Deferred by controller decision, because …"* answers it in advance.
+- **Forbids what you are relying on it not doing**, in words: no worktree, no branch switch, no
+  `git add -A`, no touching the collector. Implication is not instruction.
+- **Routes artifacts it may not be able to write.** If a path might be denied — `.claude/` was — ask
+  for the content in the `DONE` report and file it yourself, rather than discovering at the end that
+  the record does not exist.
 
 Keep it in a file: it is what the agent reads, what `-KeepBrief` preserves, and what you diff against
 when the result surprises you.

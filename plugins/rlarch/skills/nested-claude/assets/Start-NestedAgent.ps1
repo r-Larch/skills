@@ -27,6 +27,13 @@ param(
 
     [string]   $RepoRoot       = (Get-Location).Path,
     [string]   $PermissionMode = "acceptEdits",
+
+    # A named tool profile, merged with -AllowedTools. A --bg agent has no human at its keyboard, so
+    # the FIRST shell call it has not been granted parks it - see the -Toolset table in SKILL.md.
+    # "none" is only right for an agent that never shells out.
+    [ValidateSet("none","readonly","fix")]
+    [string]   $Toolset        = "fix",
+
     [string[]] $AllowedTools   = @(),
     [switch]   $Watch
 )
@@ -73,10 +80,33 @@ Set-Content -Path $briefPath -Value ($header + (Get-Content -Raw -Encoding UTF8 
 
 # One quote-free line naming the brief. A multi-line prompt passed positionally is truncated at its
 # first quote, and this brief's own header contains quotes.
+# Read-only exploration an agent reaches for without thinking. Without these it parks on its first
+# `ls`, and claude agents --json shows status=waiting, waitingFor="permission prompt".
+$readonly = @(
+    "Read", "Glob", "Grep",
+    "Bash(ls:*)", "Bash(cat:*)", "Bash(head:*)", "Bash(tail:*)", "Bash(grep:*)", "Bash(rg:*)",
+    "Bash(find:*)", "Bash(wc:*)", "Bash(sed:-n *)", "Bash(echo:*)", "Bash(which:*)",
+    "Bash(git status:*)", "Bash(git diff:*)", "Bash(git log:*)", "Bash(git show:*)",
+    "Bash(git branch:*)", "Bash(git rev-parse:*)"
+)
+# Writing and verifying. `git push` is deliberately absent and must stay absent: an allow-list is the
+# only thing between a nested agent and a remote its controller was told never to touch.
+$fix = $readonly + @(
+    "Write", "Edit",
+    "Bash(git add:*)", "Bash(git commit:*)",
+    "Bash(dotnet build:*)", "Bash(dotnet test:*)", "Bash(pnpm run:*)"
+)
+$tools = switch ($Toolset) {
+    "readonly" { $readonly }
+    "fix"      { $fix }
+    default    { @() }
+}
+$tools = @($tools + $AllowedTools | Select-Object -Unique)
+
 # --allowedTools is variadic too, so a flag has to follow it or it eats the prompt exactly the way
 # --add-dir does. --permission-mode is that flag; do not move it back above.
 $args = @("--bg", "--name", $Name)
-if ($AllowedTools.Count) { $args += @("--allowedTools") + $AllowedTools }
+if ($tools.Count) { $args += @("--allowedTools") + $tools }
 $args += @("--permission-mode", $PermissionMode)
 $args += "Read the file $briefPath and follow it exactly. It is your brief. Start now."
 
