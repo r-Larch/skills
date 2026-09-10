@@ -161,8 +161,14 @@ prompt sits safely after a flag that takes exactly one value. **Do not reorder t
 for `2>&1`, `| head`, `&&`, `;` and `cd x && y`. Put the rule in the brief, because you cannot
 enumerate the shapes:
 
-> Run bare commands only — no pipes, no redirection, no `&&`, no `;`, no `cd`. If the output is too
-> long, narrow the command's own filter. To search a file, use `Grep`, not a shell pipe.
+> Run bare commands only — no pipes, no redirection, no `&&`, no `;`, no `cd`, and no flags before a
+> subcommand (`git status`, never `git -C <path> status`). If the output is too long, narrow the
+> command's own filter. To search a file, use `Grep`, not a shell pipe.
+
+The general form, which an agent can apply to shapes you did not foresee:
+
+> Run the simplest command that does the job, from where you already are. If you are telling a tool
+> where to look, you are probably standing in the wrong place.
 
 **A command too long to parse cannot be allow-listed either.** Over ~1015 bytes the parser gives up
 with *"Command too long for parsing"* and prompts regardless of content — which a `git commit -m` with
