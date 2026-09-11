@@ -170,6 +170,11 @@ enumerate the shapes:
 > subcommand (`git status`, never `git -C <path> status`). If the output is too long, narrow the
 > command's own filter. To search a file, use `Grep`, not a shell pipe.
 
+**Give the alternative, not only the prohibition.** An agent reaches for a pipe when output is long,
+so the brief has to say what to do instead — narrow with the *tool's* own argument
+(`--filter`, `--max-count`, `-n`), never the shell's. A brief that forbids pipes without offering the
+filter form gets ignored at exactly the moment it matters.
+
 The general form, which an agent can apply to shapes you did not foresee:
 
 > Run the simplest command that does the job, from where you already are. If you are telling a tool
