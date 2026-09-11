@@ -47,6 +47,15 @@ $ErrorActionPreference = "Stop"
 
 if (-not (Get-Command claude -ErrorAction SilentlyContinue)) { throw "claude is not on PATH." }
 if (-not (Test-Path $PromptFile)) { throw "Prompt file not found: $PromptFile" }
+
+# -RepoRoot must already be a working tree. Without this check a failed `git worktree add` upstream
+# still yields a launch: the brief directory is created with -Force, the agent starts in a folder
+# holding nothing but its own brief, and reports READY. A setup failure must not produce a confident
+# agent - it must fail here, loudly, before anything is spawned.
+if (-not (Test-Path $RepoRoot)) { throw "-RepoRoot does not exist: $RepoRoot. Did `git worktree add` fail?" }
+if (-not (Test-Path (Join-Path $RepoRoot ".git"))) {
+    throw "-RepoRoot is not a git working tree: $RepoRoot. A --bg agent must be launched inside one - see SKILL.md section 7."
+}
 if ($Controller -notmatch '^\S.*\s\[[0-9a-f]{6}\]$') {
     throw "-Controller must include the ref, e.g. 'my-session [9825b9]'. Run ListAgents and copy the first line."
 }

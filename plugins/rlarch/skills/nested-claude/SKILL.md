@@ -65,6 +65,7 @@ because the transcript was on disk.
 | `--allowedTools` before the prompt | same — **no instructions at all** | Same variadic shape, and the launcher hit it too. Any variadic flag needs **another flag after it** to close the list; the launcher now puts `--permission-mode` there. |
 | Brief under `%TEMP%` | the agent's first act is a permission prompt | Same fix: `.claude/briefs/`, gitignored. |
 | `wt.exe new-tab` | `0x80070002 — cannot find the file specified` | Launch a **plain console process**. Windows Terminal hosts it anyway when it is the default terminal; wt's parser collapses everything after the tab options into one path, whatever the quoting. |
+| `-RepoRoot` that is not a working tree | agent starts in an empty folder and reports **READY** | A failed `git worktree add` upstream does not stop the launch: the brief directory is created with `-Force` and the agent comes up with nothing but its brief. The launcher now refuses; if you are not using it, check the tree exists before spawning. **A failed setup step must not produce a confident agent.** |
 
 ---
 
