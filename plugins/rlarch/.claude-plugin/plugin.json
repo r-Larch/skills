@@ -1,8 +1,8 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
   "name": "rlarch",
-  "version": "1.4.0",
-  "description": "Six skills for working in large codebases. dotnet-reflect — inspect any NuGet package or assembly's API surface straight from the DLL on disk: exact signatures merged with XML docs, decompiled method bodies, reverse find-usages read from IL, and version diffs. dotnet-source — ReSharper-style navigation of the .NET solution you're editing, read from .cs with Roslyn, so it sees private members and still works on code that doesn't compile. ts-source — the same shape for the TypeScript/JavaScript project you're editing, read with the TypeScript compiler API: search, outline, JSX-aware find-usages, the module import graph, and dead-code detection that separates what you can delete from what is merely over-exported. orchestrate — execute a plan too large for one context window by delegating every task to subagents, verifying each result against the goal, and re-planning when reality diverges. nested-claude — run Claude Code inside Claude Code: spawn nested `claude` sessions as background agents with their own context windows, address them by name, drive them over a READY/BLOCKED/DONE protocol, and attach a terminal to watch or unblock one. code-comments — strip comments down to the few that earn their place: a subtractive pass whose default verdict is DELETE, keeping only a present-tense constraint the code cannot state itself, with mechanics for C#/.NET and TypeScript/JavaScript.",
+  "version": "1.5.0",
+  "description": "Seven skills for working in large codebases. dotnet-reflect — inspect any NuGet package or assembly's API surface straight from the DLL on disk: exact signatures merged with XML docs, decompiled method bodies, reverse find-usages read from IL, and version diffs. dotnet-source — ReSharper-style navigation of the .NET solution you're editing, read from .cs with Roslyn, so it sees private members and still works on code that doesn't compile. ts-source — the same shape for the TypeScript/JavaScript project you're editing, read with the TypeScript compiler API: search, outline, JSX-aware find-usages, the module import graph, and dead-code detection that separates what you can delete from what is merely over-exported. orchestrate — execute a plan too large for one context window by delegating every task to subagents, verifying each result against the goal, and re-planning when reality diverges. controller — run a QUEUE of large, mostly independent undertakings (a backlog of bugs, issues, TODOs, migrations): sequence them, brief a nested Claude for each, steer it, verify what it produced independently of its report, land it and record the decisions. One level above orchestrate, which executes a single plan. nested-claude — run Claude Code inside Claude Code: spawn nested `claude` sessions as background agents with their own context windows, address them by name, drive them over a READY/BLOCKED/DONE protocol, and attach a terminal to watch or unblock one. code-comments — strip comments down to the few that earn their place: a subtractive pass whose default verdict is DELETE, keeping only a present-tense constraint the code cannot state itself, with mechanics for C#/.NET and TypeScript/JavaScript.",
   "author": {
     "name": "René Larch",
     "email": "rene@dikaia.ai"
@@ -44,6 +44,12 @@
     "code-cleanup",
     "jsdoc",
     "xml-docs",
-    "technical-debt"
+    "technical-debt",
+    "controller",
+    "queue",
+    "backlog",
+    "delegation",
+    "verification",
+    "code-review"
   ]
 }

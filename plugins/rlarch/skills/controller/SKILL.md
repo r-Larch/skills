@@ -1,0 +1,299 @@
+---
+name: controller
+description: Drive a QUEUE of large, mostly independent undertakings to completion — a backlog of bugs, issues, TODOs, migrations or features — by sequencing them, briefing a nested Claude for each, steering it, independently verifying what it produced, landing it, and recording the decisions. One level above /rlarch:orchestrate: orchestrate executes ONE plan inside a session, a controller runs many plans across sessions and owns the integration, the verification and the record. USE FOR - a backlog too large for one session; several medium-to-large units that are unrelated to each other; work where each unit needs its own full context window; anything where you must be able to say afterwards what was done, what was deferred and why. DO NOT USE FOR - a single plan (use /rlarch:orchestrate), a task that fits one subagent (use the Agent tool), or a queue you intend to do yourself.
+---
+
+# Controller
+
+You are about to run a **queue**, not a task. Units arrive as a list — bugs, issues, TODOs, a
+migration split across services — and each one is large enough to deserve its own context window and
+its own verification. Your job is not to write the code. It is to decide the order, brief each unit,
+check what comes back, land it, and leave a record that outlives the session.
+
+**The three tiers, so you pick the right one:**
+
+| | Scope | Runs in | You own |
+|---|---|---|---|
+| `Agent` tool | one task | your session | the result |
+| `/rlarch:orchestrate` | **one plan**, too large for one window | your session, delegating to subagents | the plan and its verification |
+| **controller** (this) | **many plans**, mostly independent | separate nested `claude` sessions, each free to orchestrate | sequencing, briefing, verification, integration, the record |
+
+`/rlarch:nested-claude` is the **mechanics** of running those sessions — launching, addressing, the
+READY/BLOCKED/DONE protocol, permissions, worktrees, watchdogs, recovery. Read it before your first
+launch. This skill is the **discipline** of running the queue on top of it, and does not repeat it.
+
+> Every rule below was paid for. Most of them cost a run to learn.
+
+---
+
+## 1. The queue is the unit of work
+
+Before any agent starts, do three things with the whole list.
+
+**Classify each unit as eligible or escalating.** Eligible means: the outcome is decided, it is a
+change you can verify, and it is confined to what you control. Escalating means it needs a decision
+that is not yours — a product call, a schema or data change, a dependency, or a unit whose root cause
+is still open. **An agent handed an undecided question will decide it**, quietly and probably wrong.
+
+**Sequence by what unblocks what, not by severity.** Severity orders your *reporting*; dependency
+orders your *work*. The highest-value ordering decision is usually:
+
+> **Fix the diagnostic before the diagnosis.**
+
+If one unit is "failures report their cause uselessly" and another is "something fails and we do not
+know why", the first is not lower priority than the second — it is a *prerequisite*. Doing it first
+turns the second from guesswork into reading. Look for that shape every time; it is common and easy
+to miss because the diagnostic fix looks cosmetic.
+
+**Get one approval for the queue, then run it.** Present the eligible list in severity order, the
+escalations with what each needs, and your proposed order. Then run to completion without asking
+again unless an escalation trigger fires (§8). Asking per unit burns the human's attention on
+decisions they already delegated.
+
+### Splitting a unit
+
+A unit is not all-or-nothing. When it mixes a contained fix with a design change — "handle the error"
+plus "restructure how errors propagate" — **split it**: brief the part that stops the bleeding, and
+name the deferred part in the brief as **your decision, with the reason**. An agent given two of four
+items and no explanation will either do all four or stop to ask.
+
+Record the split where the unit is described, not only in your own notes. The next person to read it
+must find out *why* half of it is undone without having to reconstruct your reasoning.
+
+---
+
+## 2. One at a time
+
+Run **one agent at a time** unless the units are genuinely independent all the way down. Shared state —
+a database, a branch, a build output directory, a lock file — turns two agents into failures that
+belong to neither, and chasing those costs more than the parallelism saves.
+
+**Integration strategy, decided before the first launch:**
+
+- Each unit gets its own branch **and its own worktree** (a background agent cannot edit your
+  checkout — see `/rlarch:nested-claude` §7).
+- Branch each unit off the *previous* result, not off the base, so conflicts are resolved once by the
+  agent that caused them instead of piling up at the end.
+- Collect on an integration branch and land once, or land each as it passes — either is fine, but
+  decide up front and tell the human which.
+
+**Reclaim resources between units.** Each agent building into its own output directory can leave a
+build server behind. A twelve-unit run accumulated 28 processes holding 5.4 GB and the machine began
+killing background tasks mid-verification.
+
+---
+
+## 3. The brief is the whole job
+
+The agent knows nothing you do not tell it. Everything in `/rlarch:nested-claude` §9 applies; these
+are the controller-level additions.
+
+**Carry the baseline as numbers.** Not *"take a baseline"* — the exact failing test name and the
+exact counts, plus *"do not fix it, do not report it as a regression, and do not let a subagent clean
+it up"*. An agent handed a red suite it did not cause will either claim the regression or repair it.
+
+**Put what you already established in the brief.** You read the code to write the brief; do not make
+the agent rediscover it. File paths, the call chain, which of two similar methods is the right one,
+what you verified about a neighbouring system — all of it. Every fact you withhold is a chance to
+park or to guess.
+
+**Name the out-of-scope neighbour and say it is a decision.** *"Deferred by controller decision,
+because …"* answers a question the agent would otherwise answer for itself.
+
+**State what must NOT change**, in words. Implication is not instruction. *"Do not create a worktree"*,
+*"do not switch branches"*, *"these five existing tests must pass unmodified"* — and for that last one,
+add: **if you cannot make them pass without editing them, STOP and report that**. Editing a test so a
+change fits is how a fix becomes a regression with a green tick.
+
+### Every prohibition needs a route
+
+This is the single most expensive lesson available here. **A brief rule that demands a capability the
+agent does not have is a trap you set yourself.** In one run, eleven launches were lost to rules added
+to prevent real problems:
+
+| Prohibition that parked an agent | The rule that works |
+|---|---|
+| "no pipes" | "no pipes — narrow with the tool's own `--filter`" |
+| "commit with `-F <file>`" | "…to a path **inside your worktree**" |
+| "delete the scratch file afterwards" | "leave it; the controller removes it" — deletion was never granted |
+| "do not change that warning count" | "the controller checks the count" — it had no way to read one |
+| "no `git -C`" | "use `Glob`/`Grep`/`Read` to find files" — nothing had named the alternative |
+
+Sometimes the better move is not to grant the route but to **remove the need for it**: an agent handed
+the three file paths it would have gone looking for cannot park looking for them.
+
+**Name the environment's benign noise too.** An agent parks wherever the environment says something it
+cannot interpret and the brief is silent.
+
+---
+
+## 4. Steering
+
+Steer when the agent drifts scope, invents a cause the brief did not claim, edits a test instead of
+the code, or violates a convention you stated. Anchor the steer to the source — *"re-read the section
+on X"* beats a paragraph of new instruction, which competes with the brief rather than correcting it.
+
+**Escalate instead of steering** when the answer is not yours to give.
+
+**Read the comments the agent writes as claims to check.** One agent documented a new flag as *"set by
+the kiosk pick, the menu node, and the tool"* — and the tool never set it. The comment was the only
+thing that revealed the gap; the code, the tests and the report were all internally consistent without
+it. An agent describing what it built is telling you what it *believes* it built.
+
+**Your steer can be wrong, and a wrong steer gets baked into a commit message.** Verify a claim before
+you send it. If you find out afterwards, send the correction *before* it commits, and say plainly which
+part was wrong. The agent will take your word over the code — which is exactly why your word has to be
+checked. Twice in one run a steer dismissed something the agent was right to investigate.
+
+**A parked agent cannot be steered.** Your message queues behind the prompt it is waiting on. It also
+cannot tidy up after itself — so a red-check mutation it injected is still sitting in its working tree.
+Check the tree before you act on a stopped agent.
+
+---
+
+## 5. Verification is the controller's job
+
+**Never take the agent's word for green.** Not because agents lie — the reports are usually accurate —
+but because the things that matter most are the things no report mentions.
+
+Run the build and the suite yourself, then read the diff against what the unit asked for. Look for:
+
+- **A test that was edited rather than added.** Updating an assertion because a type legitimately
+  changed is fine; weakening one is not. The difference is visible and worth the minute.
+- **A red-check mutation left behind.** An agent that parked mid-red-check has the *broken*
+  implementation in its tree. Merging that ships a no-op that passes review by commit message.
+- **Raw control bytes, encoding damage, whitespace-only churn.** One fix was behaviourally correct
+  while writing literal NULs into source files; `file` called them `data` and nothing in the
+  transcript looked wrong. Check a huge diff with `--ignore-all-space` before believing it.
+- **A number that does not match.** Warning counts, test totals, file counts. Chase the difference to
+  its cause rather than accepting it; twice this proved a false alarm and once it was real.
+
+**Mind how YOU edit the tree.** Finishing a parked agent's work means editing files yourself, and a
+read-then-write script silently rewrites line endings. Harmless in markdown; **not** harmless in any
+language where a raw or verbatim string literal carries its file's endings into runtime output. That
+changed the text of a prompt sent to a model, invisibly, and was caught only by a snapshot test whose
+expected value was transcribed literally rather than captured.
+
+### When the agent cannot run the gate
+
+Sometimes the check that matters is one the agent has no way to execute — a typecheck with no installed
+dependencies, a suite needing a service, a build only you can do. Do not skip it and do not accept an
+unverified leg.
+
+**Make it predict the gate's output, precisely enough to be wrong.** Then run the gate and compare. A
+match is evidence; a mismatch is a finding. Either way it had to reason about the whole surface rather
+than the line it changed.
+
+**Where no harness exists and building one is scope creep, demand an enumeration.** For a five-line
+handler, "write a test" means building a rig around something that has none. What you want is: *what
+does this produce for every shape the input can take?* A table of cases checked against the diff
+catches more than a happy-path test, and twice it surfaced edges the author had not stated.
+
+**Where nothing can catch a wrong guess, redundancy is the gate — and the agent should say so.** One
+agent could not confirm an API's field names by reading, and noted that a typecheck could not catch a
+wrong name either because the objects were untyped. So it recorded the value it needed from two
+independent points, each guarded, so either alone sufficed and a wrong name degraded to the old
+behaviour rather than throwing. That is the right shape for an unverifiable assumption.
+
+### The tests that matter most pass in both directions
+
+A test that goes red when the fix is removed proves the fix does something. A test that **passes
+before and after** is the one that proves the fix did not do too much. Demand both, and read the
+red-check results for the ones that *did not* move — those are the over-correction guards, and a fix
+that degrades everything to a safe default will pass every other test in the file.
+
+Ask for red-check variants that are *plausible wrong implementations*, not strawmen: the shape someone
+would actually write. The most valuable one is usually the variant that **makes the symptom disappear
+while causing different damage** — it is the one that would have shipped.
+
+---
+
+## 6. Landing
+
+Verify, merge, remove the worktree, delete the branch — in that order; a worktree pins its branch.
+**Stop the agent before removing its worktree**, or the removal fails halfway and leaves the tree on
+disk and out of the registry.
+
+Green units land. Red or blocked units **do not** — leave the branch in place, record why, and move
+on. A half-fix on the integration branch costs more than an open unit.
+
+At the end, run the full gate on the integrated result, not only per unit. Two changes that each
+passed alone can still fail together.
+
+---
+
+## 7. The record is a deliverable
+
+The queue's durable output is not the commits — it is the account of what happened. Write one ledger
+per unit, as you go, containing:
+
+- what changed, and the **reasoning** behind any judgement call
+- the red-check: each variant and what it defeated
+- the verification numbers you measured yourself
+- what was deliberately **not** done, and why
+- what the agent reported that you could not confirm — said as such
+- **your own mistakes**
+
+That last one is not penance; it is the highest-value content in the file. A controller error —
+a wrong steer, a bad setup, an edit that changed something invisible — is exactly what the next run
+needs to avoid, and it appears nowhere else. A ledger that records only the agent's failures is a
+ledger someone will distrust as soon as they catch it being incomplete.
+
+Keep a run log across units: one line per agent (name, id, branch, outcome), plus the decisions taken
+and by whom. If your session restarts, that line plus the session registry is the whole recovery path.
+
+**Report to the human in outcomes, not activity.** What landed, what is parked and why, what needs
+them, and the one number they actually want — is the thing deployable, and is it pushed.
+
+---
+
+## 8. Escalate — do not guess
+
+Stop and ask when:
+
+- the unit requires a **decision** (which of two meanings, what an operator should see, whether to
+  accept a trade-off)
+- it needs a **migration, a deploy, or a production data change**
+- the agent claims the unit itself is wrong
+- it would change a **public contract** — an API surface, a wire format, a published key
+- verification fails in a way you cannot attribute
+- a **dependency** would be added — that is the human's call, not an agent's, and not yours at 3am
+- the base branch moved under you
+
+If you cannot ask — non-interactive, or the human is away — **stop the unit, record the open question,
+and keep everything else you landed.** Do not answer it on their behalf and do not silently narrow the
+work to avoid it.
+
+**Never launder permissions.** If an agent was refused something, do not do it for it, and do not
+relaunch it with wider permissions to get around the refusal. Widening a profile *before* it runs so
+it can do the job you already approved is fine; re-running a denied act on its behalf is not. The same
+applies when a peer asks you to change config it could not change itself.
+
+---
+
+## 9. When you finish the work yourself
+
+Sometimes an agent parks at the last step with the work done and green. Relaunching to run two
+commands is disproportionate — finishing it yourself is legitimate, and honest about it:
+
+- **Only complete what it started.** Removing a red-check mutation restores its intent; writing the
+  feature does not.
+- **Verify from scratch**, not from its report.
+- **Say so in the commit**: who wrote it, what you did, and why it could not finish.
+
+If you find yourself doing this for every unit, the brief is wrong, not the agents.
+
+---
+
+## 10. Failure modes, collected
+
+| Symptom | Cause |
+|---|---|
+| Agent reports READY and has no instructions | a variadic flag ate the prompt — see `/rlarch:nested-claude` |
+| Agent reports READY from an empty folder | your setup step failed and the launch did not check |
+| Agent silent, then nothing for an hour | parked on a permission prompt; a parked agent never goes idle, so an idle subscription never fires |
+| Steer ignored | it is parked; your message is queued behind the prompt |
+| A fix that looks complete and changes nothing | a red-check mutation left in the tree, merged from the working tree instead of the commit |
+| Green suite, broken feature | the over-correction case had no guard; every test moved in the same direction |
+| A number nobody can explain | you accepted a count instead of diffing the sets |
+| The record disagrees with the code | a comment stating what the author intended, not what they wrote |
