@@ -273,6 +273,17 @@ never set it. The comment was the only thing that revealed the gap; the code, th
 were all internally consistent without it. An agent describing what it built is telling you what it
 *believes* it built.
 
+**Mind how YOU edit the agent's tree.** Finishing a parked agent's work usually means editing files
+yourself, and a read-then-write script silently rewrites line endings: Python's `open().read()` applies
+universal-newline translation, so writing back converts a CRLF file to LF. That is invisible in
+markdown, because git normalises on commit — and **not** invisible in any language where a
+raw/verbatim string literal carries its file's endings into runtime output: C# `"""`, Go backticks,
+JS template literals, Python triple quotes. On 2026-09-11 that changed the text of a prompt sent to a
+model, in the working tree only, and was caught solely because the repo had a byte-for-byte snapshot
+test whose expected value was **transcribed literally rather than captured** — its author had written
+that a captured snapshot *"would re-bless whatever the builder happens to emit"*, and they were right.
+Prefer in-place edits; if you must script one, check the endings afterwards.
+
 **Your steer can be wrong, and a wrong steer gets baked into a commit message.** A steer once asserted
 that a builder ran "per turn" — true on two transports, false on the one under discussion — and the
 agent would have repeated it as justification. Verify a claim before you send it; if you find out
