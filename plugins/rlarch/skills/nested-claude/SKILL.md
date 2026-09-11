@@ -262,6 +262,45 @@ yours to give.
 Anchor a steer to the brief — *"re-read the ### Fix section"* beats a paragraph of new instruction,
 which competes with the brief rather than correcting it.
 
+**Read the comments the agent writes as claims to check, not as decoration.** One agent documented a
+new flag as *"set by the kiosk pick, the menu node, and `set_conversation_language`"* — and the tool
+never set it. The comment was the only thing that revealed the gap; the code, the tests and the report
+were all internally consistent without it. An agent describing what it built is telling you what it
+*believes* it built.
+
+**Your steer can be wrong, and a wrong steer gets baked into a commit message.** A steer once asserted
+that a builder ran "per turn" — true on two transports, false on the one under discussion — and the
+agent would have repeated it as justification. Verify a claim before you send it; if you find out
+afterwards, send the correction *before* it commits, and say plainly which part was wrong. An agent
+will take your word over the code, which is exactly why your word has to be checked.
+
+### When the agent cannot run the gate
+
+Sometimes the check that matters is one the agent has no way to execute — a frontend typecheck with no
+`node_modules`, an integration suite needing a service, a build only the controller can do. The wrong
+answers are to skip it, or to let the agent hand you an unverified leg and call it done.
+
+**Make it predict the gate's output, precisely enough to be wrong.** Then run the gate and compare.
+The brief says: *"you will not run the typecheck — the controller does, after the merge. Your report
+must state exactly what you expect it to say."* A prediction that matches is evidence; one that does
+not is a finding. Either way the agent has had to think about the whole surface rather than the line
+it changed.
+
+**Where no harness exists and building one is scope creep, demand an enumeration instead.** For a
+five-line error handler, "write a test" means building a rig around a hook that has none. What is
+actually wanted is: *what does this render for every shape the input can take?* A table of
+`err.error.message` / `err.message` / only `err.type` / none of them / a circular object, checked
+against the diff, catches more than a test of the happy path would — and it surfaced two edges the
+author had not stated (an empty-string field does not fall through `??`; an `Error` with no message
+stringifies to `{}`).
+
+**When nothing can catch a wrong guess, redundancy is the gate — and the agent should say so.** One
+agent could not confirm an SDK's field names by reading, and noted that a typecheck could not have
+caught a wrong name either, because the objects were `any`. So it recorded the value it needed from
+two independent points, each guarded, so either alone sufficed and a wrong name degraded to the old
+behaviour rather than throwing. That is the right shape for an unverifiable assumption: make being
+wrong survivable, and declare it.
+
 ---
 
 ## 5. Watch
@@ -428,6 +467,10 @@ already there.
   why it landed there. It rides into the collector with the merge.
 - Sweep before the next round: `git worktree list` and `git branch --list` show what the last round
   left behind. Remove the worktree before deleting its branch — a worktree pins it.
+- **Reclaim what the toolchain leaves running.** Each agent building into its own output directory can
+  leave its own compiler/build server behind. A twelve-fix run accumulated 28 processes holding 5.4 GB
+  and the machine began killing background tasks mid-verification. Whatever your toolchain's
+  equivalent of `dotnet build-server shutdown` is, run it between agents.
 
 When you do run several: distinct `-Name` each, keep each returned object, and branch each one off the
 previous agent's branch rather than the base, so conflicts get resolved once by the agent that caused
@@ -490,6 +533,31 @@ The launcher prepends the protocol; your file supplies the work. A good brief:
 - **Routes artifacts it may not be able to write.** If a path might be denied — `.claude/` was — ask
   for the content in the `DONE` report and file it yourself, rather than discovering at the end that
   the record does not exist.
+
+- **Names the environment's noise.** An agent parks wherever the environment says something it cannot
+  interpret and the brief is silent. One parked investigating `LF will be replaced by CRLF` warnings
+  that appear on every commit in that repo and mean nothing. If your repo emits a benign signal
+  routinely, say so and say what to do instead of looking into it.
+
+### The rule underneath all of these
+
+**Every rule you add to a brief is a potential park, because a rule that demands a capability the
+agent does not have is a trap you set yourself.**
+
+That is not a reason to write fewer rules. It is a reason to write each one as a *route* rather than a
+*prohibition*:
+
+| Prohibition that parked an agent | The rule that works |
+|---|---|
+| "no pipes" | "no pipes — narrow with the tool's own `--filter`" |
+| "commit with `-F <file>`" | "…to a path **inside your worktree**" |
+| "delete the scratch file afterwards" | "leave it; the controller removes it" — deletion was never granted |
+| "do not change that warning count" | "the controller checks the count" — it had no way to read one |
+| "do NOT create a worktree" | exactly backwards: a `--bg` agent **must** have one |
+
+Each of those was added to prevent a real problem and caused the next one. After eleven parks in one
+round and zero in the next, the difference was not the harness — it was that every rule finally
+carried its sanctioned route.
 
 Keep it in a file: it is what the agent reads, what `-KeepBrief` preserves, and what you diff against
 when the result surprises you.
