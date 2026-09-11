@@ -101,7 +101,7 @@ $readonly = @(
     "Bash(ls:*)", "Bash(cat:*)", "Bash(head:*)", "Bash(tail:*)", "Bash(grep:*)", "Bash(rg:*)",
     "Bash(find:*)", "Bash(wc:*)", "Bash(sed:-n *)", "Bash(echo:*)", "Bash(which:*)",
     "Bash(git status:*)", "Bash(git diff:*)", "Bash(git log:*)", "Bash(git show:*)",
-    "Bash(git branch:*)", "Bash(git rev-parse:*)",
+    "Bash(git branch:*)", "Bash(git rev-parse:*)", "Bash(git ls-files:*)",
     # On Windows the agent reaches for the PowerShell tool as readily as Bash, and a Bash(...)
     # pattern does not cover it. Note this only widens the allow-list: some prompts come from tool
     # guards rather than the allow-list ("script block that may execute arbitrary code") and no

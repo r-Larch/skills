@@ -176,6 +176,10 @@ so the brief has to say what to do instead — narrow with the *tool's* own argu
 (`--filter`, `--max-count`, `-n`), never the shell's. A brief that forbids pipes without offering the
 filter form gets ignored at exactly the moment it matters.
 
+**And say which tool replaces the shell.** An agent reaches for `git ls-files` or `find` to locate
+files because nothing told it there is a `Glob`. A prohibition on shell shapes without naming
+`Glob`/`Grep`/`Read` as the route leaves it improvising with the thing it has already been refused.
+
 The general form, which an agent can apply to shapes you did not foresee:
 
 > Run the simplest command that does the job, from where you already are. If you are telling a tool
