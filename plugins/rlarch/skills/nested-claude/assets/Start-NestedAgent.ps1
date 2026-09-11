@@ -27,7 +27,19 @@ param(
 
     [string]   $RepoRoot       = (Get-Location).Path,
     [string]   $PermissionMode = "acceptEdits",
+
+    # A named tool profile, merged with -AllowedTools. A --bg agent has no human at its keyboard, so
+    # the FIRST shell call it has not been granted parks it - see the -Toolset table in SKILL.md.
+    # "none" is only right for an agent that never shells out.
+    [ValidateSet("none","readonly","fix")]
+    [string]   $Toolset        = "fix",
+
     [string[]] $AllowedTools   = @(),
+
+    # Extra directories the agent may read. An allow-list grants TOOLS, not PATHS: `Bash(ls:*)` still
+    # prompts the moment the target is outside -RepoRoot. Package caches are the usual case.
+    [string[]] $AddDir         = @(),
+
     [switch]   $Watch
 )
 
@@ -35,6 +47,15 @@ $ErrorActionPreference = "Stop"
 
 if (-not (Get-Command claude -ErrorAction SilentlyContinue)) { throw "claude is not on PATH." }
 if (-not (Test-Path $PromptFile)) { throw "Prompt file not found: $PromptFile" }
+
+# -RepoRoot must already be a working tree. Without this check a failed `git worktree add` upstream
+# still yields a launch: the brief directory is created with -Force, the agent starts in a folder
+# holding nothing but its own brief, and reports READY. A setup failure must not produce a confident
+# agent - it must fail here, loudly, before anything is spawned.
+if (-not (Test-Path $RepoRoot)) { throw "-RepoRoot does not exist: $RepoRoot. Did `git worktree add` fail?" }
+if (-not (Test-Path (Join-Path $RepoRoot ".git"))) {
+    throw "-RepoRoot is not a git working tree: $RepoRoot. A --bg agent must be launched inside one - see SKILL.md section 7."
+}
 if ($Controller -notmatch '^\S.*\s\[[0-9a-f]{6}\]$') {
     throw "-Controller must include the ref, e.g. 'my-session [9825b9]'. Run ListAgents and copy the first line."
 }
@@ -73,8 +94,47 @@ Set-Content -Path $briefPath -Value ($header + (Get-Content -Raw -Encoding UTF8 
 
 # One quote-free line naming the brief. A multi-line prompt passed positionally is truncated at its
 # first quote, and this brief's own header contains quotes.
-$args = @("--bg", "--name", $Name, "--permission-mode", $PermissionMode)
-if ($AllowedTools.Count) { $args += @("--allowedTools") + $AllowedTools }
+# Read-only exploration an agent reaches for without thinking. Without these it parks on its first
+# `ls`, and claude agents --json shows status=waiting, waitingFor="permission prompt".
+$readonly = @(
+    "Read", "Glob", "Grep",
+    "Bash(ls:*)", "Bash(cat:*)", "Bash(head:*)", "Bash(tail:*)", "Bash(grep:*)", "Bash(rg:*)",
+    "Bash(find:*)", "Bash(wc:*)", "Bash(sed:-n *)", "Bash(echo:*)", "Bash(which:*)",
+    "Bash(git status:*)", "Bash(git diff:*)", "Bash(git log:*)", "Bash(git show:*)",
+    "Bash(git branch:*)", "Bash(git rev-parse:*)", "Bash(git ls-files:*)",
+    # On Windows the agent reaches for the PowerShell tool as readily as Bash, and a Bash(...)
+    # pattern does not cover it. Note this only widens the allow-list: some prompts come from tool
+    # guards rather than the allow-list ("script block that may execute arbitrary code") and no
+    # profile clears those - the brief has to stop the agent wanting them. See SKILL.md §3.
+    "PowerShell(Get-ChildItem:*)", "PowerShell(Get-Content:*)", "PowerShell(Select-String:*)",
+    "PowerShell(Test-Path:*)", "PowerShell(Get-Command:*)", "PowerShell(git status:*)",
+    "PowerShell(git diff:*)", "PowerShell(git log:*)"
+)
+# Writing and verifying. `git push` is deliberately absent and must stay absent: an allow-list is the
+# only thing between a nested agent and a remote its controller was told never to touch.
+$fix = $readonly + @(
+    "Write", "Edit",
+    "Bash(git add:*)", "Bash(git commit:*)",
+    "Bash(dotnet build:*)", "Bash(dotnet test:*)", "Bash(pnpm run:*)",
+    "PowerShell(git add:*)", "PowerShell(git commit:*)",
+    "PowerShell(dotnet build:*)", "PowerShell(dotnet test:*)"
+)
+$tools = switch ($Toolset) {
+    "readonly" { $readonly }
+    "fix"      { $fix }
+    default    { @() }
+}
+$tools = @($tools + $AllowedTools | Select-Object -Unique)
+
+# --allowedTools is variadic too, so a flag has to follow it or it eats the prompt exactly the way
+# --add-dir does. --permission-mode is that flag; do not move it back above.
+# Both --allowedTools and --add-dir are variadic. They are safe ONLY because each is followed by
+# another flag: --add-dir closes --allowedTools, and --permission-mode closes --add-dir. The prompt
+# comes last, after a flag that takes exactly one value. Reorder this and the prompt disappears.
+$args = @("--bg", "--name", $Name)
+if ($tools.Count)   { $args += @("--allowedTools") + $tools }
+if ($AddDir.Count)  { $args += @("--add-dir") + $AddDir }
+$args += @("--permission-mode", $PermissionMode)
 $args += "Read the file $briefPath and follow it exactly. It is your brief. Start now."
 
 Push-Location $RepoRoot
