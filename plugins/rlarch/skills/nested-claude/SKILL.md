@@ -374,6 +374,11 @@ Either way, two things the fresh worktree does not have and your build does:
 - **Gitignored local files.** Copy them in — a `secrets.json`, a local `appsettings`. Integration
   tests that resolve a real connection fail in a confusing way without them. Confirm with
   `git check-ignore -v <file>` in the worktree that what you copied still cannot be committed.
+- **Installed dependencies.** `node_modules`, a virtualenv, a vendor directory: none of them exist in
+  a fresh worktree, so any check that needs them cannot run there. Decide before you launch — seed
+  the worktree, or keep that check for yourself and **say so in the brief**. Do not leave the agent
+  to find out at the end, and do not let it install its way out: hundreds of megabytes written into a
+  throwaway tree is not an agent's call to make.
 - **A build output path of its own.** Two trees writing one `BaseOutputPath` collide. Give the agent
   a distinct one.
 
