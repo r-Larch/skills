@@ -133,6 +133,11 @@ The tell is in `claude agents --json`:
 **`git push` is deliberately absent from every profile.** An allow-list is the only thing between a
 nested agent and a remote its controller was told never to touch. Do not add it.
 
+**A package manager is a runner too.** `pnpm run <script>` executes whatever `package.json` says, and
+Gaia's `all` script starts `dotnet run` — production. Grant the exact script an agent needs
+(`pnpm --dir Gaia.Client run ts:*`), never `pnpm:*`. Note that the `--dir` it needs to avoid `cd` is
+itself a flag before the subcommand, so it has to be spelled out in the pattern.
+
 **Nor is `dotnet tool run`, and that one is easy to miss.** A repo's `.config/dotnet-tools.json` is a
 list of commands the agent can reach by another name — Gaia's holds `dotnet-ef`, so granting
 `dotnet tool` would hand back the production database you just forbade. Before you widen a profile
