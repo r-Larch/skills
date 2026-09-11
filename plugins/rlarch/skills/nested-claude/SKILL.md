@@ -389,6 +389,17 @@ Either way, two things the fresh worktree does not have and your build does:
   the worktree, or keep that check for yourself and **say so in the brief**. Do not leave the agent
   to find out at the end, and do not let it install its way out: hundreds of megabytes written into a
   throwaway tree is not an agent's call to make.
+
+  ⚠ **Do not seed it with a symlink or junction.** It is the obvious trick and it is a trap:
+  `git worktree remove --force` **follows the link and deletes the target**. On 2026-09-11 that
+  removed the main checkout's real `node_modules` — recoverable with a reinstall, but only because
+  the target happened to be regenerable. Point it at something that is not, and the cleanup step eats
+  your work.
+
+  If you seed by linking anyway, the link must be **unlinked as a link** before the worktree is
+  removed — `cmd /c rmdir <path>` on Windows, `rm <path>` (no `-r`) elsewhere — and never delete a
+  worktree containing one with `rm -rf`. Safer default: **the controller runs the check that needs
+  the dependencies**, and the brief says so.
 - **A build output path of its own.** Two trees writing one `BaseOutputPath` collide. Give the agent
   a distinct one.
 
