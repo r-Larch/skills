@@ -179,8 +179,13 @@ The general form, which an agent can apply to shapes you did not foresee:
 with *"Command too long for parsing"* and prompts regardless of content — which a `git commit -m` with
 a real commit message reaches easily, and a heredoc or PowerShell here-string reaches faster. So:
 
-> Commit with `git commit -F <file>` — write the message with `Write` first. Never an inline `-m`
-> with a long body, no heredocs, no here-strings.
+> Commit with `git commit -F <file>` — write the message with `Write` first, **to a path inside your
+> worktree**, and delete it afterwards. Never an inline `-m` with a long body, no heredocs, no
+> here-strings.
+
+The "inside your worktree" half is not fussiness: `Write` is granted as a *tool*, and the path rule
+is separate, so a scratch file anywhere else parks the agent at the very last step — after the work
+is done and before it is committed, which is the most expensive moment to lose it.
 
 And add the critical path, because most parks are the agent exploring rather than working:
 
