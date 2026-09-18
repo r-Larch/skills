@@ -33,4 +33,17 @@ public static class ProbeTokens
 
     /// <summary>Emitted by <c>probe_writer_only</c>, which only a writer token may call.</summary>
     public const string WriterOnly = "WSPROBE-WRITER-66DC2E";
+
+    // Round 2. Round 1 established that structuredContent REPLACES content rather than accompanying
+    // it, which invalidates docs/workstate/01-mcp-surface.md §2. One marker per candidate remedy:
+    // whichever reaches the model is the output contract the real tools must use.
+
+    /// <summary>Remedy A — text only, no structuredContent at all.</summary>
+    public const string RemedyTextOnly = "WSPROBE-RA-TEXTONLY-77E1D2";
+
+    /// <summary>Remedy B — the compact rendering carried INSIDE structuredContent, as `render`.</summary>
+    public const string RemedyRenderInJson = "WSPROBE-RB-RENDER-88F3C4";
+
+    /// <summary>Remedy C — the same rendering duplicated into both halves.</summary>
+    public const string RemedyDuplicated = "WSPROBE-RC-DUPE-99A5B6";
 }

@@ -132,15 +132,47 @@ at 40 lines on the assumption that it is always in context.
 
 ## 5. Observations
 
+Run **2026-09-18** against Claude Code. Observer session `wsprobe-observer` (`5b13092e`), read-only.
+The server side was independently green first — `dotnet test` 9/9 proves the server *sends* all of
+this over the real transport. Everything below is therefore about the **client**, not the server.
+
 | # | Question | Observed | Consequence for the design |
 |---|---|---|---|
-| Q0 | Does `ServerInstructions` reach the model, under what heading, truncated? | | |
-| Q1 | Text, JSON, or both? Is `outputSchema` shown? | | |
-| Q2 | Is a tool's `resource_link` rendered / followable? | | |
-| Q3 | Do server prompts appear, and how are they invoked? | | |
-| Q4 | Do fixed resources appear, and are they attachable? | | |
-| Q5 | Do templates appear? Is `{id}` completed? | | |
-| Q6 | Is a writer-only tool hidden from a reader's `tools/list`, or only refused on call? | | |
+| Q0 | `ServerInstructions` reach the model? | **YES.** Under top-level `# MCP Server Instructions`, sub-heading `## workstate-probe`. **Complete, not truncated** — all 15 non-blank lines. Appears **once per registered server**. | `docs/workstate/04` §1 holds. The budget is **per registration**, so ≤40 lines is right. **The strongest channel we have.** |
+| Q1 | Text, JSON, or both? | **JSON ONLY.** `WSPROBE-JSON-D4E5F6` arrived; `WSPROBE-TEXT-A1B2C3` **never did** — absent, not truncated. `probe_link`'s text line *did* arrive, and it carries no `structuredContent`. | ⛔ **`structuredContent` REPLACES `content`.** This **invalidates `docs/workstate/01` §2** as written. See §6. |
+| Q1b | Is `outputSchema` visible to the model? | **NO.** The model sees description + input parameters only. | `OutputSchemaType` serves validating clients, not the model. Spend no explanation budget there. |
+| Q2 | Is a `resource_link` rendered / followable? | **PARTIAL.** Rendered as a labelled bare URI in text: `[Resource link: probe_fixed] work://probe/fixed`. No followable affordance, nothing inlined. Retrievable in a second step via `ReadMcpResourceTool` — but only by an agent that already knows that tool exists. | The saving is **real but not free**: the tool description must name the follow-up call, or the link is a dead end. |
+| Q3 | Do server prompts appear? | **NO. Invisible in every channel** — absent from the tool list and the skills listing, not invokable (`Unknown skill`). `WSPROBE-PROMPT-22C4D5` unobtainable. | ⛔ **`docs/workstate/01` §9's seven prompts are dead weight in this client.** Their content moves into tool descriptions and `work_brief` output. `04` §5 called this the least certain channel; it was right. |
+| Q4 | Do fixed resources appear? | **YES.** Listed via `ListMcpResourcesTool`, readable, `WSPROBE-RES-FIXED-33E6F7` obtained. Identical on both servers. | `01` §8's fixed projections work. Keep them. |
+| Q5 | Templates? Completion? | **PARTIAL.** The template is **not listed anywhere** — `resources/list` returns the fixed resource only. But `work://probe/alpha` **reads fine if guessed**: `WSPROBE-RES-TMPL-44A8B9`. **Completion: no client mechanism at all** (`ReadMcpResourceDirTool` → *"Directory listing is not enabled in this build"*). | Templates are **readable but undiscoverable** — useful only when the model was handed the exact URI by a tool result or `ServerInstructions`. **Drop the completions plan** (`01` §8). |
+| Q5b | Shadowing: which answers `work://probe/fixed`? | **The fixed resource**, not the template. | Settles `work://workspace/{slug}` vs its sub-paths: **exact matches win.** |
+| Q6 | Writer-only tool: hidden, or refused on call? | **HIDDEN.** Reader sees 2 tools, writer 3. The reader could not even attempt a call — the harness refused locally (*"No such tool available"*), so no request reached the server. | ✅ **`01` §6 works as designed, with `[Authorize]` alone. `WithListToolsHandler` is NOT needed** — U3 is simpler than planned. Lists are per-registration, so no cross-token cache issue. |
 
-When this table is filled in, `docs/workstate/01` §9 and §6 and `docs/workstate/04` §5 get corrected
-where they were wrong, and Phase 0 closes.
+---
+
+## 6. ⛔ The finding that changes the design
+
+**`structuredContent` replaces the text block rather than accompanying it.**
+
+`probe_echo` returns both; the model received only the JSON. `probe_link` returns text and **no**
+`structuredContent`, and its text arrived verbatim. That rules out general text suppression and makes
+the rule specific: **when `structuredContent` is present, `content` is dropped.**
+
+`docs/workstate/01` §2 chose *"compact text in `content`, JSON in `structuredContent`, deliberately
+not duplicated"* to halve the token cost of the most-called tool. **As written, that makes the compact
+rendering invisible to the model** — and with it the `attention` block, which is the nag channel the
+entire forced-closure story leans on.
+
+The server is not at fault: the suite proves both halves go out on the wire correctly. This is a
+client rendering rule, and it is exactly the class of fact that cannot be found by reading a
+specification. **This is why the probe ran before the product code.**
+
+### Remedies — settled by probe round 2
+
+| | Shape | Cost |
+|---|---|---|
+| **A** | **Text only.** No `structuredContent` on read tools; the compact rendering is the product. | Loses typed output for programmatic clients — but the dashboard uses the App API, not MCP, so the loss may be zero. |
+| **B** | **Render inside the JSON.** `structuredContent = { "render": "<compact text>", "items": [...] }` | Model reads `render`, machines read `items`. One payload, both audiences. |
+| **C** | Duplicate into both, per the spec's back-compat `SHOULD`. | Pays exactly the token cost §2 existed to avoid. |
+
+**U3 must not build a renderer until this is settled.**

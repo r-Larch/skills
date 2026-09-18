@@ -88,6 +88,72 @@ public static class ProbeTools
             ],
         };
 
+    [McpServerTool(
+        Name = "probe_remedy_a",
+        Title = "Probe R2-A: text only, no structuredContent",
+        ReadOnly = true)]
+    [Description("""
+        PROBE ROUND 2, remedy A — text only. No structuredContent at all, so nothing can replace
+        the text block. Carries WSPROBE-RA-TEXTONLY-77E1D2.
+        """)]
+    public static CallToolResult RemedyA()
+        => new()
+        {
+            Content =
+            [
+                new TextContentBlock
+                {
+                    Text = $"2.3  task   done      EntityProjector   {ProbeTokens.RemedyTextOnly}\n"
+                         + "--- attention (1) ---\nA3 past revisit_when - work_assume resolve",
+                },
+            ],
+        };
+
+    [McpServerTool(
+        Name = "probe_remedy_b",
+        Title = "Probe R2-B: the rendering carried inside structuredContent",
+        ReadOnly = true,
+        UseStructuredContent = true)]
+    [Description("""
+        PROBE ROUND 2, remedy B — the compact rendering lives INSIDE structuredContent, as the
+        `render` field, beside the typed `items`. Carries WSPROBE-RB-RENDER-88F3C4 in `render`
+        and WSPROBE-RB-RENDER-88F3C4-ITEMS in the typed half, so the two are distinguishable.
+        """)]
+    public static CallToolResult RemedyB()
+    {
+        var payload = new
+        {
+            render = $"2.3  task   done      EntityProjector   {ProbeTokens.RemedyRenderInJson}\n"
+                   + "--- attention (1) ---\nA3 past revisit_when - work_assume resolve",
+            items = new[] { new { r = "2.3", status = "done", token = $"{ProbeTokens.RemedyRenderInJson}-ITEMS" } },
+        };
+
+        return new CallToolResult
+        {
+            Content = [new TextContentBlock { Text = "(remedy B: everything is in structuredContent)" }],
+            StructuredContent = JsonSerializer.SerializeToElement(payload, ProbeJson.Options),
+        };
+    }
+
+    [McpServerTool(
+        Name = "probe_remedy_c",
+        Title = "Probe R2-C: the same rendering duplicated into both halves",
+        ReadOnly = true,
+        UseStructuredContent = true)]
+    [Description("""
+        PROBE ROUND 2, remedy C — the spec's back-compat SHOULD: the same content in the text block
+        and in structuredContent. Carries WSPROBE-RC-DUPE-99A5B6 in both.
+        """)]
+    public static CallToolResult RemedyC()
+    {
+        var render = $"2.3  task   done      EntityProjector   {ProbeTokens.RemedyDuplicated}";
+        return new CallToolResult
+        {
+            Content = [new TextContentBlock { Text = render }],
+            StructuredContent = JsonSerializer.SerializeToElement(new { render }, ProbeJson.Options),
+        };
+    }
+
     [Authorize(Policy = WorkStatePolicies.Writer)]
     [McpServerTool(
         Name = "probe_writer_only",
