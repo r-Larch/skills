@@ -36,6 +36,105 @@ namespace WorkState.Core.Migrations
             NpgsqlModelBuilderExtensions.HasPostgresExtension(modelBuilder, "pg_trgm");
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
+            modelBuilder.Entity("WorkState.Core.Domain.Artifact", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("At")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("at")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<Guid>("ItemId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("item_id");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("kind");
+
+                    b.Property<string>("Meta")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("meta")
+                        .HasDefaultValueSql("'{}'::jsonb");
+
+                    b.Property<string>("Value")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("value");
+
+                    b.HasKey("Id")
+                        .HasName("pk_artifact");
+
+                    b.HasIndex("ItemId", "Kind")
+                        .HasDatabaseName("artifact_item_idx");
+
+                    b.ToTable("artifact", (string)null);
+                });
+
+            modelBuilder.Entity("WorkState.Core.Domain.Attempt", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("AgentKind")
+                        .HasColumnType("text")
+                        .HasColumnName("agent_kind");
+
+                    b.Property<string>("AgentName")
+                        .HasColumnType("text")
+                        .HasColumnName("agent_name");
+
+                    b.Property<Guid?>("BriefDocId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("brief_doc_id");
+
+                    b.Property<DateTimeOffset?>("EndedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("ended_at");
+
+                    b.Property<Guid>("ItemId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("item_id");
+
+                    b.Property<int>("N")
+                        .HasColumnType("integer")
+                        .HasColumnName("n");
+
+                    b.Property<string>("Outcome")
+                        .HasColumnType("text")
+                        .HasColumnName("outcome");
+
+                    b.Property<string>("SessionId")
+                        .HasColumnType("text")
+                        .HasColumnName("session_id");
+
+                    b.Property<DateTimeOffset>("StartedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("started_at")
+                        .HasDefaultValueSql("now()");
+
+                    b.HasKey("Id")
+                        .HasName("pk_attempt");
+
+                    b.HasIndex("BriefDocId")
+                        .HasDatabaseName("ix_attempt_brief_doc_id");
+
+                    b.HasIndex("ItemId", "N")
+                        .IsUnique()
+                        .HasDatabaseName("ix_attempt_item_id_n");
+
+                    b.ToTable("attempt", (string)null);
+                });
+
             modelBuilder.Entity("WorkState.Core.Domain.Doc", b =>
                 {
                     b.Property<Guid>("Id")
@@ -187,6 +286,68 @@ namespace WorkState.Core.Migrations
                     b.ToTable("doc_block_revision", (string)null);
                 });
 
+            modelBuilder.Entity("WorkState.Core.Domain.Event", b =>
+                {
+                    b.Property<long>("Seq")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("seq");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityAlwaysColumn(b.Property<long>("Seq"));
+
+                    b.Property<string>("Actor")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("actor");
+
+                    b.Property<DateTimeOffset>("At")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("at")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<Guid?>("ItemId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("item_id");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("kind");
+
+                    b.Property<string>("Payload")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("payload")
+                        .HasDefaultValueSql("'{}'::jsonb");
+
+                    b.Property<ActorRole>("Role")
+                        .HasColumnType("actor_role")
+                        .HasColumnName("role");
+
+                    b.Property<string>("Summary")
+                        .HasColumnType("text")
+                        .HasColumnName("summary");
+
+                    b.Property<Guid>("WorkspaceId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("workspace_id");
+
+                    b.HasKey("Seq")
+                        .HasName("pk_event");
+
+                    b.HasIndex("ItemId", "Seq")
+                        .IsDescending(false, true)
+                        .HasDatabaseName("event_item_seq_idx");
+
+                    b.HasIndex("WorkspaceId", "Seq")
+                        .IsDescending(false, true)
+                        .HasDatabaseName("event_ws_seq_idx");
+
+                    b.ToTable("event", (string)null);
+                });
+
             modelBuilder.Entity("WorkState.Core.Domain.Item", b =>
                 {
                     b.Property<Guid>("Id")
@@ -195,7 +356,7 @@ namespace WorkState.Core.Migrations
 
                     b.PrimitiveCollection<Guid[]>("Ancestors")
                         .IsRequired()
-                        .ValueGeneratedOnAdd()
+                        .ValueGeneratedOnAddOrUpdate()
                         .HasColumnType("uuid[]")
                         .HasColumnName("ancestors")
                         .HasDefaultValueSql("'{}'::uuid[]");
@@ -253,6 +414,7 @@ namespace WorkState.Core.Migrations
                         .HasColumnName("ref");
 
                     b.Property<Guid?>("RefScopeId")
+                        .ValueGeneratedOnAddOrUpdate()
                         .HasColumnType("uuid")
                         .HasColumnName("ref_scope_id");
 
@@ -406,6 +568,9 @@ namespace WorkState.Core.Migrations
                     b.HasKey("Id")
                         .HasName("pk_item_criterion");
 
+                    b.HasIndex("EvidenceVerificationId")
+                        .HasDatabaseName("ix_item_criterion_evidence_verification_id");
+
                     b.HasIndex("ItemId")
                         .HasDatabaseName("item_criterion_open_idx")
                         .HasFilter("NOT checked");
@@ -554,6 +719,60 @@ namespace WorkState.Core.Migrations
                     b.ToTable("project_config", (string)null);
                 });
 
+            modelBuilder.Entity("WorkState.Core.Domain.Report", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("At")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("at")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<Guid>("AttemptId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("attempt_id");
+
+                    b.Property<string>("Deviations")
+                        .HasColumnType("text")
+                        .HasColumnName("deviations");
+
+                    b.Property<string>("Files")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("files")
+                        .HasDefaultValueSql("'[]'::jsonb");
+
+                    b.Property<string>("NotDone")
+                        .HasColumnType("text")
+                        .HasColumnName("not_done");
+
+                    b.Property<string>("Raw")
+                        .HasColumnType("text")
+                        .HasColumnName("raw");
+
+                    b.Property<string>("Risks")
+                        .HasColumnType("text")
+                        .HasColumnName("risks");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("status");
+
+                    b.HasKey("Id")
+                        .HasName("pk_report");
+
+                    b.HasIndex("AttemptId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_report_attempt_id");
+
+                    b.ToTable("report", (string)null);
+                });
+
             modelBuilder.Entity("WorkState.Core.Domain.RunConfig", b =>
                 {
                     b.Property<Guid>("ItemId")
@@ -606,6 +825,76 @@ namespace WorkState.Core.Migrations
                     b.ToTable("run_config", (string)null);
                 });
 
+            modelBuilder.Entity("WorkState.Core.Domain.Verification", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("At")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("at")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<Guid?>("AttemptId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("attempt_id");
+
+                    b.Property<string>("Command")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("command");
+
+                    b.Property<string>("Counts")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("counts");
+
+                    b.Property<Guid>("ItemId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("item_id");
+
+                    b.Property<bool>("Passed")
+                        .HasColumnType("boolean")
+                        .HasColumnName("passed");
+
+                    b.Property<string>("RedCheck")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("red_check");
+
+                    b.Property<string>("ResultLine")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("result_line");
+
+                    b.Property<VerifyRunner>("RunBy")
+                        .HasColumnType("verify_runner")
+                        .HasColumnName("run_by");
+
+                    b.Property<string>("Samples")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("samples");
+
+                    b.Property<Guid>("WorkspaceId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("workspace_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_verification");
+
+                    b.HasIndex("AttemptId")
+                        .HasDatabaseName("ix_verification_attempt_id");
+
+                    b.HasIndex("ItemId", "At")
+                        .IsDescending(false, true)
+                        .HasDatabaseName("verification_item_idx");
+
+                    b.HasIndex("WorkspaceId", "Command", "Passed")
+                        .HasDatabaseName("verification_cmd_idx");
+
+                    b.ToTable("verification", (string)null);
+                });
+
             modelBuilder.Entity("WorkState.Core.Domain.Workspace", b =>
                 {
                     b.Property<Guid>("Id")
@@ -642,6 +931,32 @@ namespace WorkState.Core.Migrations
                     b.ToTable("workspace", (string)null);
                 });
 
+            modelBuilder.Entity("WorkState.Core.Domain.Artifact", b =>
+                {
+                    b.HasOne("WorkState.Core.Domain.Item", null)
+                        .WithMany()
+                        .HasForeignKey("ItemId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_artifact_item_item_id");
+                });
+
+            modelBuilder.Entity("WorkState.Core.Domain.Attempt", b =>
+                {
+                    b.HasOne("WorkState.Core.Domain.Doc", null)
+                        .WithMany()
+                        .HasForeignKey("BriefDocId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .HasConstraintName("fk_attempt_doc_brief_doc_id");
+
+                    b.HasOne("WorkState.Core.Domain.Item", null)
+                        .WithMany()
+                        .HasForeignKey("ItemId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_attempt_item_item_id");
+                });
+
             modelBuilder.Entity("WorkState.Core.Domain.Doc", b =>
                 {
                     b.HasOne("WorkState.Core.Domain.Item", null)
@@ -676,6 +991,22 @@ namespace WorkState.Core.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("fk_doc_block_revision_doc_block_block_id");
+                });
+
+            modelBuilder.Entity("WorkState.Core.Domain.Event", b =>
+                {
+                    b.HasOne("WorkState.Core.Domain.Item", null)
+                        .WithMany()
+                        .HasForeignKey("ItemId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .HasConstraintName("fk_event_item_item_id");
+
+                    b.HasOne("WorkState.Core.Domain.Workspace", null)
+                        .WithMany()
+                        .HasForeignKey("WorkspaceId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_event_workspace_workspace_id");
                 });
 
             modelBuilder.Entity("WorkState.Core.Domain.Item", b =>
@@ -715,6 +1046,12 @@ namespace WorkState.Core.Migrations
 
             modelBuilder.Entity("WorkState.Core.Domain.ItemCriterion", b =>
                 {
+                    b.HasOne("WorkState.Core.Domain.Verification", null)
+                        .WithMany()
+                        .HasForeignKey("EvidenceVerificationId")
+                        .OnDelete(DeleteBehavior.SetNull)
+                        .HasConstraintName("item_criterion_evidence_fk");
+
                     b.HasOne("WorkState.Core.Domain.Item", null)
                         .WithMany()
                         .HasForeignKey("ItemId")
@@ -757,6 +1094,16 @@ namespace WorkState.Core.Migrations
                         .HasConstraintName("fk_project_config_item_item_id");
                 });
 
+            modelBuilder.Entity("WorkState.Core.Domain.Report", b =>
+                {
+                    b.HasOne("WorkState.Core.Domain.Attempt", null)
+                        .WithMany()
+                        .HasForeignKey("AttemptId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_report_attempt_attempt_id");
+                });
+
             modelBuilder.Entity("WorkState.Core.Domain.RunConfig", b =>
                 {
                     b.HasOne("WorkState.Core.Domain.Item", null)
@@ -772,6 +1119,29 @@ namespace WorkState.Core.Migrations
                         .OnDelete(DeleteBehavior.NoAction)
                         .IsRequired()
                         .HasConstraintName("fk_run_config_item_project_item_id");
+                });
+
+            modelBuilder.Entity("WorkState.Core.Domain.Verification", b =>
+                {
+                    b.HasOne("WorkState.Core.Domain.Attempt", null)
+                        .WithMany()
+                        .HasForeignKey("AttemptId")
+                        .OnDelete(DeleteBehavior.SetNull)
+                        .HasConstraintName("fk_verification_attempt_attempt_id");
+
+                    b.HasOne("WorkState.Core.Domain.Item", null)
+                        .WithMany()
+                        .HasForeignKey("ItemId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_verification_item_item_id");
+
+                    b.HasOne("WorkState.Core.Domain.Workspace", null)
+                        .WithMany()
+                        .HasForeignKey("WorkspaceId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_verification_workspace_workspace_id");
                 });
 #pragma warning restore 612, 618
         }

@@ -15,6 +15,11 @@ public class WorkStateDbContext(DbContextOptions<WorkStateDbContext> options) : 
     public DbSet<Doc> Docs => Set<Doc>();
     public DbSet<DocBlock> DocBlocks => Set<DocBlock>();
     public DbSet<DocBlockRevision> DocBlockRevisions => Set<DocBlockRevision>();
+    public DbSet<Attempt> Attempts => Set<Attempt>();
+    public DbSet<Report> Reports => Set<Report>();
+    public DbSet<Verification> Verifications => Set<Verification>();
+    public DbSet<Artifact> Artifacts => Set<Artifact>();
+    public DbSet<Event> Events => Set<Event>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -28,6 +33,8 @@ public class WorkStateDbContext(DbContextOptions<WorkStateDbContext> options) : 
         MapCriteria(b);
         MapLinks(b);
         MapDocs(b);
+        MapEvidence(b);
+        MapJournal(b);
     }
 
     private static void MapWorkspace(ModelBuilder b) => b.Entity<Workspace>(e =>
@@ -144,8 +151,85 @@ public class WorkStateDbContext(DbContextOptions<WorkStateDbContext> options) : 
         e.HasKey(x => x.Id);
         e.Property(x => x.Id).ValueGeneratedNever();
         e.HasOne<Item>().WithMany().HasForeignKey(x => x.ItemId).OnDelete(DeleteBehavior.Cascade);
+        e.HasOne<Verification>().WithMany().HasForeignKey(x => x.EvidenceVerificationId)
+            .HasConstraintName("item_criterion_evidence_fk")
+            .OnDelete(DeleteBehavior.SetNull);
         e.HasIndex(x => new { x.ItemId, x.Seq }).IsUnique();
         e.HasIndex(x => x.ItemId).HasDatabaseName("item_criterion_open_idx").HasFilter("NOT checked");
+    });
+
+    private static void MapEvidence(ModelBuilder b)
+    {
+        b.Entity<Attempt>(e =>
+        {
+            e.ToTable("attempt");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).ValueGeneratedNever();
+            e.Property(x => x.StartedAt).HasDefaultValueSql("now()");
+            e.HasOne<Item>().WithMany().HasForeignKey(x => x.ItemId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne<Doc>().WithMany().HasForeignKey(x => x.BriefDocId).OnDelete(DeleteBehavior.NoAction);
+            e.HasIndex(x => new { x.ItemId, x.N }).IsUnique();
+        });
+
+        b.Entity<Report>(e =>
+        {
+            e.ToTable("report");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).ValueGeneratedNever();
+            e.Property(x => x.Files).HasColumnType("jsonb").HasDefaultValueSql("'[]'::jsonb");
+            e.Property(x => x.At).HasDefaultValueSql("now()");
+            e.HasOne<Attempt>().WithMany().HasForeignKey(x => x.AttemptId).OnDelete(DeleteBehavior.Cascade);
+            e.HasIndex(x => x.AttemptId).IsUnique();
+        });
+
+        b.Entity<Verification>(e =>
+        {
+            e.ToTable("verification");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).ValueGeneratedNever();
+            e.Property(x => x.Counts).HasColumnType("jsonb");
+            e.Property(x => x.Samples).HasColumnType("jsonb");
+            e.Property(x => x.RedCheck).HasColumnType("jsonb");
+            e.Property(x => x.At).HasDefaultValueSql("now()");
+            e.HasOne<Workspace>().WithMany().HasForeignKey(x => x.WorkspaceId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne<Item>().WithMany().HasForeignKey(x => x.ItemId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne<Attempt>().WithMany().HasForeignKey(x => x.AttemptId).OnDelete(DeleteBehavior.SetNull);
+            e.HasIndex(x => new { x.ItemId, x.At })
+                .HasDatabaseName("verification_item_idx")
+                .IsDescending(false, true);
+
+            // Answers plan-audit check #1 without an agent: has this command ever been recorded red?
+            e.HasIndex(x => new { x.WorkspaceId, x.Command, x.Passed })
+                .HasDatabaseName("verification_cmd_idx");
+        });
+
+        b.Entity<Artifact>(e =>
+        {
+            e.ToTable("artifact");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).ValueGeneratedNever();
+            e.Property(x => x.Meta).HasColumnType("jsonb").HasDefaultValueSql("'{}'::jsonb");
+            e.Property(x => x.At).HasDefaultValueSql("now()");
+            e.HasOne<Item>().WithMany().HasForeignKey(x => x.ItemId).OnDelete(DeleteBehavior.Cascade);
+            e.HasIndex(x => new { x.ItemId, x.Kind }).HasDatabaseName("artifact_item_idx");
+        });
+    }
+
+    private static void MapJournal(ModelBuilder b) => b.Entity<Event>(e =>
+    {
+        e.ToTable("event");
+        e.HasKey(x => x.Seq);
+        e.Property(x => x.Seq).ValueGeneratedOnAdd().UseIdentityAlwaysColumn();
+        e.Property(x => x.At).HasDefaultValueSql("now()");
+        e.Property(x => x.Payload).HasColumnType("jsonb").HasDefaultValueSql("'{}'::jsonb");
+        e.HasOne<Workspace>().WithMany().HasForeignKey(x => x.WorkspaceId).OnDelete(DeleteBehavior.Cascade);
+        e.HasOne<Item>().WithMany().HasForeignKey(x => x.ItemId).OnDelete(DeleteBehavior.Cascade);
+        e.HasIndex(x => new { x.WorkspaceId, x.Seq })
+            .HasDatabaseName("event_ws_seq_idx")
+            .IsDescending(false, true);
+        e.HasIndex(x => new { x.ItemId, x.Seq })
+            .HasDatabaseName("event_item_seq_idx")
+            .IsDescending(false, true);
     });
 
     private static void MapLinks(ModelBuilder b) => b.Entity<ItemLink>(e =>
