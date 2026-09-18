@@ -25,5 +25,15 @@ a resolution without `done`, two live write-claims on one working tree, an edite
 all of these are refused by Postgres, with an error that names what to do instead. Do not re-implement
 them in application code; catch the `PostgresException` and surface its message.
 
+**Part of the schema is invisible to EF.** Triggers, views, and the two `DEFERRABLE` unique
+constraints (`item_sibling_order`, `doc_block_seq_unique`) are raw SQL inside the migrations, because
+EF cannot express them — so they are **not in the model snapshot**. Consequences, both real:
+
+- `dotnet ef migrations add` will not see them, and can scaffold a change that silently drops or
+  duplicates one. **Read the raw-SQL blocks in the existing migrations before scaffolding a change to
+  `item`, `doc_block`, `event` or `claim`.**
+- The snapshot is therefore *not* a complete description of the database. The complete description is
+  `docs/workstate/02-data-model.md` plus the raw SQL in `Migrations/`.
+
 Migrations are generated here (`dotnet ef migrations add … --project mcp/WorkState.Core`) and applied
 by the host or by the tests. Never run `dotnet ef database update`.
