@@ -1,0 +1,44 @@
+# The real thing: the API and its Postgres together (CONVENTIONS §"Two compose files, two jobs").
+# Copy .env.example to .env and fill it before `docker compose -f mcp/compose.yml up -d`.
+#
+# Postgres is NOT reached by any code yet — U1 writes the schema. The service is here so the
+# shape is right and the API's connection string has somewhere to point.
+
+name: workstate
+
+services:
+  db:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-workstate}
+      POSTGRES_USER: ${POSTGRES_USER:-workstate}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    volumes:
+      - workstate-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-workstate} -d ${POSTGRES_DB:-workstate}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_HTTP_PORTS: 8080
+      WorkState__Auth__ReaderToken: ${WORKSTATE_READER_TOKEN:?set WORKSTATE_READER_TOKEN in .env}
+      WorkState__Auth__WriterToken: ${WORKSTATE_WRITER_TOKEN:?set WORKSTATE_WRITER_TOKEN in .env}
+      ConnectionStrings__WorkState: >-
+        Host=db;Port=5432;Database=${POSTGRES_DB:-workstate};Username=${POSTGRES_USER:-workstate};Password=${POSTGRES_PASSWORD}
+    ports:
+      - "${WORKSTATE_API_PORT:-5290}:8080"
+    restart: unless-stopped
+
+volumes:
+  workstate-db-data:

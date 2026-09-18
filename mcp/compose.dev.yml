@@ -1,0 +1,29 @@
+# Postgres only, for developing against a locally-run API.
+#   docker compose -f mcp/compose.dev.yml up -d
+#   docker compose -f mcp/compose.dev.yml down
+#
+# Host port 55433. Ports 25432 and 55432 belong to other projects' dev databases — do not touch them.
+# Credentials are throwaway and localhost-only, committed deliberately (CONVENTIONS §2).
+
+name: workstate-dev
+
+services:
+  db:
+    image: postgres:17
+    container_name: workstate-db
+    environment:
+      POSTGRES_DB: workstate
+      POSTGRES_USER: workstate
+      POSTGRES_PASSWORD: workstate
+    ports:
+      - "127.0.0.1:55433:5432"
+    volumes:
+      - workstate-dev-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U workstate -d workstate"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+volumes:
+  workstate-dev-db-data:
