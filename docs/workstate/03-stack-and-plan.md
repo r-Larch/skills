@@ -74,8 +74,10 @@ builder.Services
     .AddMcpServer(o => { o.ServerInfo = new() { Name = "workstate", Version = "…" }; })
     .WithHttpTransport()
     .WithToolsFromAssembly()      // [McpServerToolType] classes in WorkState.Mcp
-    .WithPromptsFromAssembly()
-    .WithResourcesFromAssembly();
+    .AddAuthorizationFilters()    // REQUIRED with ASP.NET Core; honours [Authorize] on tools
+    .WithResourcesFromAssembly(); // fixed URIs only — templates are undiscoverable (doc 01 §8)
+                                  // no WithPromptsFromAssembly: prompts are invisible (doc 01 §9)
+                                  // no WithCompleteHandler:     no client mechanism (doc 01 §8)
 
 app.MapMcp("/mcp").RequireAuthorization("agent-token");
 app.MapGroup("/api").RequireAuthorization("dashboard-cookie");   // App API — excluded from OpenAPI
@@ -83,11 +85,8 @@ app.MapGet("/api/stream", SseHandler);                            // LISTEN/NOTI
 app.MapFallbackToFile("index.html");                              // SPA
 ```
 
-> **Verify before building on it.** The exact 2.2.0 surface (`MapMcp` naming, the
-> `With*FromAssembly` set, how per-request auth reaches a tool) must be confirmed against the
-> installed package rather than taken from here — the workspace rule is *"an asserted capability is
-> not evidence"*. `/rlarch:dotnet-reflect` on `ModelContextProtocol.AspNetCore 2.2.0` answers it in
-> one command, and that is **task 0** of the plan below.
+> **Verified 2026-09-18** against the 2.2.0 assemblies (doc 01 §11) and against the live
+> client (`mcp/PROBE.md`). Every symbol above is real, and the shape above is what U0 shipped.
 
 Client registration:
 
@@ -107,7 +106,7 @@ rubric (one agent, end-to-end, one verification command that can go red).
 
 | | |
 |---|---|
-| 0.1 | ~~**Probe the SDK.**~~ **DONE 2026-09-18** — see doc 01 §11. Every assumption held; `AddAuthorizationFilters()` and `WithListToolsHandler` turned out to be *better* mechanisms than the design assumed, and `Stateless` is the framework default. No correction needed. |
+| 0.1 | ~~**Probe the SDK.**~~ **DONE 2026-09-18** — see doc 01 §11. Every assumption held; `AddAuthorizationFilters()` turned out to be a *better* mechanism than the design assumed, and `Stateless` is the framework default. No correction needed. (`WithListToolsHandler` looked useful here and was later dropped by task 0.2 — `[Authorize]` narrows the list unaided.) |
 | 0.2 | ~~**Probe the client.**~~ **DONE 2026-09-18**, two rounds — see `mcp/PROBE.md` §5–6. Found that `structuredContent` **replaces** the text block (doc 01 §2 rewritten), prompts are **invisible** (§9 rewritten), completions have **no client mechanism** (§8), templates are readable but undiscoverable, and `[Authorize]` **narrows `tools/list` by itself** (§6 — `WithListToolsHandler` dropped). |
 | 0.3 | Scaffold the solution, `Directory.Build.props`, CI, `.gitignore`, compose with Postgres 17 + `pg_trgm`. |
 

@@ -8,7 +8,8 @@ The test: **a fresh Claude Code session, with no skill loaded and no instruction
 beyond "use workstate to run this work", drives a full decompose → execute → verify → close cycle
 without a wrong call and without asking how.**
 
-Five channels carry the explanation. They are ordered by how reliably a model reads them.
+**Four** channels carry the explanation — a fifth, MCP prompts, was measured out of existence (§5).
+They are ordered by how reliably a model reads them.
 
 ---
 
@@ -22,9 +23,7 @@ server**.
 That last detail sets the budget: the ≤40-line cap is **per registration**, and a session with the
 server registered twice pays twice. Keep it tight anyway — it is in context for every turn.
 
-This is the highest-value real estate in the whole design and it has a hard budget: it is in context
-for **every turn of every session**. Target **≤40 lines**. It carries only what cannot be discovered
-from a tool description:
+It carries only what cannot be discovered from a tool description:
 
 1. **The loop**, in one line: `work_brief` → `work_next` → claim → work → `work_verify` →
    `work_status done`. Everything else is a detour off that spine.
