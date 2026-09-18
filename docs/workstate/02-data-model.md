@@ -439,6 +439,7 @@ CREATE TABLE assumption (
   id             uuid PRIMARY KEY,
   workspace_id   uuid NOT NULL REFERENCES workspace ON DELETE CASCADE,
   scope_item_id  uuid REFERENCES item ON DELETE CASCADE,   -- null = whole workspace
+  ref_scope_id   uuid REFERENCES item,      -- the run/project this ref is numbered within
   ref            text NOT NULL,                            -- 'A6'
   statement      text NOT NULL,
   evidence       evidence_level NOT NULL,
@@ -449,7 +450,9 @@ CREATE TABLE assumption (
   resolution_note text,
   resolved_at    timestamptz,
   created_at     timestamptz NOT NULL DEFAULT now(),
-  UNIQUE (workspace_id, ref),
+  UNIQUE (ref_scope_id, ref),   -- 'A1' exists once PER RUN, not once globally. With many
+                                -- orchestrators running at once, a global unique would make the
+                                -- second run unable to open its own A1.
   CONSTRAINT assumption_resolved CHECK ((state = 'open') = (resolved_at IS NULL))
 );
 CREATE INDEX assumption_open_idx ON assumption (workspace_id) WHERE state = 'open';
@@ -656,7 +659,7 @@ CREATE VIEW open_thread AS
 
 | Corpus failure | Prevented by |
 |---|---|
-| Duplicate task number `2.1` in two places | `UNIQUE (workspace_id, ref)` |
+| Duplicate task number `2.1` in two places | `UNIQUE (ref_scope_id, ref)` — per run, which is where it does harm |
 | A task with no verification command | `item_kind.requires_verify` + a refused `work_create` |
 | A "done" task with unchecked criteria | the `done` guard reading `item_criterion` |
 | A "done" task verified only by its own worker | `verification.run_by` on the guard |

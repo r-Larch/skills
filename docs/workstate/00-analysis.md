@@ -12,7 +12,7 @@
 |---|---|---|
 | Largest single `LEDGER.md` | **6,011 lines** (`Gaia/entity-store`), 200+ headings | No agent reads this. The skill's own plan-audit brief says: *"do not read cover to cover. Search it for specific claims only."* The store has outgrown its access method, and the skill already knows it. |
 | Ledgers ≥ 1,000 lines | 5 of 25 runs | Not an outlier — the steady state of a long run. |
-| Checkbox drift | **17 of 25 runs have 0 `[x]` boxes**, including runs the ledger declares COMPLETE | `redesign` says *"Phase 4 of 4 — complete. All 9 tasks committed, 11 commits"* while `TASKS.md` shows **10 open / 0 done**. The truth lives in prose; the structured field is decoration. |
+| Checkbox drift | **424 unchecked boxes vs 78 checked across all 181 files — 84.5% of every checkbox ever written is still open**, and **17 of 25 runs have zero `[x]`**, including runs their ledger declares finished | `redesign` says *"Phase 4 of 4 — complete. All 9 tasks committed, 11 commits"* while `TASKS.md` shows **10 open / 0 done**. The truth lives in prose; the structured field is decoration. **This is the single strongest statement of the problem.** |
 | `SUPERSEDE*` markers | 96 | Markdown cannot retract, so supersession is narrated. |
 | `CORRECTION` markers | 129 | Same. `entity-store` contains *"### CORRECTION to the suite-abort entry above — the leading hypothesis is DISCONFIRMED"* — a **new append** because editing 6,000 lines in place is riskier than appending. |
 | `stale` | 237 | |
@@ -58,7 +58,7 @@ database enforces for free and a markdown file cannot enforce at all:
 
 | Skill rule | Enforcement today | Enforcement in a store |
 |---|---|---|
-| *"Is every task number defined exactly once?"* (plan audit check #3) | an audit agent costing **60–150k tokens** | `UNIQUE (workspace_id, ref)` |
+| *"Is every task number defined exactly once?"* (plan audit check #3) | an audit agent costing **60–150k tokens** | `UNIQUE (ref_scope_id, ref)` — scoped per run, so parallel orchestrators cannot collide |
 | *"Does everything the remaining tasks depend on either exist, or get built by an earlier task?"* (#2) | same audit | a foreign key + a cycle check |
 | *"A superseded task is deleted, not annotated"* | prose discipline, violated 96 times | `status = superseded` + a `supersedes` edge |
 | *"A brief that omits done-criteria or a verification command is a defect"* | the orchestrator remembering | `NOT NULL` / a refused create |

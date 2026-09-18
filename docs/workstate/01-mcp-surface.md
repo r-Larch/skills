@@ -139,7 +139,7 @@ Names are `work_*`-prefixed so they survive aggregation across servers.
 
 | Tool | Notes |
 |---|---|
-| **`work_create`** | **Batch**: takes an array. Decomposition creates 6–20 items in one call. Refuses a `task` without `verify_cmd` and without ≥1 done-criterion — the skill's *"a brief that omits done-criteria or a verification command is a defect"*, made unwritable. Accepts an agent-chosen `ref` (`2.1b`, `3.R1` — the corpus uses these constantly) or derives one; `UNIQUE(workspace_id, ref)` makes duplicate task numbers impossible. |
+| **`work_create`** | **Batch**: takes an array. Decomposition creates 6–20 items in one call. Refuses a `task` without `verify_cmd` and without ≥1 done-criterion — the skill's *"a brief that omits done-criteria or a verification command is a defect"*, made unwritable. Accepts an agent-chosen `ref` (`2.1b`, `3.R1` — the corpus uses these constantly) or derives one; `UNIQUE(ref_scope_id, ref)` makes duplicate task numbers impossible **within a run**, while leaving parallel runs free to use the same numbering. |
 | **`work_update`** | Field-level patch of `title`/`intent`/`verify_cmd`/`risk`/`criteria`/`priority`. Takes `expected_revision`; a mismatch returns the current revision and what changed. |
 | **`work_move`** | Reparent / reorder. Separate from `update` because it is the risky one. Fractional `seq` means inserting `2.1b` between `2.1` and `2.2` rewrites **one row**. |
 | **`work_link`** | `blocks`, `supersedes`, `duplicates`, `derived_from`, `verifies`. Cycle-checked on write. `supersedes` sets the target to `superseded` — which is the skill's *"a superseded task is deleted, not annotated"*, enforced. |
