@@ -16,3 +16,6 @@ obj/
 
 # Nested-agent briefs (per-run, not a team artifact)
 .claude/briefs/
+
+# Filled-in secrets for mcp/compose.yml. mcp/.env.example is the committed template.
+.env
