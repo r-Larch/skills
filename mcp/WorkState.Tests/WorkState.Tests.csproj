@@ -22,6 +22,11 @@
     <ProjectReference Include="..\WorkState.Core\WorkState.Core.csproj" />
     <ProjectReference Include="..\WorkState.Mcp\WorkState.Mcp.csproj" />
     <ProjectReference Include="..\WorkState.Api\WorkState.Api.csproj" />
+    <ProjectReference Include="..\tools\WorkState.Import\WorkState.Import.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="Fixtures\**" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="Never" />
   </ItemGroup>
 
 </Project>
