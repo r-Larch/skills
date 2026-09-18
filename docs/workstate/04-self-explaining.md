@@ -116,13 +116,51 @@ it stands, and nothing tells it why.
 
 ## Acceptance — how we prove it
 
-Not by assertion. Three checks, each of which can fail:
+Not by assertion. Three checks, each of which can fail.
 
-1. **Cold-start transcript.** A fresh session, no skill, one sentence of user intent, driving a
-   seeded project to a closed task. Record every wrong call. **Zero wrong calls is the bar**; each
-   one is a defect against the channel that should have prevented it, and is fixed there.
-2. **Closure cannot be faked.** A scripted attempt to close an unverified task must be refused, and
-   the refusal must be sufficient for the agent to recover unaided on the next call.
-3. **Token budget.** `ServerInstructions` ≤40 lines; the full `tools/list` payload measured and
-   recorded; `work_brief` on the imported `entity-store` run measured against the **6,011 lines** it
-   replaces. That ratio is the project's headline claim and it gets a number, not an adjective.
+### The contamination trap — read this before running check 1
+
+The cold-start test is the goal's only real measurement, and it is **trivially easy to run in a way
+that proves nothing.** Every agent in this project so far has been driven by a brief, and a brief is
+instruction. If the test prompt explains the loop, names a tool, or hints at an order, the agent
+succeeds using *the prompt* and the result says nothing about the server.
+
+That is the skills' own rule — *"a check that could not have come out the other way verifies
+nothing"* — pointed at ourselves.
+
+**The protocol:**
+
+1. A **fresh** session. The server registered, a seeded project present, **no skill loaded**, no
+   `CLAUDE.md` describing WorkState, nothing in the repo that documents the tools.
+2. **The entire prompt is one sentence of intent**, and it must be *outcome* language a user would
+   actually type. Permitted:
+   > *"Use workstate to pick up the next task on the gaia entity-store run and take it to done."*
+
+   **Forbidden in the prompt:** any tool name, the word `work_brief`, the order of operations, the
+   closure conditions, the existence of an attention block, the word "ref". If the prompt would
+   still teach a server-less agent what to do, it is contaminated.
+3. **No steering.** The controller does not answer, correct, or hint. If the agent parks or gives
+   up, that is the result, and the result is a failure of a channel.
+4. **Record every call in order**, and classify each: *correct* · *wrong but self-corrected from a
+   refusal* · *wrong and not corrected*. A wrong call the server's own refusal fixed is a **pass for
+   the error channel** — that is §3 working exactly as designed, and it is the cheapest teacher in
+   the system.
+5. **Bar: zero calls in the third class.** Each one is a defect against the specific channel that
+   should have prevented it, and it is fixed **there** — in `ServerInstructions`, in a tool
+   description, or in a refusal — never by adding an explanation to the prompt.
+
+Run it **at least twice, with different seeded states** (one mid-run, one empty server). A single
+transcript is an anecdote; the second run is what catches a channel that only worked by luck.
+
+### The three checks
+
+1. **Cold-start transcript**, per the protocol above. **Zero uncorrected wrong calls.**
+2. **Closure cannot be faked.** An attempt to close an unverified task must be refused, and the
+   refusal must be **sufficient on its own** for the agent to recover on the next call — no second
+   hint from the controller. Verify the agent does not instead reach for `force: true`; if it does,
+   the refusal is explaining the escape hatch better than the remedy, and it is the refusal that is
+   wrong.
+3. **Token budget**, all three as numbers, recorded and re-measured on change:
+   `ServerInstructions` ≤40 lines · the full `tools/list` payload · and `work_brief` on the imported
+   `entity-store` run against the **6,011 lines** of `LEDGER.md` it replaces. That last ratio is the
+   project's headline claim, so it is a build-failing test, not a sentence in a README.
