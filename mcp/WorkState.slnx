@@ -3,5 +3,6 @@
   <Project Path="WorkState.Core/WorkState.Core.csproj" />
   <Project Path="WorkState.Mcp/WorkState.Mcp.csproj" />
   <Project Path="WorkState.Api/WorkState.Api.csproj" />
+  <Project Path="tools/WorkState.Import/WorkState.Import.csproj" />
   <Project Path="WorkState.Tests/WorkState.Tests.csproj" />
 </Solution>
