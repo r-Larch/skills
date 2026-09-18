@@ -35,8 +35,18 @@ never maintained; state that is the primary write is. Move the state, keep the j
 
 ## Status
 
-**Design complete; build starting.** Source: `mcp/`.
+**Phase 0 closed 2026-09-18.** Source: `mcp/`. U0 landed: a five-project .NET 10 solution, compose
+files, and a probe server Claude Code connects to over HTTP.
 
-The SDK surface is **verified** against the real assemblies (doc 01 §11) — task 0.1 is done and the
-design needed no correction. The one remaining unverified premise is **task 0.2**: what Claude Code
-actually surfaces of server prompts, resource templates and completions.
+Both premises are now **measured, not assumed**:
+
+- **Task 0.1 - the SDK**, read from the 2.2.0 assemblies (doc 01 §11). No correction needed.
+- **Task 0.2 - the client**, two probe rounds against Claude Code (`mcp/PROBE.md` §5-6). It
+  **corrected the design in four places**: `structuredContent` *replaces* the text block rather than
+  accompanying it, so the output contract is now **text-only** (§2); server prompts are invisible, so
+  the doctrine moves into `work_brief(for: ...)` (§9); completions have no client mechanism at all
+  (§8); and `[Authorize]` narrows `tools/list` unaided, so `WithListToolsHandler` is dropped (§6).
+
+Three of those four make the build *smaller*. The fourth would have made the compact rendering - and
+the attention channel the whole forced-closure story leans on - **invisible to the model**, and it
+was found before a line of the real server existed. That is the entire argument for probing first.

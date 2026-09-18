@@ -108,7 +108,7 @@ rubric (one agent, end-to-end, one verification command that can go red).
 | | |
 |---|---|
 | 0.1 | ~~**Probe the SDK.**~~ **DONE 2026-09-18** — see doc 01 §11. Every assumption held; `AddAuthorizationFilters()` and `WithListToolsHandler` turned out to be *better* mechanisms than the design assumed, and `Stateless` is the framework default. No correction needed. |
-| 0.2 | **Probe the client.** Which of resources / resource templates / completions / prompts Claude Code actually surfaces today, and how a tool's `structuredContent` reaches the model. Decides whether doc 01 §9's prompts carry weight in v1, and whether `tools/list` is cached across tokens. **Still open — it is the last unverified premise in the plan.** |
+| 0.2 | ~~**Probe the client.**~~ **DONE 2026-09-18**, two rounds — see `mcp/PROBE.md` §5–6. Found that `structuredContent` **replaces** the text block (doc 01 §2 rewritten), prompts are **invisible** (§9 rewritten), completions have **no client mechanism** (§8), templates are readable but undiscoverable, and `[Authorize]` **narrows `tools/list` by itself** (§6 — `WithListToolsHandler` dropped). |
 | 0.3 | Scaffold the solution, `Directory.Build.props`, CI, `.gitignore`, compose with Postgres 17 + `pg_trgm`. |
 
 *Gate:* the client's real behaviour is written down, and §9/§6 are corrected where they were wrong.
@@ -195,7 +195,7 @@ is a **separate undertaking**, gated on Phase 4 being real:
 | Blocks with stable ids instead of markdown blobs | **Medium.** It is the whole patch story; changing it changes `work_patch` and every renderer. Committed deliberately — see doc 00 §4. |
 | Compact text in `content`, JSON in `structuredContent`, **not duplicated** | **Trivial.** One renderer flag if a client turns out to need the back-compat duplicate. |
 | Confirmation via server-minted handle, not MRTR elicitation | **Trivial.** Add MRTR alongside when client support is uniform. |
-| Scoped tokens drive `tools/list` | **Medium.** Spec-blessed, but if Claude Code caches the tool list across tokens it degrades to "the tools are there and the server refuses" — still correct, less elegant. **Task 0.2 settles it.** |
+| Scoped tokens drive `tools/list` | **Settled: it works.** `[Authorize]` alone narrows the list; reader saw 2 tools, writer 3. No caching issue — lists are per-registration. |
 | Specs stay in git; the store owns state | **Low**, and it is the corpus's own rule. |
 | EF Core for writes, raw SQL for the recursive reads | **Low.** |
 

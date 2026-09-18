@@ -24,19 +24,44 @@
 
 ---
 
-## 2. The output contract — the single most important design decision
+## 2. The output contract — settled by measurement, 2026-09-18
 
-Every tool returns **both**, and they are **not duplicates of each other**:
+> **This section was rewritten after the probe.** The original design — compact text in `content`,
+> typed JSON in `structuredContent`, deliberately not duplicated — **does not work in Claude Code**,
+> and would have made the compact rendering invisible. `mcp/PROBE.md` §6 has the evidence. The
+> superseded version is not reproduced here; it was wrong and being able to grep it would only
+> mislead.
 
-- `content[0]` — a **token-dense text rendering** designed to be read by a model. This is the
-  product. It is what replaces reading `LEDGER.md`.
-- `structuredContent` — the full typed object, conforming to `outputSchema`. For the web UI, for
-  scripts, and for clients that prefer JSON.
+**Every read tool returns a text block and nothing else.**
 
-The spec says a tool returning structured content *SHOULD* also put the serialised JSON in a text
-block for back-compat. **We deliberately do not**, and document it: duplicating a 60-row tree listing
-doubles the token cost of the one call agents make most. The text rendering *is* the human- and
-model-readable form.
+```csharp
+new CallToolResult { Content = [ new TextContentBlock { Text = <the compact rendering> } ] }
+```
+
+No `structuredContent`. No `OutputSchemaType`. Three measured facts force this:
+
+1. **`structuredContent` replaces `content`; it does not accompany it.** A result carrying both
+   delivered only the JSON. A result carrying text and *no* structured half delivered the text
+   verbatim — so this is a specific rule, not general suppression.
+2. **"Both" is therefore not on the menu.** The back-compat duplication the spec *SHOULD*s was
+   measured too: the model received one copy, from the JSON half. **Choosing to send
+   `structuredContent` is choosing to lose the rendered text.**
+3. **JSON destroys the layout even when it carries every byte.** The same rendering shipped inside a
+   JSON string arrived as literal `\n` escapes on one line. Over a 40-line board that is 40 escapes
+   the model must mentally re-lay-out, and the column alignment and separators — which are the
+   information — are gone at the point of reading. The observer, asked which shape it would want as
+   the consumer, chose text without hesitation and said why: *"A arrived as real lines I read
+   directly."*
+
+`outputSchema` is **not visible to the model at all** (measured), so it buys nothing for the audience
+this server is built for.
+
+**Nothing is lost by dropping the JSON.** The typed channel for the dashboard is the App API, which
+is REST and has always been where the web UI reads from. MCP is the agent channel; the App API is the
+machine channel. Two audiences, two transports, no compromise between them.
+
+*If* a programmatic MCP consumer ever appears, the escape hatch is a `format: "json"` argument on the
+affected tool — one flag, decided then, on evidence. Not built now.
 
 ### The compact rendering
 
@@ -51,8 +76,12 @@ F-11 find   open      BLOCKER ContentHash written early  → 2.8
 A6   assum  open      Docker can run pgvector            revisit: 1.1
 ```
 
-Every line begins with the **`ref`** — the handle for every subsequent call. No ids in the text; ids
-live in `structuredContent`.
+Every line begins with the **`ref`** — the handle for every subsequent call. Ids never appear; `ref`
+is the only address an agent needs, and there is no second channel to put ids in.
+
+**The layout is load-bearing, and it survives.** Real line breaks, column alignment and separator
+lines all reached the model intact (measured). That is the whole argument for a text-only contract:
+a status board is scannable because of its shape, and shape is the first thing JSON destroys.
 
 ### The attention block
 
@@ -79,6 +108,12 @@ Anything large comes back as a `resource_link`, never inline:
 
 The client fetches it only if it needs it. This is how `work_get` on a task with a 400-line brief
 costs 40 tokens instead of 6,000.
+
+**Measured caveat:** a resource link arrives as a *labelled bare URI in the text*, not as a followable
+affordance — `[Resource link: probe_fixed] work://probe/fixed`. Nothing is inlined, and the model
+retrieves it only if it already knows `ReadMcpResourceTool` exists. So the saving is real **but not
+self-executing**: every tool that returns a link must name the follow-up call in its own description,
+or the link is a dead end. This is the same rule as §9 — the doctrine has to travel with the tool.
 
 ---
 
@@ -215,11 +250,20 @@ that only reaches its own unit. The `actor` on every event comes from the token,
 self-declared argument — which is what makes the web UI's audit trail trustworthy when six agents are
 writing at once.
 
-**Implementation (verified, §11):** this is *not* hand-rolled. `AddAuthorizationFilters()` makes the
-SDK honour `[Authorize]` on tool/prompt/resource methods, so each profile is an ASP.NET Core policy
-and each tool carries an attribute. `WithListToolsHandler` then filters `tools/list` by the caller's
-claims, which is the spec's *"MAY vary by the authorization presented"*. Two mechanisms, both
-first-class: the list narrows, and the call is refused even if a stale list is cached.
+**Implementation — measured end-to-end, 2026-09-18.** `AddAuthorizationFilters()` makes the SDK honour
+`[Authorize]` on tool methods, so each profile is an ASP.NET Core policy and each tool carries an
+attribute. **That alone narrows `tools/list`**: a reader token saw 2 tools, a writer token saw 3, and
+the reader could not even *attempt* the writer-only call — the client refused locally with *"No such
+tool available"*, so no request reached the server.
+
+⛔ **`WithListToolsHandler` is therefore NOT needed.** The earlier plan to wire it as a second
+mechanism was insurance against a narrowing that turns out to be automatic. **U3 is simpler than
+designed.** Lists are per-registration, so the cross-token cache concern does not arise either.
+
+*Consequence worth noting:* because the tool is hidden rather than refused, **a worker never sees an
+error explaining what it may not do.** The role boundary must therefore be stated in
+`ServerInstructions` — *"you are a worker; closing a task is the orchestrator's call"* — or the agent
+will hunt for a tool that, from where it stands, simply does not exist.
 
 > `nested-claude` §"every prohibition needs a route" applies directly: a scoped tool list is a
 > prohibition, so each profile's tool set must include the **route** for everything the brief asks
@@ -280,35 +324,68 @@ URI scheme `work://`. Read-only projections, `cacheScope: "private"`, short `ttl
 | `work://doc/{id}` | a document with block ids inline |
 | `work://workspace/{slug}/handoff` | the "competent stranger could continue from this alone" document |
 
-`resources/templates/list` publishes `work://item/{ref}` etc.; `completions/complete` autocompletes
-`{ref}` and `{slug}` from the database — so a human picking context in a client gets a live item
-picker for free.
+**Measured, 2026-09-18 — what actually works:**
+
+- **Fixed URIs are listed and readable.** ✅ Keep every fixed projection in the table above.
+- **Templates are readable but *undiscoverable*.** `resources/templates/list` produced nothing the
+  client showed; `work://probe/alpha` nonetheless read correctly when the URI was known. So a
+  templated URI is only reachable if the model was **handed the exact URI** — which a tool result or
+  `ServerInstructions` can do, and a picker cannot. Every tool that references an item must emit its
+  full `work://item/{ref}` URI rather than assume it can be composed.
+- **`completions/complete` has no client mechanism at all.** ⛔ **The completion plan is dropped**, and
+  `WithCompleteHandler` is not wired. The "live item picker for free" was wishful; there is no picker.
+- **Exact URIs win over templates.** Reading `work://probe/fixed` returned the *fixed* resource, not
+  the template match. That settles the `work://workspace/{slug}` vs sub-path overlap: **register the
+  exact URIs, and let the template catch only what is left.**
 
 `subscriptions/listen` with `resourceSubscriptions` emits `notifications/resources/updated` when an
-item changes. Nice for a controller watching child runs; **not** the mechanism for the web UI, which
-uses its own SSE stream.
+item changes. Unproven in this client and **not needed** — the web UI uses its own SSE stream from
+the App API. Deferred, not designed around.
 
 ---
 
-## 9. Prompts — where the skills' bureaucracy goes
+## 9. The doctrine channel — ⛔ NOT prompts
 
-This is the part that shrinks `SKILL.md`. Prompts are **server-rendered with live state injected**,
-so a brief is no longer something the orchestrator types and can forget half of.
+> **Rewritten after the probe.** MCP prompts are **invisible in Claude Code**: absent from the tool
+> list, absent from the skills listing, not invokable (`Unknown skill`). Measured, not inferred.
+> `docs/workstate/04` §5 predicted this was the least certain channel. It was right.
 
-| Prompt | Arguments | Renders |
-|---|---|---|
-| `worker_brief` | `ref` | Context (goal chain + what previous tasks delivered, from the DB) · binding constraints **in scope** · **every unconsumed note addressed to this item** · in/out of scope · done-criteria · `verify_cmd` · the red-check demand · the report format. Marks the notes consumed. |
-| `review_brief` | `ref`, `sha_range` | Scoped diff, done-criteria, goal paragraph, the 5-finding cap, the bar for a finding. |
-| `gate_brief` | `phase_ref` | The phase's tasks, **the recorded seams** (`work_link` edges crossing task boundaries — computed, not remembered), the seam classes. |
-| `plan_audit_brief` | `scope` | Pre-loaded with `work_audit`'s mechanical results marked *established, do not re-verify*, so the agent's budget goes to shape. |
-| `handoff` | `scope` | The stranger-continues document. |
-| `retro` | `run_ref` | Built from the events, verdicts and forced transitions already stored. |
-| `decompose` | `scope`, `goal` | The sizing rubric + the workspace's kind ladder + the "a `Verify:` must be able to fail" rule. |
+The *content* below is still exactly right — a brief must be server-rendered with live state
+injected, or the orchestrator types it and forgets half. Only the **delivery mechanism** changes:
 
-`orchestrate/references/briefs.md` (311 lines) and `decompose.md` (123 lines) largely **become these
-prompts**. What stays in `SKILL.md` is the judgment: the cost table, the risk dial, red-checks,
-verification doctrine, escalation triggers, the critical-thinking ceiling. That is the half worth a
-model's attention; the templates were never it.
+| Was going to be a prompt | Becomes |
+|---|---|
+| `worker_brief` | **a tool** — `work_brief(ref, for: "worker")`. It already had to exist; it absorbs this. |
+| `review_brief`, `gate_brief`, `plan_audit_brief`, `handoff`, `retro` | `for:` variants of the **same** `work_brief` tool. One tool, one description, six renderings. |
+| `decompose` | text in `ServerInstructions` + the `work_create` description, since it is a *rule* ("a `Verify:` must be able to fail"), not a document. |
+
+This is a **better** outcome than the prompt design, and worth saying plainly rather than filing as a
+regression. A prompt is something a human chooses from a menu; a brief is something an agent needs
+mid-task. Making it a tool call puts it where the work is, it composes with `work_next`, and it costs
+one fewer primitive to explain. The probe cost half an hour and removed a feature.
+
+**The doctrine now travels in three places, all measured to work:** `ServerInstructions` (the loop and
+the closure contract), tool descriptions (what to call next), and `work_brief`'s rendered output (the
+per-item detail). `orchestrate/references/briefs.md`'s 311 lines land in the third.
+
+### What each `work_brief` rendering must contain
+
+`work_brief(ref, for: …)` — one tool, one description, six renderings. The content below is unchanged
+from the prompt design; only the delivery moved.
+
+| `for:` | Renders |
+|---|---|
+| `resume` *(default)* | Goal chain · current position · **the literal next action** · branch/HEAD · binding constraints in scope · open assumptions · unconsumed notes · deferred follow-ups · last verification. The recovery payload, generated so it cannot be stale. |
+| `worker` | Context (goal chain + what previous tasks delivered, from the DB) · binding constraints **in scope** · **every unconsumed note addressed to this item** · in/out of scope · done-criteria · `verify_cmd` · the red-check demand · the report format. **Marks the notes consumed.** |
+| `review` | Scoped diff range, done-criteria, goal paragraph, the 5-finding cap, the bar for a finding. |
+| `gate` | The phase's tasks, **the recorded seams** (`work_link` edges crossing task boundaries — computed, not remembered), the seam classes. |
+| `audit` | Pre-loaded with `work_audit`'s mechanical results marked *established, do not re-verify*, so the agent's budget goes to shape. |
+| `handoff` | The stranger-continues document. |
+| `retro` | Built from the events, verdicts and forced transitions already stored. |
+
+What stays in `SKILL.md` is the judgment: the cost table, the risk dial, red-checks, verification
+doctrine, escalation triggers, the critical-thinking ceiling. That is the half worth a model's
+attention; the templates never were.
 
 ---
 
@@ -322,6 +399,10 @@ model's attention; the templates were never it.
 | **Tasks extension** | Every operation is a fast DB write. Revisit for `work_import` only. |
 | **MCP Apps** | Interesting later (an inline board widget in the client); the standalone SPA comes first. |
 | **MRTR / elicitation** | Confirmation handled with a server-minted `confirm_token`, which works on every client. Revisit when client support is uniform. |
+| **Prompts** | **Measured invisible in Claude Code** (§9). Not registered at all. |
+| **`completions/complete` / `WithCompleteHandler`** | **Measured: no client mechanism exists** (§8). Not wired. |
+| **`structuredContent` / `OutputSchemaType`** | **Measured: replaces the text block, and the schema never reaches the model** (§2). Not used on read tools. |
+| **`WithListToolsHandler`** | **Measured unnecessary — `[Authorize]` narrows the list by itself** (§6). |
 
 ---
 

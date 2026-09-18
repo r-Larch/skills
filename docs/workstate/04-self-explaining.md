@@ -14,10 +14,13 @@ Five channels carry the explanation. They are ordered by how reliably a model re
 
 ## 1. `ServerInstructions` — the one that lands in the system prompt
 
-**Verified:** `McpServerOptions.ServerInstructions` (string) flows into `DiscoverResult.Instructions`
-/ `InitializeResult.Instructions`. Claude Code renders these into the session under a
-**"MCP Server Instructions"** heading — this document's author can see exactly that happening for
-three other servers in the current session, so it is observed behaviour, not a hope.
+**Measured end-to-end, 2026-09-18.** `McpServerOptions.ServerInstructions` reaches the model **in
+full**: under a top-level `# MCP Server Instructions` heading with a `## <server-name>` sub-heading,
+all 15 lines of the probe block intact, **not truncated**, and repeated **once per registered
+server**.
+
+That last detail sets the budget: the ≤40-line cap is **per registration**, and a session with the
+server registered twice pays twice. Keep it tight anyway — it is in context for every turn.
 
 This is the highest-value real estate in the whole design and it has a hard budget: it is in context
 for **every turn of every session**. Target **≤40 lines**. It carries only what cannot be discovered
@@ -89,13 +92,26 @@ explained by the same mechanism as every other path.
 
 ---
 
-## 5. Prompts as the long form
+## 5. ~~Prompts as the long form~~ → `work_brief(for: …)` as the long form
 
-Doc 01 §9's prompts (`worker_brief`, `gate_brief`, `plan_audit_brief`, `decompose`) are where the
-detailed doctrine lives — rendered on demand, with live state injected, rather than sitting in
-context. This is the channel with the **least certainty**: whether Claude Code surfaces server
-prompts usefully is exactly what task 0.2 settles. If it does not, their content moves into
-`work_brief`'s output and into tool descriptions, and nothing is lost but elegance.
+**Settled by measurement, 2026-09-18. This channel does not exist.** MCP prompts are invisible in
+Claude Code — absent from the tool list, absent from the skills listing, not invokable. The
+prediction above ("the channel with the least certainty") was correct, and the fallback named there
+is now the design: **the detailed doctrine is a `for:` variant of `work_brief`** (doc 01 §9).
+
+So the count is **four channels, not five**, and every one of them is measured to work:
+`ServerInstructions` · tool descriptions · errors-as-instructions · `work_brief` output.
+
+Losing the fifth made the design better, not worse. A prompt is something a *human* picks from a
+menu; a brief is something an *agent* needs mid-task. As a tool call it sits where the work is,
+composes with `work_next`, and is one fewer primitive to explain in a budget measured in lines.
+
+**One thing the probe added to this document's job.** Because `[Authorize]` *hides* a tool rather
+than refusing it (doc 01 §6), a worker never receives an error explaining what it may not do — the
+tool simply is not there. So §3's "errors that are instructions" cannot cover role boundaries, and
+`ServerInstructions` **must** state the role: *"you are a worker; closing a task is the
+orchestrator's call."* Without that line, the agent hunts for a tool that does not exist from where
+it stands, and nothing tells it why.
 
 ---
 
