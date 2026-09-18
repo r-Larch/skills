@@ -36,6 +36,68 @@ namespace WorkState.Core.Migrations
             NpgsqlModelBuilderExtensions.HasPostgresExtension(modelBuilder, "pg_trgm");
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
+            modelBuilder.Entity("WorkState.Core.Domain.AgentToken", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("AgentName")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("agent_name");
+
+                    b.Property<DateTimeOffset?>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("expires_at");
+
+                    b.Property<DateTimeOffset>("IssuedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("issued_at")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<DateTimeOffset?>("LastUsedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_used_at");
+
+                    b.Property<DateTimeOffset?>("RevokedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("revoked_at");
+
+                    b.Property<ActorRole>("Role")
+                        .HasColumnType("actor_role")
+                        .HasColumnName("role");
+
+                    b.Property<Guid?>("ScopeItemId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("scope_item_id");
+
+                    b.Property<byte[]>("TokenHash")
+                        .IsRequired()
+                        .HasColumnType("bytea")
+                        .HasColumnName("token_hash");
+
+                    b.Property<Guid>("WorkspaceId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("workspace_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_agent_token");
+
+                    b.HasIndex("ScopeItemId")
+                        .HasDatabaseName("ix_agent_token_scope_item_id");
+
+                    b.HasIndex("TokenHash")
+                        .IsUnique()
+                        .HasDatabaseName("agent_token_hash_idx");
+
+                    b.HasIndex("WorkspaceId")
+                        .HasDatabaseName("ix_agent_token_workspace_id");
+
+                    b.ToTable("agent_token", (string)null);
+                });
+
             modelBuilder.Entity("WorkState.Core.Domain.Artifact", b =>
                 {
                     b.Property<Guid>("Id")
@@ -76,6 +138,93 @@ namespace WorkState.Core.Migrations
                         .HasDatabaseName("artifact_item_idx");
 
                     b.ToTable("artifact", (string)null);
+                });
+
+            modelBuilder.Entity("WorkState.Core.Domain.Assumption", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<EvidenceLevel>("Evidence")
+                        .HasColumnType("evidence_level")
+                        .HasColumnName("evidence");
+
+                    b.Property<string>("Ref")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("ref");
+
+                    b.Property<Guid?>("RefScopeId")
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("uuid")
+                        .HasColumnName("ref_scope_id");
+
+                    b.Property<string>("ResolutionNote")
+                        .HasColumnType("text")
+                        .HasColumnName("resolution_note");
+
+                    b.Property<DateTimeOffset?>("ResolvedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("resolved_at");
+
+                    b.Property<ReversalCost>("Reversal")
+                        .HasColumnType("reversal_cost")
+                        .HasColumnName("reversal");
+
+                    b.Property<DateTimeOffset?>("RevisitAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("revisit_at");
+
+                    b.Property<Guid?>("RevisitItemId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("revisit_item_id");
+
+                    b.Property<Guid?>("ScopeItemId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("scope_item_id");
+
+                    b.Property<AssumptionState>("State")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("assumption_state")
+                        .HasDefaultValue(AssumptionState.Open)
+                        .HasColumnName("state");
+
+                    b.Property<string>("Statement")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("statement");
+
+                    b.Property<Guid>("WorkspaceId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("workspace_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_assumption");
+
+                    b.HasIndex("RefScopeId")
+                        .HasDatabaseName("ix_assumption_ref_scope_id");
+
+                    b.HasIndex("RevisitItemId")
+                        .HasDatabaseName("ix_assumption_revisit_item_id");
+
+                    b.HasIndex("ScopeItemId")
+                        .HasDatabaseName("ix_assumption_scope_item_id");
+
+                    b.HasIndex("WorkspaceId")
+                        .HasDatabaseName("assumption_open_idx")
+                        .HasFilter("state = 'open'");
+
+                    b.ToTable("assumption", null, t =>
+                        {
+                            t.HasCheckConstraint("assumption_resolved", "(state = 'open') = (resolved_at IS NULL)");
+                        });
                 });
 
             modelBuilder.Entity("WorkState.Core.Domain.Attempt", b =>
@@ -133,6 +282,161 @@ namespace WorkState.Core.Migrations
                         .HasDatabaseName("ix_attempt_item_id_n");
 
                     b.ToTable("attempt", (string)null);
+                });
+
+            modelBuilder.Entity("WorkState.Core.Domain.Claim", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("AcquiredAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("acquired_at")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<string>("AgentName")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("agent_name");
+
+                    b.Property<Guid?>("AgentTokenId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("agent_token_id");
+
+                    b.Property<DateTimeOffset>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("expires_at");
+
+                    b.Property<DateTimeOffset>("HeartbeatAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("heartbeat_at")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<Guid>("ItemId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("item_id");
+
+                    b.Property<string>("ReleaseReason")
+                        .HasColumnType("text")
+                        .HasColumnName("release_reason");
+
+                    b.Property<DateTimeOffset?>("ReleasedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("released_at");
+
+                    b.Property<ActorRole>("Role")
+                        .HasColumnType("actor_role")
+                        .HasColumnName("role");
+
+                    b.Property<string>("SerializationKey")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("serialization_key");
+
+                    b.Property<bool>("Writes")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true)
+                        .HasColumnName("writes");
+
+                    b.HasKey("Id")
+                        .HasName("pk_claim");
+
+                    b.HasIndex("AgentTokenId")
+                        .HasDatabaseName("ix_claim_agent_token_id");
+
+                    b.HasIndex("ItemId")
+                        .IsUnique()
+                        .HasDatabaseName("claim_one_live_per_item")
+                        .HasFilter("released_at IS NULL");
+
+                    b.HasIndex("SerializationKey")
+                        .IsUnique()
+                        .HasDatabaseName("claim_one_writer_per_tree")
+                        .HasFilter("released_at IS NULL AND writes");
+
+                    b.ToTable("claim", (string)null);
+                });
+
+            modelBuilder.Entity("WorkState.Core.Domain.ConstraintRule", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<bool>("Active")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true)
+                        .HasColumnName("active");
+
+                    b.Property<Guid?>("AddedByItemId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("added_by_item_id");
+
+                    b.PrimitiveCollection<string[]>("CoversRisk")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("text[]")
+                        .HasColumnName("covers_risk")
+                        .HasDefaultValueSql("'{}'::text[]");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<ConstraintKind>("Kind")
+                        .HasColumnType("constraint_kind")
+                        .HasColumnName("kind");
+
+                    b.Property<string>("Route")
+                        .HasColumnType("text")
+                        .HasColumnName("route");
+
+                    b.Property<Guid?>("ScopeItemId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("scope_item_id");
+
+                    b.Property<string>("Severity")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("text")
+                        .HasDefaultValue("binding")
+                        .HasColumnName("severity");
+
+                    b.Property<string>("Text")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("text");
+
+                    b.Property<Guid>("WorkspaceId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("workspace_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_constraint_rule");
+
+                    b.HasIndex("AddedByItemId")
+                        .HasDatabaseName("ix_constraint_rule_added_by_item_id");
+
+                    b.HasIndex("CoversRisk")
+                        .HasDatabaseName("constraint_risk_idx");
+
+                    NpgsqlIndexBuilderExtensions.HasMethod(b.HasIndex("CoversRisk"), "gin");
+
+                    b.HasIndex("ScopeItemId")
+                        .HasDatabaseName("ix_constraint_rule_scope_item_id");
+
+                    b.HasIndex("WorkspaceId", "ScopeItemId")
+                        .HasDatabaseName("constraint_scope_idx")
+                        .HasFilter("active");
+
+                    b.ToTable("constraint_rule", (string)null);
                 });
 
             modelBuilder.Entity("WorkState.Core.Domain.Doc", b =>
@@ -688,6 +992,95 @@ namespace WorkState.Core.Migrations
                         });
                 });
 
+            modelBuilder.Entity("WorkState.Core.Domain.Note", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("Body")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("body");
+
+                    b.Property<DateTimeOffset?>("ConsumedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("consumed_at");
+
+                    b.Property<Guid?>("ConsumedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("consumed_by");
+
+                    b.Property<Guid?>("CorrectsBlockId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("corrects_block_id");
+
+                    b.Property<Guid?>("CorrectsNoteId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("corrects_note_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<string>("CreatedBy")
+                        .HasColumnType("text")
+                        .HasColumnName("created_by");
+
+                    b.Property<Guid?>("FromItemId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("from_item_id");
+
+                    b.Property<NoteKind>("Kind")
+                        .HasColumnType("note_kind")
+                        .HasColumnName("kind");
+
+                    b.Property<Guid?>("ToItemId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("to_item_id");
+
+                    b.Property<string>("ToSelector")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("to_selector");
+
+                    b.Property<Guid>("WorkspaceId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("workspace_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_note");
+
+                    b.HasIndex("ConsumedBy")
+                        .HasDatabaseName("ix_note_consumed_by");
+
+                    b.HasIndex("CorrectsBlockId")
+                        .HasDatabaseName("ix_note_corrects_block_id");
+
+                    b.HasIndex("CorrectsNoteId")
+                        .HasDatabaseName("ix_note_corrects_note_id");
+
+                    b.HasIndex("FromItemId")
+                        .HasDatabaseName("ix_note_from_item_id");
+
+                    b.HasIndex("ToItemId")
+                        .HasDatabaseName("ix_note_to_item_id");
+
+                    b.HasIndex("ToSelector")
+                        .HasDatabaseName("note_selector_idx")
+                        .HasFilter("consumed_at IS NULL");
+
+                    NpgsqlIndexBuilderExtensions.HasMethod(b.HasIndex("ToSelector"), "gin");
+                    NpgsqlIndexBuilderExtensions.HasOperators(b.HasIndex("ToSelector"), new[] { "jsonb_path_ops" });
+
+                    b.HasIndex("WorkspaceId", "ToItemId")
+                        .HasDatabaseName("note_pending_idx")
+                        .HasFilter("consumed_at IS NULL");
+
+                    b.ToTable("note", (string)null);
+                });
+
             modelBuilder.Entity("WorkState.Core.Domain.ProjectConfig", b =>
                 {
                     b.Property<Guid>("ItemId")
@@ -931,6 +1324,22 @@ namespace WorkState.Core.Migrations
                     b.ToTable("workspace", (string)null);
                 });
 
+            modelBuilder.Entity("WorkState.Core.Domain.AgentToken", b =>
+                {
+                    b.HasOne("WorkState.Core.Domain.Item", null)
+                        .WithMany()
+                        .HasForeignKey("ScopeItemId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .HasConstraintName("fk_agent_token_item_scope_item_id");
+
+                    b.HasOne("WorkState.Core.Domain.Workspace", null)
+                        .WithMany()
+                        .HasForeignKey("WorkspaceId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_agent_token_workspace_workspace_id");
+                });
+
             modelBuilder.Entity("WorkState.Core.Domain.Artifact", b =>
                 {
                     b.HasOne("WorkState.Core.Domain.Item", null)
@@ -939,6 +1348,34 @@ namespace WorkState.Core.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("fk_artifact_item_item_id");
+                });
+
+            modelBuilder.Entity("WorkState.Core.Domain.Assumption", b =>
+                {
+                    b.HasOne("WorkState.Core.Domain.Item", null)
+                        .WithMany()
+                        .HasForeignKey("RefScopeId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .HasConstraintName("fk_assumption_item_ref_scope_id");
+
+                    b.HasOne("WorkState.Core.Domain.Item", null)
+                        .WithMany()
+                        .HasForeignKey("RevisitItemId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .HasConstraintName("fk_assumption_item_revisit_item_id");
+
+                    b.HasOne("WorkState.Core.Domain.Item", null)
+                        .WithMany()
+                        .HasForeignKey("ScopeItemId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .HasConstraintName("fk_assumption_item_scope_item_id");
+
+                    b.HasOne("WorkState.Core.Domain.Workspace", null)
+                        .WithMany()
+                        .HasForeignKey("WorkspaceId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_assumption_workspace_workspace_id");
                 });
 
             modelBuilder.Entity("WorkState.Core.Domain.Attempt", b =>
@@ -955,6 +1392,44 @@ namespace WorkState.Core.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("fk_attempt_item_item_id");
+                });
+
+            modelBuilder.Entity("WorkState.Core.Domain.Claim", b =>
+                {
+                    b.HasOne("WorkState.Core.Domain.AgentToken", null)
+                        .WithMany()
+                        .HasForeignKey("AgentTokenId")
+                        .OnDelete(DeleteBehavior.SetNull)
+                        .HasConstraintName("fk_claim_agent_tokens_agent_token_id");
+
+                    b.HasOne("WorkState.Core.Domain.Item", null)
+                        .WithMany()
+                        .HasForeignKey("ItemId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_claim_item_item_id");
+                });
+
+            modelBuilder.Entity("WorkState.Core.Domain.ConstraintRule", b =>
+                {
+                    b.HasOne("WorkState.Core.Domain.Item", null)
+                        .WithMany()
+                        .HasForeignKey("AddedByItemId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .HasConstraintName("fk_constraint_rule_item_added_by_item_id");
+
+                    b.HasOne("WorkState.Core.Domain.Item", null)
+                        .WithMany()
+                        .HasForeignKey("ScopeItemId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .HasConstraintName("fk_constraint_rule_item_scope_item_id");
+
+                    b.HasOne("WorkState.Core.Domain.Workspace", null)
+                        .WithMany()
+                        .HasForeignKey("WorkspaceId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_constraint_rule_workspace_workspace_id");
                 });
 
             modelBuilder.Entity("WorkState.Core.Domain.Doc", b =>
@@ -1082,6 +1557,46 @@ namespace WorkState.Core.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("fk_item_link_workspace_workspace_id");
+                });
+
+            modelBuilder.Entity("WorkState.Core.Domain.Note", b =>
+                {
+                    b.HasOne("WorkState.Core.Domain.Attempt", null)
+                        .WithMany()
+                        .HasForeignKey("ConsumedBy")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .HasConstraintName("fk_note_attempt_consumed_by");
+
+                    b.HasOne("WorkState.Core.Domain.DocBlock", null)
+                        .WithMany()
+                        .HasForeignKey("CorrectsBlockId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .HasConstraintName("fk_note_doc_block_corrects_block_id");
+
+                    b.HasOne("WorkState.Core.Domain.Note", null)
+                        .WithMany()
+                        .HasForeignKey("CorrectsNoteId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .HasConstraintName("fk_note_note_corrects_note_id");
+
+                    b.HasOne("WorkState.Core.Domain.Item", null)
+                        .WithMany()
+                        .HasForeignKey("FromItemId")
+                        .OnDelete(DeleteBehavior.SetNull)
+                        .HasConstraintName("fk_note_item_from_item_id");
+
+                    b.HasOne("WorkState.Core.Domain.Item", null)
+                        .WithMany()
+                        .HasForeignKey("ToItemId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .HasConstraintName("fk_note_item_to_item_id");
+
+                    b.HasOne("WorkState.Core.Domain.Workspace", null)
+                        .WithMany()
+                        .HasForeignKey("WorkspaceId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_note_workspace_workspace_id");
                 });
 
             modelBuilder.Entity("WorkState.Core.Domain.ProjectConfig", b =>

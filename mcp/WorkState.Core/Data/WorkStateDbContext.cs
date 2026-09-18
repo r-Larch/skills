@@ -20,6 +20,11 @@ public class WorkStateDbContext(DbContextOptions<WorkStateDbContext> options) : 
     public DbSet<Verification> Verifications => Set<Verification>();
     public DbSet<Artifact> Artifacts => Set<Artifact>();
     public DbSet<Event> Events => Set<Event>();
+    public DbSet<Assumption> Assumptions => Set<Assumption>();
+    public DbSet<ConstraintRule> ConstraintRules => Set<ConstraintRule>();
+    public DbSet<Note> Notes => Set<Note>();
+    public DbSet<Claim> Claims => Set<Claim>();
+    public DbSet<AgentToken> AgentTokens => Set<AgentToken>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -35,6 +40,106 @@ public class WorkStateDbContext(DbContextOptions<WorkStateDbContext> options) : 
         MapDocs(b);
         MapEvidence(b);
         MapJournal(b);
+        MapThreads(b);
+    }
+
+    private static void MapThreads(ModelBuilder b)
+    {
+        b.Entity<Assumption>(e =>
+        {
+            e.ToTable("assumption");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).ValueGeneratedNever();
+            e.Property(x => x.State).HasDefaultValue(AssumptionState.Open);
+            e.Property(x => x.CreatedAt).HasDefaultValueSql("now()");
+            e.Property(x => x.RefScopeId).ValueGeneratedOnAddOrUpdate();
+            e.HasOne<Workspace>().WithMany().HasForeignKey(x => x.WorkspaceId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne<Item>().WithMany().HasForeignKey(x => x.ScopeItemId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne<Item>().WithMany().HasForeignKey(x => x.RefScopeId).OnDelete(DeleteBehavior.NoAction);
+            e.HasOne<Item>().WithMany().HasForeignKey(x => x.RevisitItemId).OnDelete(DeleteBehavior.NoAction);
+            e.HasIndex(x => x.WorkspaceId)
+                .HasDatabaseName("assumption_open_idx")
+                .HasFilter("state = 'open'");
+            e.ToTable(t => t.HasCheckConstraint(
+                "assumption_resolved",
+                "(state = 'open') = (resolved_at IS NULL)"));
+        });
+
+        b.Entity<ConstraintRule>(e =>
+        {
+            e.ToTable("constraint_rule");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).ValueGeneratedNever();
+            e.Property(x => x.CoversRisk).HasDefaultValueSql("'{}'::text[]");
+            e.Property(x => x.Severity).HasDefaultValue("binding");
+            e.Property(x => x.Active).HasDefaultValue(true);
+            e.Property(x => x.CreatedAt).HasDefaultValueSql("now()");
+            e.HasOne<Workspace>().WithMany().HasForeignKey(x => x.WorkspaceId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne<Item>().WithMany().HasForeignKey(x => x.ScopeItemId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne<Item>().WithMany().HasForeignKey(x => x.AddedByItemId).OnDelete(DeleteBehavior.NoAction);
+            e.HasIndex(x => new { x.WorkspaceId, x.ScopeItemId })
+                .HasDatabaseName("constraint_scope_idx")
+                .HasFilter("active");
+            e.HasIndex(x => x.CoversRisk).HasDatabaseName("constraint_risk_idx").HasMethod("gin");
+        });
+
+        b.Entity<Note>(e =>
+        {
+            e.ToTable("note");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).ValueGeneratedNever();
+            e.Property(x => x.ToSelector).HasColumnType("jsonb");
+            e.Property(x => x.CreatedAt).HasDefaultValueSql("now()");
+            e.HasOne<Workspace>().WithMany().HasForeignKey(x => x.WorkspaceId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne<Item>().WithMany().HasForeignKey(x => x.FromItemId).OnDelete(DeleteBehavior.SetNull);
+            e.HasOne<Item>().WithMany().HasForeignKey(x => x.ToItemId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne<Note>().WithMany().HasForeignKey(x => x.CorrectsNoteId).OnDelete(DeleteBehavior.NoAction);
+            e.HasOne<DocBlock>().WithMany().HasForeignKey(x => x.CorrectsBlockId).OnDelete(DeleteBehavior.NoAction);
+            e.HasOne<Attempt>().WithMany().HasForeignKey(x => x.ConsumedBy).OnDelete(DeleteBehavior.NoAction);
+            e.HasIndex(x => new { x.WorkspaceId, x.ToItemId })
+                .HasDatabaseName("note_pending_idx")
+                .HasFilter("consumed_at IS NULL");
+            e.HasIndex(x => x.ToSelector)
+                .HasDatabaseName("note_selector_idx")
+                .HasMethod("gin")
+                .HasOperators("jsonb_path_ops")
+                .HasFilter("consumed_at IS NULL");
+        });
+
+        b.Entity<Claim>(e =>
+        {
+            e.ToTable("claim");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).ValueGeneratedNever();
+            e.Property(x => x.Writes).HasDefaultValue(true);
+            e.Property(x => x.AcquiredAt).HasDefaultValueSql("now()");
+            e.Property(x => x.HeartbeatAt).HasDefaultValueSql("now()");
+            e.HasOne<Item>().WithMany().HasForeignKey(x => x.ItemId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne<AgentToken>().WithMany().HasForeignKey(x => x.AgentTokenId).OnDelete(DeleteBehavior.SetNull);
+
+            e.HasIndex(x => x.ItemId)
+                .HasDatabaseName("claim_one_live_per_item")
+                .IsUnique()
+                .HasFilter("released_at IS NULL");
+
+            // One writer per working tree. Two runs in separate worktrees proceed in parallel; two
+            // runs sharing a tree do not. The parallel-orchestrator rule, as an index.
+            e.HasIndex(x => x.SerializationKey)
+                .HasDatabaseName("claim_one_writer_per_tree")
+                .IsUnique()
+                .HasFilter("released_at IS NULL AND writes");
+        });
+
+        b.Entity<AgentToken>(e =>
+        {
+            e.ToTable("agent_token");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).ValueGeneratedNever();
+            e.Property(x => x.IssuedAt).HasDefaultValueSql("now()");
+            e.HasOne<Workspace>().WithMany().HasForeignKey(x => x.WorkspaceId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne<Item>().WithMany().HasForeignKey(x => x.ScopeItemId).OnDelete(DeleteBehavior.Cascade);
+            e.HasIndex(x => x.TokenHash).HasDatabaseName("agent_token_hash_idx").IsUnique();
+        });
     }
 
     private static void MapWorkspace(ModelBuilder b) => b.Entity<Workspace>(e =>
