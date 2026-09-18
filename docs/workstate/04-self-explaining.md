@@ -57,6 +57,46 @@ Next: work_get(ref) for the full brief, then work_status(ref, "in_progress").
 Annotations are part of the explanation, not metadata: `ReadOnly = true` tells an agent it can call
 `work_tree` freely; `Destructive = true` on `cancel` tells it not to.
 
+### The `Next:` line of every tool — this is the workflow graph
+
+The set has to **chain**. A tool whose `Next:` leads nowhere is a dead end an agent falls out of, and
+the only way to see that is to write them all down together.
+
+| Tool | `Next:` |
+|---|---|
+| `work_brief` | whatever its own `NEXT` line says — usually `work_next`, or `work_status(in_progress)` on a run already under way |
+| `work_next` | `work_get(ref)` for the detail, then `work_status(ref, "in_progress")` |
+| `work_get` | `work_status(in_progress)` to start it · `work_verify` if it is already built · `work_brief(ref, for:"worker")` to hand it to someone |
+| `work_tree` | `work_next` to act, or `work_threads` for what is unclosed |
+| `work_search` | `work_get(ref)` on a hit |
+| `work_threads` | the call named on each line — `work_assume`, `work_status`, `work_note` |
+| `work_audit` | `work_update` / `work_link` to fix what it found; `work_note` to record what you are not fixing |
+| `work_history` | `work_get(ref)` on anything surprising |
+| `work_create` | `work_link` if it depends on something · `work_next` to start |
+| `work_update` | `work_status` when the criteria are met |
+| `work_move` | `work_tree` to confirm the shape |
+| `work_link` | `work_next` — the frontier has just changed |
+| `work_status(in_progress)` | do the work, then `work_verify` |
+| `work_status(done)` | `work_next` |
+| `work_status(deferred)` | `work_next` — and note the new item it created |
+| `work_patch` | `work_get(ref, include:"body")` to confirm |
+| `work_report` | `work_verify` — a report is a claim, not evidence |
+| `work_verify` | `work_status(ref, "done")` |
+| `work_note` | nothing; it is a side-effect, and saying so stops an agent hunting for a follow-up |
+| `work_assume` | nothing, unless resolving it unblocks an item |
+| `work_finding` | `work_status(ref, "in_progress")` on the target, or `work_status(finding, "deferred", target:…)` |
+
+**Three properties to check whenever a tool is added or changed**, because they are what make the
+graph a workflow rather than a menu:
+
+1. **Every tool's `Next:` names a tool that exists.** Trivially testable; assert it.
+2. **Every path leads back to `work_next` or to `work_brief` within two hops.** Those are the two
+   orientation points; a tool more than two hops from either is somewhere an agent gets lost.
+3. **`work_report → work_verify` is stated in those words.** *"A report is a claim, not evidence"* is
+   the single most load-bearing sentence in the whole set — it is the skills' *"worker self-reports
+   of 'tests pass' are the claim you would most regret trusting"*, delivered at the exact moment an
+   agent is about to trust one.
+
 ---
 
 ## 3. Errors that are instructions
