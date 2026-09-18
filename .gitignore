@@ -13,3 +13,6 @@ obj/
 *.user
 *.suo
 *.DotSettings.user
+
+# Nested-agent briefs (per-run, not a team artifact)
+.claude/briefs/
