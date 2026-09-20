@@ -186,6 +186,15 @@ Renderer tests are cheap and they are the only defence against drift back toward
 - [ ] A clean result emits **no** attention header, not an empty one.
 - [ ] The attention block never exceeds 5 lines, and **every line contains a `—` followed by a call**.
 - [ ] A refusal lists **all** unmet conditions and every one has a `→` line.
-- [ ] **Token budget, asserted with a number**: `work_brief` on the imported `entity-store` run
-      renders in **≤ 900 tokens**, against the **6,011 lines** of the `LEDGER.md` it replaces. That
-      ratio is the project's headline claim and it fails the build if it regresses.
+- [ ] **Token budget, asserted with a number — against a committed fixture, not the live corpus.**
+      `work_brief` on a fixture run imported into the test container renders in **≤ 900 tokens**.
+
+      > **Corrected 2026-09-20.** The earlier version of this line said "the imported `entity-store`
+      > run", which is **not deterministic**: those corpora are other projects' live working records
+      > and one of them grew from 181 to 182 files *during this build*. A build-failing test must
+      > measure something committed and frozen, or it fails for reasons that have nothing to do with
+      > the renderer.
+      >
+      > The **headline claim** — `work_brief` against the real 6,011-line `entity-store` ledger — is a
+      > **one-off measurement recorded in the ledger with the date and the corpus state**, not a
+      > gate. Both numbers are worth having; only one of them belongs in CI.
