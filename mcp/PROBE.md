@@ -1,5 +1,23 @@
 # PROBE — what does Claude Code actually surface of an MCP server?
 
+> ## ⚠ The probe server no longer exists. Removed in U3, 2026-09-20.
+>
+> **§1–§4 describe an instrument that has been deleted** — the six probe primitives, the two dev
+> tokens, and the questions they were built to ask. They are kept as the record of *how* the
+> measurement was taken, which is what makes the result checkable rather than asserted. Do not try
+> to run them: `WorkState.Mcp/Probe/`, `WorkState.Tests/Probe/` and `WorkState.Abstractions` are
+> gone, and the tokens in §2 no longer exist.
+>
+> **§5 and §6 are the findings, and they remain authoritative.** They are cited across
+> `docs/workstate/01`, `04`, `05` and `06` as the evidence for decisions those documents record —
+> the text-only output contract, the absence of prompts and completions, and `[Authorize]`
+> narrowing `tools/list` unaided. The marker values in §3 are still accurate, and are the reason
+> deleting `ProbeTokens.cs` lost nothing.
+>
+> Removing the probe also removed the last two registrations of features the findings ruled out:
+> `WithPromptsFromAssembly` and `WithCompleteHandler` were still wired into the host. Deleting
+> them is part of this change, not a side effect of it.
+
 Task **0.2** of `docs/workstate/03-stack-and-plan.md`, the last unverified premise in the design.
 Half of `docs/workstate/04-self-explaining.md` rests on the answers.
 

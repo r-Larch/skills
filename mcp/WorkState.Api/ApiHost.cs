@@ -6,7 +6,6 @@ using WorkState.Core.Board;
 using WorkState.Core.Data;
 using WorkState.Core.Queries;
 using WorkState.Mcp;
-using WorkState.Mcp.Probe;
 using WorkState.Mcp.Resources;
 using WorkState.Mcp.Tools;
 
@@ -80,9 +79,7 @@ public static class ApiHost
             .WithHttpTransport()
             .AddAuthorizationFilters()
             .WithToolsFromAssembly(typeof(WorkReadTools).Assembly)
-            .WithResourcesFromAssembly(typeof(WorkResources).Assembly)
-            .WithPromptsFromAssembly(typeof(ProbePrompts).Assembly)
-            .WithCompleteHandler(ProbeCompletions.HandleAsync);
+            .WithResourcesFromAssembly(typeof(WorkResources).Assembly);
 
         var app = builder.Build();
 
