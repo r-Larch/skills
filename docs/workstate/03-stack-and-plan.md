@@ -48,9 +48,11 @@ No state library: Solid stores + a small resource layer over the App API, with t
 
 ```
 WorkState.slnx                     net10.0
-├─ WorkState.Abstractions/         DTOs + the wire contract. No dependencies. Published as NuGet
-│                                  so a future Nomos/Gaia integration can resolve refs without
-│                                  pulling the engine.
+│  (WorkState.Abstractions/        REMOVED in U3. It held nothing but the probe's types, and the
+│                                  output contract is text-only — there are no wire DTOs to
+│                                  publish. A project with zero types is dead weight every later
+│                                  reader has to ask about. It returns when the App API needs a
+│                                  real published contract, and not before.)
 ├─ WorkState.Core/                 domain, EF model, migrations, query services, rendering
 │                                  (compact text + markdown). No ASP.NET.
 ├─ WorkState.Mcp/                  tool / prompt / resource classes. Depends on Core only.
