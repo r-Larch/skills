@@ -4,6 +4,7 @@ using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 using WorkState.Core.Board;
 using WorkState.Core.Rendering;
+using WorkState.Core.Writing;
 
 namespace WorkState.Mcp.Tools;
 
@@ -18,7 +19,7 @@ namespace WorkState.Mcp.Tools;
 /// </para>
 /// </summary>
 [McpServerToolType]
-public sealed class WorkReadTools(BoardReader reader, WorkspaceOptions workspace)
+public sealed class WorkReadTools(BoardReader reader, WorkspaceOptions workspace, Housekeeping housekeeping)
 {
     [Authorize(Policy = WorkStatePolicies.Worker)]
     [McpServerTool(Name = "work_brief", Title = "Orient: the recovery payload", ReadOnly = true)]
@@ -46,7 +47,20 @@ public sealed class WorkReadTools(BoardReader reader, WorkspaceOptions workspace
                 : Explain(resolved, scope));
         }
 
-        return Text(await reader.BriefAsync(found, @for ?? "resume", cancellationToken));
+        // doc 07 §5: the sweep is what makes an expired lease visible, and it runs here because
+        // work_brief is the first call of every session — the moment a parked agent is noticed.
+        await housekeeping.SweepAsync(found.WorkspaceId, cancellationToken);
+
+        var variant = @for ?? "resume";
+        var brief = await reader.BriefAsync(found, variant, cancellationToken);
+
+        // doc 01 §3.4 — the notes have now been rendered into this brief, so they are delivered.
+        if (variant.Equals("worker", StringComparison.OrdinalIgnoreCase))
+        {
+            await housekeeping.ConsumeNotesAsync(found.Item.Id, cancellationToken);
+        }
+
+        return Text(brief);
     }
 
     [Authorize(Policy = WorkStatePolicies.Orchestrator)]
@@ -68,7 +82,8 @@ public sealed class WorkReadTools(BoardReader reader, WorkspaceOptions workspace
         => await WithScopeAsync(
             scope,
             found => reader.NextAsync(found, Clamp(limit, 1, 50), kind, cancellationToken),
-            cancellationToken);
+            cancellationToken,
+            sweep: true);
 
     [Authorize(Policy = WorkStatePolicies.Orchestrator)]
     [McpServerTool(Name = "work_tree", Title = "Orient: the shape", ReadOnly = true)]
@@ -223,12 +238,18 @@ public sealed class WorkReadTools(BoardReader reader, WorkspaceOptions workspace
     private async Task<CallToolResult> WithScopeAsync(
         string? scope,
         Func<ScopeResult.Found, Task<string>> render,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool sweep = false)
     {
         var resolved = await reader.ResolveAsync(workspace.Slug, scope, cancellationToken);
         if (resolved is not ScopeResult.Found found)
         {
             return Text(resolved is ScopeResult.Empty ? BriefRenderer.Onboarding() : Explain(resolved, scope));
+        }
+
+        if (sweep)
+        {
+            await housekeeping.SweepAsync(found.WorkspaceId, cancellationToken);
         }
 
         var body = await render(found);

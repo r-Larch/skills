@@ -324,6 +324,7 @@ public sealed partial class BoardReader
         CancellationToken cancellationToken = default)
     {
         var rows = new List<AuditRow>();
+        rows.AddRange(await board.ForcedTransitionsAsync(scope.Item.Id, cancellationToken));
         rows.AddRange(await board.NeverRedAsync(scope.Item.Id, cancellationToken));
         rows.AddRange(await board.SupersededStillReferencedAsync(scope.Item.Id, cancellationToken));
         rows.AddRange(await board.UncoveredRiskAsync(scope.Item.Id, cancellationToken));

@@ -339,21 +339,37 @@ public sealed class BoardQueries(NpgsqlDataSource dataSource)
         return await ListAsync<BlockedRow>(sql, new { scope = scopeItemId }, cancellationToken);
     }
 
+    /// <summary>
+    /// doc 07 §5 — a lapsed lease stays the top-ranked attention line (doc 06 §5) even after the
+    /// sweep has released it, because the sweep answers *who holds this* and the line answers *who
+    /// picks it up*. It clears itself the moment someone takes a live claim, so it never needs a
+    /// time window to stop nagging.
+    /// </summary>
     public async Task<IReadOnlyList<ClaimRow>> ExpiredClaimsAsync(
         Guid scopeItemId,
         CancellationToken cancellationToken = default)
     {
         const string sql =
             $"""
-             SELECT i.ref        AS "ItemRef",
-                    c.agent_name AS "AgentName",
-                    c.expires_at AS "ExpiresAt"
-             FROM   claim c
-             JOIN   item i ON i.id = c.item_id
-             WHERE  c.released_at IS NULL
-               AND  c.expires_at < now()
-               AND  {InScope}
-             ORDER  BY c.expires_at;
+             SELECT "ItemRef", "AgentName", "ExpiresAt" FROM (
+               SELECT DISTINCT ON (c.item_id)
+                      i.ref        AS "ItemRef",
+                      c.agent_name AS "AgentName",
+                      c.expires_at AS "ExpiresAt",
+                      c.item_id
+               FROM   claim c
+               JOIN   item i ON i.id = c.item_id
+               WHERE  c.expires_at < now()
+                 AND  (c.released_at IS NULL OR c.release_reason = 'expired')
+                 AND  i.status NOT IN ('done','cancelled','superseded')
+                 AND  NOT EXISTS (SELECT 1 FROM claim live
+                                  WHERE live.item_id = c.item_id
+                                    AND live.released_at IS NULL
+                                    AND live.expires_at >= now())
+                 AND  {InScope}
+               ORDER  BY c.item_id, c.expires_at DESC
+             ) lapsed
+             ORDER  BY "ExpiresAt";
              """;
 
         return await ListAsync<ClaimRow>(sql, new { scope = scopeItemId }, cancellationToken);
@@ -504,6 +520,34 @@ public sealed class BoardQueries(NpgsqlDataSource dataSource)
                                   AND v.command = i.verify_cmd
                                   AND NOT v.passed)
              ORDER  BY i.ref;
+             """;
+
+        return await ListAsync<AuditRow>(sql, new { scope = scopeItemId }, cancellationToken);
+    }
+
+    /// <summary>
+    /// doc 07 §3 — a <c>force</c> that leaves no mark is worse than no override at all, so every
+    /// forced closure is permanently visible here. This is the check that makes the escape hatch
+    /// honest rather than silent.
+    /// </summary>
+    public async Task<IReadOnlyList<AuditRow>> ForcedTransitionsAsync(
+        Guid scopeItemId,
+        CancellationToken cancellationToken = default)
+    {
+        const string sql =
+            $"""
+             SELECT 'forced-closure'                                     AS "Check",
+                    i.ref                                                AS "Ref",
+                    'closed with force:true — '
+                      || coalesce(nullif(e.payload->>'reason', ''), 'no reason recorded') AS "Problem",
+                    'work_verify(ref:"' || i.ref || '", result_line:"…", run_by:"orchestrator") to '
+                      || 'record the evidence it closed without, or work_note(kind:"decision", '
+                      || 'body:"…") to accept it on the record'                            AS "Route"
+             FROM   event e
+             JOIN   item i ON i.id = e.item_id
+             WHERE  e.kind = 'forced_transition'
+               AND  {InScope}
+             ORDER  BY e.seq DESC;
              """;
 
         return await ListAsync<AuditRow>(sql, new { scope = scopeItemId }, cancellationToken);

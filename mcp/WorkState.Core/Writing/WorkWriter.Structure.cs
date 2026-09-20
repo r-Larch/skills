@@ -1,0 +1,732 @@
+using System.Text.Json.Serialization;
+using Dapper;
+using Npgsql;
+using WorkState.Core.Domain;
+using WorkState.Core.Rendering;
+
+namespace WorkState.Core.Writing;
+
+/// <summary>
+/// One row of <c>work_create</c>'s batch — decomposition writes 6–20 of these at once. The JSON
+/// names are the ones the refusals and the brief print, because a route an agent copies has to be
+/// the route the schema accepts (doc 04 §3).
+/// </summary>
+public sealed record NewItemArg(
+    [property: JsonPropertyName("kind")] string Kind,
+    [property: JsonPropertyName("title")] string Title,
+    [property: JsonPropertyName("ref")] string? Ref = null,
+    [property: JsonPropertyName("parent")] string? Parent = null,
+    [property: JsonPropertyName("intent")] string? Intent = null,
+    [property: JsonPropertyName("verify_cmd")] string? VerifyCmd = null,
+    [property: JsonPropertyName("criteria")] string[]? Criteria = null,
+    [property: JsonPropertyName("risk_tags")] string[]? RiskTags = null,
+    [property: JsonPropertyName("priority")] int? Priority = null);
+
+/// <summary>One criterion as <c>work_update</c> addresses it: <c>c2</c>, checked, with its evidence.</summary>
+public sealed record CriterionArg(
+    [property: JsonPropertyName("id")] string? Id = null,
+    [property: JsonPropertyName("text")] string? Text = null,
+    [property: JsonPropertyName("checked")] bool? Checked = null,
+    [property: JsonPropertyName("evidence")] string? Evidence = null);
+
+public sealed record UpdateArgs(
+    string? Title = null,
+    string? Intent = null,
+    string? VerifyCmd = null,
+    string[]? RiskTags = null,
+    int? Priority = null,
+    CriterionArg[]? Criteria = null,
+    int? ExpectedRevision = null);
+
+public sealed partial class WorkWriter
+{
+    /// <summary>
+    /// The cold start. <c>work_brief</c> on an empty server tells the agent to call
+    /// <c>work_create</c>, so that call has to work before anything exists — otherwise the
+    /// onboarding names a route that refuses (doc 04 §4).
+    /// </summary>
+    public async Task<Guid> EnsureWorkspaceAsync(string? slug, CancellationToken cancellationToken = default)
+    {
+        const string sql =
+            """
+            WITH existing AS (
+              SELECT id FROM workspace WHERE slug = @slug
+            ), created AS (
+              INSERT INTO workspace (id, slug)
+              SELECT @id, @slug WHERE NOT EXISTS (SELECT 1 FROM existing)
+              RETURNING id
+            )
+            SELECT id FROM existing UNION ALL SELECT id FROM created;
+            """;
+
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        return await connection.ExecuteScalarAsync<Guid>(new CommandDefinition(
+            sql,
+            new { id = Guid.CreateVersion7(), slug = string.IsNullOrWhiteSpace(slug) ? "default" : slug.Trim() },
+            cancellationToken: cancellationToken));
+    }
+
+    /// <summary>
+    /// doc 01 §3.2. Batch, because decomposition creates six to twenty items in one call, and the
+    /// refusal for a task without a verification command or a done-criterion is the skills'
+    /// "a brief that omits done-criteria or a verification command is a defect", made unwritable.
+    /// </summary>
+    public async Task<WriteResult> CreateAsync(
+        Guid workspaceId,
+        Actor actor,
+        IReadOnlyList<NewItemArg> items,
+        CancellationToken cancellationToken = default)
+    {
+        if (items.Count == 0)
+        {
+            return WriteResult.No(Refusal.Blocked(
+                "work_create with no items.",
+                "it takes an array — a decomposition is one call, not twelve",
+                "work_create(items:[{kind:\"task\", parent:\"2\", title:\"…\", verify_cmd:\"…\", "
+                + "criteria:[\"…\"]}])"));
+        }
+
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+
+        var ladder = await LadderAsync(connection, transaction, cancellationToken);
+        var written = new List<string>();
+        var firstRef = string.Empty;
+
+        foreach (var wanted in items)
+        {
+            var kind = wanted.Kind?.Trim().ToLowerInvariant() ?? string.Empty;
+            if (!ladder.TryGetValue(kind, out var rules))
+            {
+                return WriteResult.No(Refusal.Blocked(
+                    $"work_create(kind:\"{wanted.Kind}\") — no such kind.",
+                    $"the ladder is fixed: {string.Join(", ", ladder.Keys.Order())}",
+                    "work_create(items:[{kind:\"task\", parent:\"…\", title:\"…\", verify_cmd:\"…\", "
+                    + "criteria:[\"…\"]}])"));
+            }
+
+            if (Blank(wanted.Title))
+            {
+                return WriteResult.No(Refusal.Blocked(
+                    $"work_create(kind:\"{kind}\") without a title.",
+                    "the title is the handle a board row is read by",
+                    "work_create(items:[{kind:\"" + kind + "\", title:\"…\", …}])"));
+            }
+
+            var shortfall = Shortfall(kind, rules, wanted);
+            if (shortfall is not null)
+            {
+                return WriteResult.No(shortfall);
+            }
+
+            Guid? parentId = null;
+            ScopeRefLite? parent = null;
+
+            if (!Blank(wanted.Parent))
+            {
+                var (found, refusal) = await ResolveAsync(workspaceId, wanted.Parent, cancellationToken);
+                if (found is null)
+                {
+                    return WriteResult.No(refusal!);
+                }
+
+                parentId = found.Id;
+                var row = await LoadAsync(connection, transaction, found.Id, cancellationToken);
+                parent = new ScopeRefLite(row.Id, row.Ref, row.RefScopeId);
+            }
+            else if (kind is not ("project" or "feature"))
+            {
+                return WriteResult.No(Refusal.Blocked(
+                    $"work_create(kind:\"{kind}\") without a parent.",
+                    "everything below a project hangs off something — an orphan is invisible to "
+                    + "work_next and to every rollup",
+                    $"work_create(items:[{{kind:\"{kind}\", parent:\"<a ref>\", title:\"…\"}}])",
+                    "work_tree() to see what exists to hang it from"));
+            }
+
+            var refScope = parent is null
+                ? null
+                : parent.RefScopeId == parent.Id ? parent.Id : parent.RefScopeId;
+
+            var reference = Blank(wanted.Ref)
+                ? await DerivedRefAsync(connection, transaction, parent, refScope, kind, cancellationToken)
+                : wanted.Ref!.Trim();
+
+            var row2 = new NewRow(
+                Guid.CreateVersion7(),
+                workspaceId,
+                parentId,
+                kind,
+                reference,
+                await NextSeqAsync(connection, transaction, parentId, cancellationToken),
+                Glyph.Clip(wanted.Title, 180),
+                wanted.Intent,
+                wanted.VerifyCmd,
+                wanted.RiskTags,
+                (short)Math.Clamp(wanted.Priority ?? 0, -9, 9));
+
+            try
+            {
+                await InsertItemAsync(connection, transaction, row2, cancellationToken);
+            }
+            catch (PostgresException refused)
+            {
+                return WriteResult.No(FromPostgres(refused, $"work_create(ref:\"{reference}\")"));
+            }
+
+            await CriteriaAsync(connection, transaction, row2.Id, wanted.Criteria ?? [], cancellationToken);
+
+            await EventAsync(
+                connection, transaction, workspaceId, row2.Id, actor, "created",
+                $"{reference} ({kind}) created under {parent?.Ref ?? "—"}: {Glyph.Clip(wanted.Title, 40)}",
+                new { kind, parent = parent?.Ref, title = wanted.Title },
+                cancellationToken);
+
+            if (firstRef.Length == 0)
+            {
+                firstRef = reference;
+            }
+
+            written.Add($"{Glyph.Pad(reference, 8)}  {Glyph.Pad(Glyph.Kind(kind), 6)}  "
+                      + Glyph.Clip(wanted.Title, 60));
+        }
+
+        await transaction.CommitAsync(cancellationToken);
+
+        return WriteResult.Ok(string.Join(
+            "\n",
+            [
+                $"OK  {written.Count} item(s) created",
+                .. written.Select(w => $"    {w}"),
+                string.Empty,
+                $"Next: work_link if any of these depends on another, then work_next() — "
+                + $"the frontier has changed. work_status(ref:\"{firstRef}\", to:\"in_progress\") to start.",
+            ]));
+    }
+
+    /// <summary>
+    /// doc 01 §3.2 — a field-level patch with <c>expected_revision</c>, so a concurrent edit is
+    /// reported with what actually changed rather than silently overwritten.
+    /// </summary>
+    public async Task<WriteResult> UpdateAsync(
+        Guid workspaceId,
+        Actor actor,
+        string? reference,
+        UpdateArgs args,
+        CancellationToken cancellationToken = default)
+    {
+        var (scope, unresolved) = await ResolveAsync(workspaceId, reference, cancellationToken);
+        if (scope is null)
+        {
+            return WriteResult.No(unresolved!);
+        }
+
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+
+        var item = await LoadAsync(connection, transaction, scope.Id, cancellationToken);
+
+        if (args.ExpectedRevision is { } expected && expected != item.Revision)
+        {
+            return WriteResult.No(Refusal.Blocked(
+                $"work_update({item.Ref}) — expected_revision {expected}, but it is now {item.Revision}.",
+                "someone else wrote to this item since you read it",
+                $"work_get(refs:[\"{item.Ref}\"]) to see it as it stands, then retry with "
+                + $"expected_revision:{item.Revision}"));
+        }
+
+        const string sql =
+            """
+            UPDATE item
+               SET title      = coalesce(@title, title),
+                   intent     = coalesce(@intent, intent),
+                   verify_cmd = coalesce(@verify, verify_cmd),
+                   risk_tags  = coalesce(@risk, risk_tags),
+                   priority   = coalesce(@priority, priority),
+                   revision   = revision + 1
+             WHERE id = @id;
+            """;
+
+        await using (var command = new NpgsqlCommand(sql, connection, transaction))
+        {
+            Bind(command, "id", item.Id);
+            Bind(command, "title", Blank(args.Title) ? null : Glyph.Clip(args.Title, 180));
+            Bind(command, "intent", Blank(args.Intent) ? null : args.Intent);
+            Bind(command, "verify", Blank(args.VerifyCmd) ? null : args.VerifyCmd);
+            Bind(command, "risk", args.RiskTags);
+            Bind(command, "priority", args.Priority is { } p ? (short)Math.Clamp(p, -9, 9) : null);
+            await command.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        var touched = await PatchCriteriaAsync(
+            connection, transaction, item.Id, args.Criteria ?? [], cancellationToken);
+
+        await HeartbeatAsync(
+            connection,
+            transaction,
+            item.Id,
+            actor,
+            await TtlAsync(connection, transaction, item.WorkspaceId, cancellationToken),
+            cancellationToken);
+
+        await EventAsync(
+            connection, transaction, item.WorkspaceId, item.Id, actor, "updated",
+            $"{item.Ref} updated" + (touched > 0 ? $", {touched} criterion(s)" : string.Empty),
+            new { fields = Fields(args), criteria = touched },
+            cancellationToken);
+
+        await transaction.CommitAsync(cancellationToken);
+
+        return WriteResult.Ok(string.Join(
+            "\n",
+            $"OK  {item.Ref}  updated (revision {item.Revision + 1})"
+            + (touched > 0 ? $", {touched} criterion(s) written" : string.Empty),
+            string.Empty,
+            $"Next: work_status(ref:\"{item.Ref}\", to:\"done\") when the criteria are met — "
+            + "the guard will tell you what is still missing."));
+    }
+
+    /// <summary>
+    /// doc 01 §3.2 — separate from <c>update</c> because it is the risky one. Fractional
+    /// <c>seq</c> means inserting between two siblings rewrites one row, not the tail of the plan.
+    /// </summary>
+    public async Task<WriteResult> MoveAsync(
+        Guid workspaceId,
+        Actor actor,
+        string? reference,
+        string? parent,
+        string? before,
+        string? after,
+        CancellationToken cancellationToken = default)
+    {
+        var (scope, unresolved) = await ResolveAsync(workspaceId, reference, cancellationToken);
+        if (scope is null)
+        {
+            return WriteResult.No(unresolved!);
+        }
+
+        if (Blank(parent) && Blank(before) && Blank(after))
+        {
+            return WriteResult.No(Refusal.Blocked(
+                $"work_move({scope.Ref}) with nowhere to move it.",
+                "a move needs a new parent, or a sibling to sit before or after",
+                $"work_move(ref:\"{scope.Ref}\", parent:\"<a ref>\")",
+                $"work_move(ref:\"{scope.Ref}\", before:\"<a sibling ref>\")"));
+        }
+
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+
+        var item = await LoadAsync(connection, transaction, scope.Id, cancellationToken);
+        var anchorRef = Blank(before) ? after : before;
+        Guid? parentId = item.ParentId;
+        decimal seq;
+
+        if (!Blank(anchorRef))
+        {
+            var (anchor, refusal) = await ResolveAsync(workspaceId, anchorRef, cancellationToken);
+            if (anchor is null)
+            {
+                return WriteResult.No(refusal!);
+            }
+
+            var anchorRow = await LoadAsync(connection, transaction, anchor.Id, cancellationToken);
+            parentId = anchorRow.ParentId;
+            seq = await BetweenAsync(
+                connection, transaction, anchorRow.Id, parentId, !Blank(before), cancellationToken);
+        }
+        else
+        {
+            var (target, refusal) = await ResolveAsync(workspaceId, parent, cancellationToken);
+            if (target is null)
+            {
+                return WriteResult.No(refusal!);
+            }
+
+            parentId = target.Id;
+            seq = await NextSeqAsync(connection, transaction, parentId, cancellationToken);
+        }
+
+        const string sql = "UPDATE item SET parent_id = @parent, seq = @seq, revision = revision + 1 WHERE id = @id;";
+
+        try
+        {
+            await connection.ExecuteAsync(new CommandDefinition(
+                sql,
+                new { id = item.Id, parent = parentId, seq },
+                transaction,
+                cancellationToken: cancellationToken));
+        }
+        catch (PostgresException refused)
+        {
+            return WriteResult.No(FromPostgres(refused, $"work_move(ref:\"{item.Ref}\")"));
+        }
+
+        await EventAsync(
+            connection, transaction, item.WorkspaceId, item.Id, actor, "moved",
+            $"{item.Ref} moved to seq {seq}",
+            new { parent, before, after, seq },
+            cancellationToken);
+
+        await transaction.CommitAsync(cancellationToken);
+
+        return WriteResult.Ok(string.Join(
+            "\n",
+            $"OK  {item.Ref}  moved, seq {seq}",
+            string.Empty,
+            $"Next: work_tree(scope:\"{parent ?? item.Ref}\") to confirm the shape."));
+    }
+
+    /// <summary>
+    /// doc 01 §3.2. The <c>blocks</c> cycle check and the <c>supersedes</c> side effect are U1
+    /// triggers — this writes the row and surfaces what Postgres says if it refuses (doc 07 §1).
+    /// </summary>
+    public async Task<WriteResult> LinkAsync(
+        Guid workspaceId,
+        Actor actor,
+        string? from,
+        string? to,
+        string? type,
+        bool remove,
+        CancellationToken cancellationToken = default)
+    {
+        if (!Enum.TryParse<LinkType>(type?.Replace("_", string.Empty).Trim(), ignoreCase: true, out var linkType)
+            || !Enum.IsDefined(linkType))
+        {
+            return WriteResult.No(Refusal.Blocked(
+                $"work_link(type:\"{type}\") — \"{type}\" is not a link type.",
+                "five types, and each means something different to the frontier",
+                "work_link(from:\"2.4\", to:\"2.5\", type:\"blocks\") — also supersedes, duplicates, "
+                + "derived_from, verifies"));
+        }
+
+        var (source, sourceRefusal) = await ResolveAsync(workspaceId, from, cancellationToken);
+        if (source is null)
+        {
+            return WriteResult.No(sourceRefusal!);
+        }
+
+        var (target, targetRefusal) = await ResolveAsync(workspaceId, to, cancellationToken);
+        if (target is null)
+        {
+            return WriteResult.No(targetRefusal!);
+        }
+
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+
+        if (remove)
+        {
+            const string sql =
+                """
+                DELETE FROM item_link
+                 WHERE from_item_id = @from AND to_item_id = @to AND type = @type::link_type;
+                """;
+
+            var deleted = await connection.ExecuteAsync(new CommandDefinition(
+                sql,
+                new { from = source.Id, to = target.Id, type = Pg.Label(linkType) },
+                transaction,
+                cancellationToken: cancellationToken));
+
+            if (deleted == 0)
+            {
+                return WriteResult.No(Refusal.Blocked(
+                    $"work_link(from:\"{source.Ref}\", to:\"{target.Ref}\", type:\"{Pg.Label(linkType)}\", "
+                    + "remove:true) — there is no such link.",
+                    "nothing was removed, so nothing changed",
+                    $"work_get(refs:[\"{source.Ref}\"], include:\"deps\") to see the links that exist"));
+            }
+
+            await EventAsync(
+                connection, transaction, workspaceId, target.Id, actor, "unlinked",
+                $"{source.Ref} -{Pg.Label(linkType)}-> {target.Ref} removed",
+                new { from = source.Ref, to = target.Ref, type = Pg.Label(linkType) },
+                cancellationToken);
+
+            await transaction.CommitAsync(cancellationToken);
+
+            return WriteResult.Ok(string.Join(
+                "\n",
+                $"OK  {source.Ref} -{Pg.Label(linkType)}-> {target.Ref} removed",
+                string.Empty,
+                "Next: work_next() — the frontier has just changed."));
+        }
+
+        try
+        {
+            await LinkAsync(
+                connection, transaction, workspaceId, source.Id, target.Id, linkType, actor, cancellationToken);
+        }
+        catch (PostgresException refused)
+        {
+            return WriteResult.No(FromPostgres(
+                refused, $"work_link(from:\"{source.Ref}\", to:\"{target.Ref}\", type:\"{Pg.Label(linkType)}\")"));
+        }
+
+        await EventAsync(
+            connection, transaction, workspaceId, target.Id, actor, "linked",
+            $"{source.Ref} -{Pg.Label(linkType)}-> {target.Ref}",
+            new { from = source.Ref, to = target.Ref, type = Pg.Label(linkType) },
+            cancellationToken);
+
+        await transaction.CommitAsync(cancellationToken);
+
+        return WriteResult.Ok(string.Join(
+            "\n",
+            $"OK  {source.Ref} -{Pg.Label(linkType)}-> {target.Ref}"
+            + (linkType == LinkType.Supersedes ? $"; {target.Ref} is now superseded" : string.Empty),
+            string.Empty,
+            "Next: work_next() — the frontier has just changed."));
+    }
+
+    private sealed record ScopeRefLite(Guid Id, string Ref, Guid? RefScopeId);
+
+    private sealed record KindRules(bool RequiresVerify, bool RequiresCriteria, bool ScopesRefs);
+
+    /// <summary>
+    /// doc 01 §3.2 — the one creation rule that is a guard rather than a constraint, because it is
+    /// about whether the brief is answerable, not about whether the row is well formed.
+    /// </summary>
+    private static string? Shortfall(string kind, KindRules rules, NewItemArg wanted)
+    {
+        var unmet = new List<Unmet>();
+
+        if (rules.RequiresVerify && Blank(wanted.VerifyCmd))
+        {
+            unmet.Add(new Unmet(
+                $"a {kind} without a verify_cmd cannot be closed honestly — nothing would judge it",
+                $"work_create(items:[{{kind:\"{kind}\", title:\"{Glyph.Clip(wanted.Title, 30)}\", "
+                + "verify_cmd:\"dotnet test --filter …\", criteria:[\"…\"]}]) — and it must be a "
+                + "command that is RED before the work"));
+        }
+
+        if (rules.RequiresCriteria && (wanted.Criteria is null || wanted.Criteria.Length == 0))
+        {
+            unmet.Add(new Unmet(
+                $"a {kind} without done-criteria is a brief nobody can check off",
+                $"work_create(items:[{{kind:\"{kind}\", title:\"{Glyph.Clip(wanted.Title, 30)}\", "
+                + "criteria:[\"the observable thing that is true when this is done\"]}])"));
+        }
+
+        return unmet.Count == 0
+            ? null
+            : Refusal.Blocked(
+                $"work_create(kind:\"{kind}\", title:\"{Glyph.Clip(wanted.Title, 40)}\"). "
+                + $"{unmet.Count} requirement(s) unmet.",
+                unmet);
+    }
+
+    private static async Task<Dictionary<string, KindRules>> LadderAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        CancellationToken cancellationToken)
+    {
+        const string sql =
+            """
+            SELECT key                AS "Key",
+                   requires_verify    AS "RequiresVerify",
+                   requires_criteria  AS "RequiresCriteria",
+                   scopes_refs        AS "ScopesRefs"
+            FROM   item_kind;
+            """;
+
+        var rows = await connection.QueryAsync(new CommandDefinition(
+            sql, transaction: transaction, cancellationToken: cancellationToken));
+
+        return rows.ToDictionary(
+            r => (string)r.Key,
+            r => new KindRules((bool)r.RequiresVerify, (bool)r.RequiresCriteria, (bool)r.ScopesRefs),
+            StringComparer.OrdinalIgnoreCase);
+    }
+
+    private static async Task<string> DerivedRefAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        ScopeRefLite? parent,
+        Guid? refScopeId,
+        string kind,
+        CancellationToken cancellationToken)
+    {
+        if (parent is null)
+        {
+            return await FreeRefAsync(
+                connection, transaction, refScopeId, n => $"{kind}-{n}", cancellationToken);
+        }
+
+        // A run or a project scopes its own refs, so its children number from 1 rather than
+        // inheriting a prefix nobody types: `2.3`, not `entity-store.3`.
+        var prefix = parent.RefScopeId == parent.Id ? string.Empty : $"{parent.Ref}.";
+
+        return await FreeRefAsync(
+            connection, transaction, refScopeId, n => $"{prefix}{n}", cancellationToken);
+    }
+
+    private static async Task CriteriaAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        Guid itemId,
+        IReadOnlyList<string> criteria,
+        CancellationToken cancellationToken)
+    {
+        const string sql =
+            """
+            INSERT INTO item_criterion (id, item_id, seq, text, checked)
+            VALUES (@id, @item, @seq, @text, false);
+            """;
+
+        for (var i = 0; i < criteria.Count; i++)
+        {
+            await connection.ExecuteAsync(new CommandDefinition(
+                sql,
+                new { id = Guid.CreateVersion7(), item = itemId, seq = i + 1, text = criteria[i] },
+                transaction,
+                cancellationToken: cancellationToken));
+        }
+    }
+
+    private static async Task<int> PatchCriteriaAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        Guid itemId,
+        IReadOnlyList<CriterionArg> criteria,
+        CancellationToken cancellationToken)
+    {
+        const string update =
+            """
+            UPDATE item_criterion
+               SET checked    = coalesce(@checked, checked),
+                   text       = coalesce(@text, text),
+                   evidence   = coalesce(@evidence, evidence),
+                   checked_at = CASE WHEN coalesce(@checked, checked) THEN coalesce(checked_at, now()) END
+             WHERE item_id = @item AND seq = @seq;
+            """;
+
+        const string insert =
+            """
+            INSERT INTO item_criterion (id, item_id, seq, text, checked, evidence, checked_at)
+            SELECT @id, @item, coalesce(max(seq), 0) + 1, @text, coalesce(@checked, false), @evidence,
+                   CASE WHEN coalesce(@checked, false) THEN now() END
+            FROM   item_criterion WHERE item_id = @item;
+            """;
+
+        var touched = 0;
+
+        foreach (var criterion in criteria)
+        {
+            var seq = Seq(criterion.Id);
+
+            if (seq is { } number)
+            {
+                touched += await connection.ExecuteAsync(new CommandDefinition(
+                    update,
+                    new
+                    {
+                        item = itemId,
+                        seq = number,
+                        @checked = criterion.Checked,
+                        text = Blank(criterion.Text) ? null : criterion.Text,
+                        evidence = Blank(criterion.Evidence) ? null : criterion.Evidence,
+                    },
+                    transaction,
+                    cancellationToken: cancellationToken));
+
+                continue;
+            }
+
+            if (Blank(criterion.Text))
+            {
+                continue;
+            }
+
+            touched += await connection.ExecuteAsync(new CommandDefinition(
+                insert,
+                new
+                {
+                    id = Guid.CreateVersion7(),
+                    item = itemId,
+                    text = criterion.Text,
+                    @checked = criterion.Checked,
+                    evidence = Blank(criterion.Evidence) ? null : criterion.Evidence,
+                },
+                transaction,
+                cancellationToken: cancellationToken));
+        }
+
+        return touched;
+    }
+
+    /// <summary><c>c2</c> is criterion seq 2 — the form every refusal and every board row prints.</summary>
+    private static int? Seq(string? id)
+    {
+        if (Blank(id))
+        {
+            return null;
+        }
+
+        var digits = id!.Trim().TrimStart('c', 'C');
+        return int.TryParse(digits, out var seq) && seq > 0 ? seq : null;
+    }
+
+    private static async Task<decimal> BetweenAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        Guid anchorId,
+        Guid? parentId,
+        bool before,
+        CancellationToken cancellationToken)
+    {
+        var sql = before
+            ? """
+              SELECT coalesce(
+                (SELECT max(s.seq) FROM item s
+                  WHERE s.parent_id IS NOT DISTINCT FROM @parent AND s.seq < a.seq), a.seq - 2) / 2
+                + a.seq / 2
+              FROM item a WHERE a.id = @anchor;
+              """
+            : """
+              SELECT coalesce(
+                (SELECT min(s.seq) FROM item s
+                  WHERE s.parent_id IS NOT DISTINCT FROM @parent AND s.seq > a.seq), a.seq + 2) / 2
+                + a.seq / 2
+              FROM item a WHERE a.id = @anchor;
+              """;
+
+        return await connection.ExecuteScalarAsync<decimal>(new CommandDefinition(
+            sql,
+            new { anchor = anchorId, parent = parentId },
+            transaction,
+            cancellationToken: cancellationToken));
+    }
+
+    private static string[] Fields(UpdateArgs args)
+    {
+        var fields = new List<string>();
+        if (!Blank(args.Title)) fields.Add("title");
+        if (!Blank(args.Intent)) fields.Add("intent");
+        if (!Blank(args.VerifyCmd)) fields.Add("verify_cmd");
+        if (args.RiskTags is { Length: > 0 }) fields.Add("risk_tags");
+        if (args.Priority is not null) fields.Add("priority");
+        return [.. fields];
+    }
+
+    /// <summary>
+    /// doc 07 §1 — a rule whose violation should be impossible lives in Postgres, and its message
+    /// already names the fix. Surfacing it beats paraphrasing it in C# and drifting from it.
+    /// </summary>
+    private static string FromPostgres(PostgresException refused, string call)
+    {
+        var routes = new List<string>();
+        if (!Blank(refused.Hint))
+        {
+            routes.Add(refused.Hint!);
+        }
+
+        routes.Add("work_tree() to see the shape this has to fit");
+
+        return Refusal.Blocked(
+            $"{call} — the schema refused it.",
+            Glyph.Clip(refused.MessageText, 140),
+            [.. routes]);
+    }
+}
