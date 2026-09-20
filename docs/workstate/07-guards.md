@@ -66,7 +66,7 @@ Refused unless **all** hold. Each maps to a rule the corpus shows being broken:
 | 2 | ≥1 `verification` with `passed = true` and **`run_by = 'orchestrator'`**. If **both** the item's `verify_cmd` and the verification's `command` are present they must match; a null `command` does **not** fail the guard | *"worker self-reports of 'tests pass' are the claim you would most regret trusting"* |
 | 3 | no child item is open | a phase closed over unfinished tasks |
 | 4 | no open `finding` with `severity = 'blocker'` targets it | gate blockers dissolved into prose |
-| 5 | for kinds with `requires_commit`: ≥1 `artifact` of kind `commit` | *"every accepted task ends in a commit"* |
+| 5 | for kinds with `requires_commit` **set**: ≥1 `artifact` of kind `commit`. **No seeded kind sets it, `task` included** — see below | *"every accepted task ends in a commit"* — a rule the corpus itself does not keep |
 
 > **Why condition 2 loosened, 2026-09-20.** `verification.command` became nullable (doc 02, import
 > finding #1): the corpus records the *result* far more often than the command. The essential
@@ -78,6 +78,40 @@ Refused unless **all** hold. Each maps to a rule the corpus shows being broken:
 Conditions 1–5 are checked **together**, and the refusal lists **all** failures at once — doc 06 §6.
 Three round-trips to discover three problems reads as an adversarial system and trains an agent to
 reach for `force`.
+
+### ⚠ Condition 5 is deliberately dormant, and it should stay that way
+
+U4 flagged that **no seeded kind sets `requires_commit`, `task` included** — so condition 5 is
+correct, unit-tested, and can never fire. The obvious fix is a one-row migration setting it true
+for `task`, because `orchestrate` says *"every accepted task ends in a commit."*
+
+**Do not.** The corpus does not keep that rule, and it is right not to:
+
+```
+3.4  Two-pass resort join + keep the `rid=0` placeholder — ACCEPTED (no commit: zero repo files)
+3.R3 Re-ingest + measurement — ACCEPTED (commit pending; the task touched no repo file)
+```
+
+Recon, measurement, re-ingest and seeding tasks legitimately touch **nothing in the repo**.
+Requiring a commit would make them unclosable, and an agent facing an unclosable task reaches for
+`force` — which converts a guard into a formality and trains the habit that defeats every other
+guard.
+
+**So `requires_commit` stays per-kind configuration, off by default.** Turn it on for a kind whose
+work is *always* a code change, if such a kind is ever defined. The guard exists and is tested; it
+is simply not armed for `task`, on purpose.
+
+**This is the third time real data has overruled a rule that sounded like discipline:**
+
+| Rule | Why it could not be satisfied honestly |
+|---|---|
+| `verification.command` NOT NULL | the corpus records the *result* far more often than the command |
+| "a phase is done when its children are" | erases the gate — a finished phase is *ready to gate* |
+| "every accepted task ends in a commit" | recon and measurement tasks touch no repo file |
+
+The shared lesson, and it is the most important one in this document: **a guard that cannot be
+satisfied honestly is worse than no guard**, because it does not stop the dishonest close — it
+teaches every agent the override, and the override then passes through the guards that mattered.
 
 ### `force: true`
 
