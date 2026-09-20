@@ -74,15 +74,15 @@ documented rule before the MCP surface starts writing refs from more than one fi
 | Markdown files imported | 179 |
 | Files referenced, not imported (spec + measurement output) | 111 |
 | Docs | 179 |
-| Doc blocks (verbatim) | 3297 |
-| Items | 975 |
+| Doc blocks (verbatim) | 3298 |
+| Items | 978 |
 | Assumptions | 96 |
 | Notes | 425 |
-| Constraint rules | 661 |
+| Constraint rules | 657 |
 | Verifications | 163 |
 | Artifacts | 285 |
 | Attempts (briefs as issued) | 30 |
-| Events | 350 |
+| Events | 389 |
 | U+FFFD in imported text | 0 |
 | Control characters removed to make text storable | 7 |
 
@@ -93,7 +93,7 @@ documented rule before the MCP surface starts writing refs from more than one fi
 | Gaia | content-store | 15 | 301 | 61 | 7 | 40 | 75 | 0 |
 | Gaia | data-privacy | 3 | 36 | 7 | 0 | 0 | 0 | 0 |
 | Gaia | document-store | 4 | 136 | 41 | 0 | 41 | 72 | 15 |
-| Gaia | entity-store | 5 | 545 | 203 | 12 | 140 | 40 | 0 |
+| Gaia | entity-store | 5 | 545 | 203 | 12 | 140 | 37 | 0 |
 | Gaia | prod-log-triage | 23 | 320 | 7 | 0 | 13 | 0 | 0 |
 | Gaia | voice-languages | 5 | 148 | 52 | 6 | 42 | 29 | 4 |
 | Gaia | voice-rtp-pacing | 7 | 248 | 56 | 6 | 36 | 45 | 8 |
@@ -109,7 +109,7 @@ documented rule before the MCP surface starts writing refs from more than one fi
 | Nomos | redesign | 6 | 108 | 44 | 6 | 3 | 45 | 12 |
 | Nomos | security-idor-invite-checkout | 16 | 169 | 21 | 0 | 18 | 30 | 9 |
 | Nomos | spider-console | 3 | 39 | 21 | 3 | 6 | 36 | 9 |
-| Nomos | tenant-purge | 5 | 56 | 27 | 9 | 0 | 40 | 8 |
+| Nomos | tenant-purge | 5 | 57 | 30 | 9 | 0 | 39 | 8 |
 | Nomos | token-security | 3 | 27 | 28 | 0 | 3 | 20 | 0 |
 | Nomos.Spiders | corpus-build | 8 | 109 | 49 | 4 | 3 | 50 | 27 |
 | Nomos.Spiders | p3-execute | 3 | 28 | 14 | 0 | 6 | 25 | 0 |
@@ -123,7 +123,7 @@ documented rule before the MCP surface starts writing refs from more than one fi
 
 Each of these landed in a `doc_block` verbatim and was counted here. Nothing was dropped.
 
-### `table` — 294 occurrence(s) across 101 file(s)
+### `table` — 295 occurrence(s) across 101 file(s)
 
 **Judgement.** Mostly prose in a grid — baselines, grants, environment tables. A block holds them correctly. The exception is any header carrying a lifecycle word, which is a shape the importer should learn rather than a column the schema should grow.
 
@@ -149,7 +149,7 @@ Each of these landed in a `doc_block` verbatim and was counted here. Nothing was
 | 1 | \| column \| type \| null \| owner \| meaning \| | 1. Storage |
 | 1 | \| field \| why \| replacement \| | Retired |
 | 1 | \| field \| 1st \| 2nd \| 3rd \| rationale \| | 3. Ownership — precedence, per field |
-| | *…and 219 further shape(s) in this category* | |
+| | *…and 220 further shape(s) in this category* | |
 
 ### `verification-table-without-a-command-column` — 47 occurrence(s) across 20 file(s)
 

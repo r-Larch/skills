@@ -73,6 +73,9 @@ public sealed record ClaimRow(string ItemRef, string AgentName, DateTimeOffset E
 
 public sealed record StaleRow(string Ref, DateTimeOffset StartedAt);
 
+/// <summary>A phase with nothing left to do and no gate recorded against it (doc 07 §2).</summary>
+public sealed record GateRow(string PhaseRef, int TaskCount);
+
 public sealed record EventRow(
     long Seq,
     string? ItemRef,

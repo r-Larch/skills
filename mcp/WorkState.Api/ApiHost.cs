@@ -29,8 +29,6 @@ public static class ApiHost
             .AddAuthentication(StaticTokenHandler.SchemeName)
             .AddScheme<StaticTokenOptions, StaticTokenHandler>(StaticTokenHandler.SchemeName, options =>
             {
-                options.ReaderToken = builder.Configuration["WorkState:Auth:ReaderToken"];
-                options.WriterToken = builder.Configuration["WorkState:Auth:WriterToken"];
                 options.WorkerToken = builder.Configuration["WorkState:Auth:WorkerToken"];
                 options.OrchestratorToken = builder.Configuration["WorkState:Auth:OrchestratorToken"];
                 options.ControllerToken = builder.Configuration["WorkState:Auth:ControllerToken"];
@@ -54,15 +52,7 @@ public static class ApiHost
             .AddPolicy(WorkStatePolicies.Controller, policy => policy
                 .AddAuthenticationSchemes(StaticTokenHandler.SchemeName)
                 .RequireAuthenticatedUser()
-                .RequireRole(WorkStatePolicies.Controller))
-            .AddPolicy(WorkStatePolicies.Reader, policy => policy
-                .AddAuthenticationSchemes(StaticTokenHandler.SchemeName)
-                .RequireAuthenticatedUser()
-                .RequireRole(WorkStatePolicies.Reader))
-            .AddPolicy(WorkStatePolicies.Writer, policy => policy
-                .AddAuthenticationSchemes(StaticTokenHandler.SchemeName)
-                .RequireAuthenticatedUser()
-                .RequireRole(WorkStatePolicies.Writer));
+                .RequireRole(WorkStatePolicies.Controller));
 
         AddWorkState(builder);
 

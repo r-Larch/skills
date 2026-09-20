@@ -35,7 +35,8 @@ public sealed record BriefModel(
     int BindingTotal,
     IReadOnlyList<AssumptionLine> Assumptions,
     int AssumptionTotal,
-    IReadOnlyList<string> Addressed,
+    IReadOnlyList<string> Notes,
+    int NoteTotal,
     int AddressedTotal,
     string? AddressedTo,
     VerifyLine? LastVerify,
@@ -99,18 +100,27 @@ public static class BriefRenderer
                 $"work_threads(scope:\"{model.RunRef}\", include:\"assumptions\")");
         }
 
-        if (model.AddressedTotal > 0)
+        // A note addressed to an item and a note the run merely carries are different obligations,
+        // and the header says which it is holding. "ADDRESSED TO YOU (140)" over 140 notes that name
+        // no target is an honest count under a dishonest label, and the label is what an agent reads.
+        if (model.NoteTotal > 0)
         {
             lines.Add(string.Empty);
-            var to = model.AddressedTo is { Length: > 0 }
-                ? $"   — these render into {model.AddressedTo}'s brief and are then marked consumed"
-                : "   — unconsumed notes addressed to work in this scope";
-            lines.Add($"ADDRESSED TO YOU ({model.AddressedTotal}){to}");
-            lines.AddRange(model.Addressed.Select(n => $"  {Glyph.Clip(n, 94)}"));
-            AddOverflow(
-                lines,
-                model.AddressedTotal - model.Addressed.Count,
-                $"work_threads(scope:\"{model.RunRef}\", include:\"notes\")");
+            lines.Add(model.AddressedTo is { Length: > 0 }
+                ? $"ADDRESSED TO YOU ({model.AddressedTotal})   — these render into "
+                  + $"{model.AddressedTo}'s brief and are then marked consumed"
+                : $"NOTES IN SCOPE ({model.NoteTotal})   — carried forward by this run; "
+                  + "none names an item, so none is consumed");
+
+            lines.AddRange(model.Notes.Select(n => $"  {Glyph.Clip(n, 94)}"));
+
+            var hidden = model.NoteTotal - model.Notes.Count;
+            if (hidden > 0)
+            {
+                lines.Add(
+                    $"  · +{hidden} more unconsumed in scope — "
+                    + $"work_threads(scope:\"{model.RunRef}\", include:\"notes\")");
+            }
         }
 
         if (model.LastVerify is { } verify)

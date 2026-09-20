@@ -120,6 +120,18 @@ LAST VERIFY  dotnet test --filter Importer → 181/181, by orchestrator, 6m ago
 **`NEXT` is a literal, callable line.** An agent that only ever does what `NEXT` says is running the
 system correctly — that is the tutorial channel of doc 04 §4, and it is why this line is never prose.
 
+**The note header names what it is holding.** `ADDRESSED TO YOU (n)` counts only notes that name a
+target item — those are the ones a worker brief renders and consumes. Where a run carries unconsumed
+notes that name nobody, the section is instead:
+
+```
+NOTES IN SCOPE (140)   — carried forward by this run; none names an item, so none is consumed
+```
+
+> **Corrected 2026-09-20 (FINDINGS-live F-L3).** The real run rendered `ADDRESSED TO YOU (140)` over
+> 140 notes, not one of which named a target: an honest count under a dishonest label, and the label
+> is the part an agent reads.
+
 **On an empty server** `work_brief` returns onboarding instead: what a project is, what makes a good
 `verify_cmd`, and the one call to make next. Cold start uses the same mechanism as every other path.
 
@@ -139,8 +151,19 @@ Omitted entirely — header included — when empty.
 Every line is `<what> — <the call that fixes it>`. A line without a call is a defect: it is the
 1,241 ⚠ markers of the old corpus reinvented, and those are what this replaces.
 
-Ranking: expired claims → blocker findings → items done-but-unverified → assumptions past revisit →
-unconsumed notes for the current scope → stale `in_progress`.
+Ranking: expired claims → blocker findings → **phases whose tasks are all done and whose gate has not
+run** → items done-but-unverified → assumptions past revisit → unconsumed notes for the current scope
+→ stale `in_progress`.
+
+```
+⚠ phase-2: all 8 tasks done, gate not run — work_brief(scope:"phase-2") to run it
+```
+
+> **Why that line exists, 2026-09-20 (FINDINGS-live F-L1b).** Nothing promotes a phase when its last
+> child closes, on purpose: a write triggered by another write is invisible and untestable, and a
+> phase whose tasks are done is *ready to be gated*, not done. It outranks done-but-unverified
+> because what goes unexamined is the composition across every task in the phase, not one task's
+> missing evidence.
 
 ---
 
