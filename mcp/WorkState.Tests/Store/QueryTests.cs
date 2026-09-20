@@ -95,6 +95,63 @@ public sealed class QueryTests(PostgresFixture fixture)
         Assert.Equal(["h2", "h1", "h3"], frontier.Select(r => r.Ref));
     }
 
+    /// <summary>
+    /// The defect finding #4 of the corpus import named, and the one shape the old fixtures could not
+    /// express: <c>seq</c> orders siblings, so both phases' first task is <c>seq = 1</c> and ordering a
+    /// whole run by it leaves the order between phases to the planner. Two phases is the minimum that
+    /// tells the two orderings apart.
+    /// </summary>
+    [Fact]
+    public async Task The_frontier_orders_across_phases_by_the_document_path_not_by_seq()
+    {
+        var world = await Seed.CreateWorldAsync(fixture);
+        var queries = new WorkStateQueries(fixture.DataSource);
+
+        await using var context = fixture.NewContext();
+        var phaseOne = Seed.NewItem(world.WorkspaceId, world.RunA, "phase", "1", 1m);
+        var phaseTwo = Seed.NewItem(world.WorkspaceId, world.RunA, "phase", "2", 2m);
+        context.Items.AddRange(phaseOne, phaseTwo);
+        await context.SaveChangesAsync(Ct);
+
+        // Inserted back to front, so a query that falls back on insertion order fails too.
+        context.Items.AddRange(
+            Seed.NewItem(world.WorkspaceId, phaseTwo.Id, "task", "2.2", 2m),
+            Seed.NewItem(world.WorkspaceId, phaseTwo.Id, "task", "2.1", 1m),
+            Seed.NewItem(world.WorkspaceId, phaseOne.Id, "task", "1.2", 2m),
+            Seed.NewItem(world.WorkspaceId, phaseOne.Id, "task", "1.1", 1m));
+        await context.SaveChangesAsync(Ct);
+
+        var frontier = await queries.ReadyFrontierAsync(world.RunA, Ct);
+
+        Assert.Equal(["1.1", "1.2", "2.1", "2.2"], frontier.Select(r => r.Ref));
+    }
+
+    [Fact]
+    public async Task Priority_still_outranks_the_document_path_across_phases()
+    {
+        var world = await Seed.CreateWorldAsync(fixture);
+        var queries = new WorkStateQueries(fixture.DataSource);
+
+        await using var context = fixture.NewContext();
+        var phaseOne = Seed.NewItem(world.WorkspaceId, world.RunA, "phase", "p1", 1m);
+        var phaseTwo = Seed.NewItem(world.WorkspaceId, world.RunA, "phase", "p2", 2m);
+        context.Items.AddRange(phaseOne, phaseTwo);
+        await context.SaveChangesAsync(Ct);
+
+        var urgent = Seed.NewItem(world.WorkspaceId, phaseTwo.Id, "task", "p2.2", 2m);
+        urgent.Priority = 5;
+        context.Items.AddRange(
+            Seed.NewItem(world.WorkspaceId, phaseOne.Id, "task", "p1.1", 1m),
+            Seed.NewItem(world.WorkspaceId, phaseOne.Id, "task", "p1.2", 2m),
+            Seed.NewItem(world.WorkspaceId, phaseTwo.Id, "task", "p2.1", 1m),
+            urgent);
+        await context.SaveChangesAsync(Ct);
+
+        var frontier = await queries.ReadyFrontierAsync(world.RunA, Ct);
+
+        Assert.Equal(["p2.2", "p1.1", "p1.2", "p2.1"], frontier.Select(r => r.Ref));
+    }
+
     [Fact]
     public async Task Unclosed_dependencies_flag_an_abandoned_blocker_and_an_ordering_inversion()
     {

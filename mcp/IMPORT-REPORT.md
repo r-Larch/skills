@@ -6,39 +6,50 @@
 
 ## What the real data says about the model
 
-Six things, worst first. None of them was fixed here: a schema edited mid-import by the importer is
-a schema nobody reviewed.
+Six things, worst first. None was fixed by the import itself — a schema edited mid-import by the
+importer is a schema nobody reviewed. Findings 1–4 were reviewed and **corrected in U2c**
+(migration `NullableEvidence`, `WorkStateQueries.ReadyFrontierAsync`); each is kept below with
+what changed, because the evidence is why the schema reads as it does.
 
 ### 1. `verification.command` is NOT NULL and the corpus usually has no command
 
 The single largest unmapped shape. A ledger records *the result* — `35/35, build 0 errors`,
 `full suite 1807/1` — far more often than the command that produced it, and a controller's
-re-verification is frequently a sentence with a count in it. Every one of those is evidence the
-store currently cannot hold, so the import writes a fraction of the verifications the corpus
-actually contains. Either `command` becomes nullable, or `verification` gains a shape for
-"verified, this is what I saw" with the command optional. This one blocks U3: a `verify` tool that
-demands a command will be unable to record most of what really happens.
+re-verification is frequently a sentence with a count in it. Every one of those was evidence the
+store could not hold, so the first import wrote a fraction of the verifications the corpus
+actually contains.
+
+**Corrected in U2c.** `command` is nullable, `result_line` stays required, and the `done` guard
+reads a null command as "not checked" rather than as a failure (doc 07 §3, condition 2). This run's
+verification count is the count with result-only evidence storable.
 
 ### 2. `assumption.reversal` is NOT NULL and a closed assumption has no reversal cost
 
 The corpus writes `—` in the reversal column of every assumption it has already resolved, because
-the cost of reversing a settled question is not a fact about anything. The importer has to invent
-`medium` to satisfy the column. Make it nullable, or have the closing transition clear it.
+the cost of reversing a settled question is not a fact about anything. The first import had to
+invent `medium` to satisfy the column.
+
+**Corrected in U2c.** `reversal` is nullable and the importer no longer invents a value; an empty
+cell stores null. A cell carrying a word the vocabulary cannot read is still counted, as a
+vocabulary gap.
 
 ### 3. `evidence_level` is an enum and the corpus writes the provenance, not the level
 
 `MEDIUM — matches how the real trial flow behaves`, `confirmed: the key is in configuration`,
 `raised by the 2.1 worker`. The level is recoverable from the leading clause; the *provenance* is
-the part a later reader needs and there is nowhere to put it. A free-text `evidence_note` beside
-the enum would keep it, and would cost one column.
+the part a later reader needs and there was nowhere to put it.
+
+**Corrected in U2c.** `assumption.evidence_note text` holds the cell verbatim beside the enum.
 
 ### 4. `item.seq` is per-sibling, so `ready_frontier` cannot order across phases
 
-`SeqAllocator` numbers children within a parent, correctly — but the frontier query orders a whole
+`SeqAllocator` numbers children within a parent, correctly — but the frontier query ordered a whole
 run's subtree by `priority DESC, seq`, and every phase's first task has `seq = 1`. Over a real
-multi-phase run the frontier's order between phases is arbitrary. Either the frontier orders by
-the ancestor path as well, or "what next" needs the phase's own frontier and a phase order above
-it. Cheap to fix in SQL; expensive to discover in U3.
+multi-phase run the frontier's order between phases was arbitrary.
+
+**Corrected in U2c.** The frontier orders by `priority DESC, <document path>`, the ancestor-seq
+path the subtree query already built, now shared between the two. 53 tests passed over the wrong
+version because the fixtures were single-phase; the test that catches it is multi-phase.
 
 ### 5. Nothing in the tree expresses "this checkbox belongs to that task"
 
@@ -68,7 +79,7 @@ documented rule before the MCP surface starts writing refs from more than one fi
 | Assumptions | 96 |
 | Notes | 425 |
 | Constraint rules | 661 |
-| Verifications | 58 |
+| Verifications | 163 |
 | Artifacts | 285 |
 | Attempts (briefs as issued) | 30 |
 | Events | 350 |
@@ -85,7 +96,7 @@ documented rule before the MCP surface starts writing refs from more than one fi
 | Gaia | entity-store | 5 | 545 | 203 | 12 | 140 | 40 | 0 |
 | Gaia | prod-log-triage | 23 | 320 | 7 | 0 | 13 | 0 | 0 |
 | Gaia | voice-languages | 5 | 148 | 52 | 6 | 42 | 29 | 4 |
-| Gaia | voice-rtp-pacing | 7 | 248 | 56 | 6 | 36 | 45 | 0 |
+| Gaia | voice-rtp-pacing | 7 | 248 | 56 | 6 | 36 | 45 | 8 |
 | Gaia | voice-tool-schema-depth | 1 | 18 | 0 | 0 | 0 | 0 | 0 |
 | Nomos | brief01-cancel-complete | 2 | 25 | 11 | 4 | 2 | 0 | 0 |
 | Nomos | brief02-dedup | 2 | 47 | 37 | 4 | 3 | 0 | 0 |
@@ -93,19 +104,19 @@ documented rule before the MCP surface starts writing refs from more than one fi
 | Nomos | brief04-promo | 2 | 16 | 12 | 3 | 0 | 0 | 0 |
 | Nomos | case-meta | 13 | 215 | 11 | 0 | 7 | 0 | 0 |
 | Nomos | case-meta-editor | 7 | 55 | 0 | 0 | 0 | 0 | 0 |
-| Nomos | checkout-team-fixes | 3 | 45 | 37 | 0 | 9 | 19 | 0 |
-| Nomos | read-tools-and-block-citations | 26 | 350 | 48 | 8 | 10 | 48 | 7 |
-| Nomos | redesign | 6 | 108 | 44 | 6 | 3 | 45 | 4 |
-| Nomos | security-idor-invite-checkout | 16 | 169 | 21 | 0 | 18 | 30 | 5 |
-| Nomos | spider-console | 3 | 39 | 21 | 3 | 6 | 36 | 6 |
-| Nomos | tenant-purge | 5 | 56 | 27 | 9 | 0 | 40 | 3 |
+| Nomos | checkout-team-fixes | 3 | 45 | 37 | 0 | 9 | 19 | 2 |
+| Nomos | read-tools-and-block-citations | 26 | 350 | 48 | 8 | 10 | 48 | 21 |
+| Nomos | redesign | 6 | 108 | 44 | 6 | 3 | 45 | 12 |
+| Nomos | security-idor-invite-checkout | 16 | 169 | 21 | 0 | 18 | 30 | 9 |
+| Nomos | spider-console | 3 | 39 | 21 | 3 | 6 | 36 | 9 |
+| Nomos | tenant-purge | 5 | 56 | 27 | 9 | 0 | 40 | 8 |
 | Nomos | token-security | 3 | 27 | 28 | 0 | 3 | 20 | 0 |
-| Nomos.Spiders | corpus-build | 8 | 109 | 49 | 4 | 3 | 50 | 5 |
+| Nomos.Spiders | corpus-build | 8 | 109 | 49 | 4 | 3 | 50 | 27 |
 | Nomos.Spiders | p3-execute | 3 | 28 | 14 | 0 | 6 | 25 | 0 |
 | Nomos.Spiders | p3-p6-corpora | 4 | 24 | 11 | 0 | 2 | 20 | 0 |
 | Nomos.Word | engine-v3 | 2 | 38 | 66 | 0 | 4 | 0 | 0 |
-| Nomos.Word | p3-web-integration | 3 | 68 | 65 | 9 | 23 | 41 | 5 |
-| Nomos.Word | style-name-collision | 4 | 75 | 23 | 5 | 13 | 26 | 4 |
+| Nomos.Word | p3-web-integration | 3 | 68 | 65 | 9 | 23 | 41 | 39 |
+| Nomos.Word | style-name-collision | 4 | 75 | 23 | 5 | 13 | 26 | 9 |
 | Nomos.Word | table-styles | 2 | 27 | 14 | 7 | 1 | 0 | 0 |
 
 ## Unmapped shapes, worst first
@@ -118,62 +129,54 @@ Each of these landed in a `doc_block` verbatim and was counted here. Nothing was
 
 | n | shape | example |
 |---:|---|---|
-| 41 | \| (blank) \| (blank) \| | Run facts |
-| 3 | \| # \| file \| why \| | 2. Read these, in this order |
-| 3 | \| file \| what it is \| read when \| | 2. Read these, in this order |
+| 41 | \| (blank) \| (blank) \| | Case metadata redesign |
 | 3 | \| purpose \| command \| | Verification commands |
 | 3 | \| purpose \| command (from the repo root) \| | Conventions |
-| 2 | \| # \| finding \| disposition \| | ⚠⚠ PLAN AUDIT — session 2, verdict `not-ready`, 6 blockers → **RE-PLAN** |
-| 2 | \| file \| why \| | Merge state (dry-run, `git merge-tree production factory/feat/clusters`) |
-| 2 | \| (blank) \| p99 \| max \| buffer high-water \| | Where the numbers stand |
+| 3 | \| # \| file \| why \| | 2. Read these, in this order |
+| 3 | \| file \| what it is \| read when \| | 2. Read these, in this order |
 | 2 | \| (blank) \| why \| | Gestac is authoritative on |
 | 2 | \| (blank) \| finding \| ruling \| | Blocking findings |
 | 2 | \| string \| where \| | Step 4 — The fascicolo route, compact density *(ships as a working page)* |
+| 2 | \| # \| finding \| disposition \| | Task 1.3 — review found what the worker's own tests could not |
+| 2 | \| file \| why \| | 1. Repo guidance — read before writing |
 | 2 | \| trap \| what right looks like \| | Mori — DOCX, read via `ParseSubject.Open` (the recursing production reader) |
-| 1 | \| (blank) \| why it is here \| | Why these three |
-| 1 | \| definition \| facets — superseded \| | 4. Facets and projection kinds the auto-created definitions declare. |
-| 1 | \| field \| type \| kinds \| notes \| | `curated_facts.DataJson` — language-neutral. Facets read this, and ONLY this. |
-| 1 | \| kind \| block fields \| required non-empty for active \| | `curated_facts.I18nJson` — `{ "<lang>": { …block… } }`. Templates read this, and… |
-| 1 | \| definition \| facet key \| path \| kind \| why \| | The four prescribed definitions and their facets `[SUPERSEDES decision 4's table… |
-| 1 | \| file \| cited by \| what you may do \| | The `pages/chatbot/**` red line, restated because this run walks straight into i… |
-| 1 | \| # \| blocker \| fix \| | Re-plan 1 — 2026-08-26 — plan audit (6 blockers) + corpus re-measurement + the g… |
-| 1 | \| # \| finding \| applied \| | Re-plan 4 — 2026-08-26 — **PLAN AUDIT of Phases 3–5. Not-ready: 6 BLOCKERs, 2 MI… |
+| 2 | \| (blank) \| p99 \| max \| buffer high-water \| | Where the numbers stand |
+| 1 | \| keys \| rows \| | E1 — The stored shapes are stable; the stored *values* are not |
+| 1 | \| (blank) \| rows \| % \| | E2 — `jurisdiction` is free text treated as an enum |
+| 1 | \| prompt example \| stored occurrences \| share \| | E3 — The agent is substantially a prompt-echo machine |
+| 1 | \| value \| rows \| meaning \| | E5 — Gestac *does* carry three controlled vocabularies, all currently wasted |
+| 1 | \| source \| filled \| well-formed n/yyyy \| | E5 — Gestac *does* carry three controlled vocabularies, all currently wasted |
+| 1 | \| column \| type \| null \| owner \| meaning \| | 1. Storage |
+| 1 | \| field \| why \| replacement \| | Retired |
+| 1 | \| field \| 1st \| 2nd \| 3rd \| rationale \| | 3. Ownership — precedence, per field |
 | | *…and 219 further shape(s) in this category* | |
-
-### `verification-result-without-command` — 97 occurrence(s) across 10 file(s)
-
-**Judgement.** The schema should change. `verification.command` is NOT NULL, but the corpus records the result line far more often than the command that produced it, and an orchestrator's re-verification is usually prose with a count and no command at all.
-
-| n | shape | example |
-|---:|---|---|
-| 97 | a verify cell carrying a result line and no command | <cmd> <result> |
 
 ### `verification-table-without-a-command-column` — 47 occurrence(s) across 20 file(s)
 
-**Judgement.** The schema should change, and this is the same finding as the verify cells with no command: a table of `| checked | result |` or `| step | result |` is evidence somebody gathered, with no command anywhere in it. Add these counts to that one.
+**Judgement.** The schema has changed and this shape is still unread: a table of `| checked | result |` or `| step | result |` is evidence somebody gathered, and `verification.command` being nullable now makes it storable. What is missing is a parser that knows the left column is the check rather than the command.
 
 | n | shape | example |
 |---:|---|---|
 | 8 | \| # \| checked \| result \| | 1.0 — production schema — *(not a ladder rung; recorded because it wrote to prod… |
-| 4 | \| check \| result \| | Session 2 — resumption, 2026-09-01 `[MEASURED, not quoted]` |
+| 4 | \| check \| result \| | What landed — `8ebdd17b6` |
+| 3 | \| variant \| result \| | Red-check — mine, each one a defect that is live in production today |
 | 3 | \| step \| result \| | ✅ What the drive PROVED, on live data |
-| 3 | \| variant \| result \| | Red-check - four variants, each injected, run, removed |
-| 2 | \| claim \| result \| | ✅ WHAT THE DRIVE PROVED, all measured live |
+| 2 | \| claim \| result \| | E11 — Verified against the live database and code, after adversarial review |
 | 2 | \| test \| against \| observed \| | Task 1.2 — REWORK, session 2 `[ACCEPTED, commit 8973a50b]` |
 | 2 | \| (blank) \| what it is \| result \| | Red-check — four variants |
 | 2 | \| gate criterion \| result \| | PHASE 1 GATE — PASSED (2026-08-26) |
 | 2 | \| checked \| result \| | Task 4.2 — the VOICE section, the shared ladder helper, the `Settings` relabel —… |
+| 1 | \| result \| rows \| of which gestac \| today \| | Validated outcome over all 4,208 cases |
+| 1 | \| signal \| result \| | Escalations |
+| 1 | \| variant \| guard \| result \| | What landed — `8ebdd17b6` |
+| 1 | \| result \| rows \| today \| | Expected outcome |
+| 1 | \| run \| result \| | Monolith test baseline — measured 2026-08-18 in the worktree at `stage` (07caa27… |
 | 1 | \| # \| claim \| result \| | ✅ WHAT THE DRIVE PROVED, all measured live |
 | 1 | \| run \| mode \| result \| | 3. 6.2 — authored ✅ |
 | 1 | \| # \| question \| result \| | Phase 4 measured against the real 1,485-entity dataset — the evidence for the ga… |
 | 1 | \| case \| entity \| result \| | S2-completion — DONE. `region.full` authored and verified on the edge cases |
 | 1 | \| guard \| result \| | ⚠ P4 — OPENED, and it is a gap in the fix we shipped an hour ago |
 | 1 | \| case \| result \| | ⚠ RETRACTED: "absent is safe, explicitly-null is not" |
-| 1 | \| mode \| result \| | Defect B — `search` returns ZERO for a bound consumer, while the same query work… |
-| 1 | \| mutant \| result \| | The red-check that set the bar for this run — six mutants, not one |
-| 1 | \| wrong implementation \| result \| | Red-check, run by the controller rather than taken on trust |
-| 1 | \| type \| result \| why \| | The mapping table |
-| 1 | \| variant \| what it is \| result \| | Red-check - three variants, each injected, run and removed |
 | | *…and 8 further shape(s) in this category* | |
 
 ### `verdict-token` — 37 occurrence(s) across 7 file(s)
@@ -182,6 +185,11 @@ Each of these landed in a `doc_block` verbatim and was counted here. Nothing was
 
 | n | shape | example |
 |---:|---|---|
+| 1 | REWORK | 1.3 |
+| 1 | 1 BLOCKER + 3 MINOR | 1.G |
+| 1 | running | 1.G2 |
+| 1 | RUNNING | plan-audit-pre-m-k |
+| 1 | not planned — own directory if T0.3 says… | T3 |
 | 1 | ❌ page wins; correct atom absent from to… | 1 |
 | 1 | ✅ correct atom rank 1, no PDF in top 5 | 2 |
 | 1 | ❌ correct atom absent; PDF rank 2 | 3 |
@@ -197,27 +205,7 @@ Each of these landed in a `doc_block` verbatim and was counted here. Nothing was
 | 1 | Phase 8 — surfaced by 8.15, fixed in 8.1… | impossible-dss-values |
 | 1 | Phase 8 tail (8.20), blocking 9.4 | human-voice-playground-session |
 | 1 | Dropped as separate — becomes exercisabl… | over-budget-remedy-unexercised-live |
-| 1 | After — needs shared old-stack code the… | tokenservicepersist-can-fail-a-query |
-| 1 | Phase 8 partially — 8.1 restricts author… | tenant-js-reads-host-env-requirefs |
-| 1 | Dropped while consumptions are internal… | query-embedding-spend-on-lowest-dataset-id |
-| 1 | Phase 9 — 9.6 | bucket-objects-no-reaper |
-| 1 | key === 'file' | 4a |
 | | *…and 17 further shape(s) in this category* | |
-
-### `assumption-reversal-unreadable` — 26 occurrence(s) across 14 file(s)
-
-**Judgement.** The schema should change. `reversal` is NOT NULL, and a resolved assumption's reversal cost is written as `—` because it has stopped mattering. Either the column is nullable or `assumption_state` closing has to clear it.
-
-| n | shape | example |
-|---:|---|---|
-| 19 | (empty cell) | Deriving "which projection kinds are needed" from bindings is worth its coupling |
-| 1 | Data gone from production; a Down cannot… | VoiceAgentLanguage.Disclaimer holds nothing worth keeping. IdentityPage.tsx:206-211 writes it, so a live row may hold operator-typed text. Owner decision 6 says delete. |
-| 1 | Blocked on a human, not a decision. | Phase 4's live gate needs the owner (Ctrl+F5) and touches voice agent 1, a real phone line, on the live DB. Precedent: Phase 8.5 did this and restored state. |
-| 1 | Owner's explicit decision. Every UI clai… | Build + typecheck are the *only* gates; all behaviour is unproven until the owner tests |
-| 1 | n/a — accepted for the run | Build + typecheck are the only gates; all behaviour is unproven at handover |
-| 1 | 1.2, part of 3.1, and phase 5. | The email-hash half is wanted (SPEC.md › *What recon changed*, answered 2026-09-17). Task 1.2 now sits on the mandatory path because of it, and 3.1's tenant_users update writes the hash. Revisit before Phase 1 starts, not before Phase 5 — by Phase 5 the purge is already writing hashes that would have no reader, and 3.1 is review-gated and irreversible in production. |
-| 1 | 1.2, 1.3, part of 3.1, phase 5 | The email-hash half is wanted |
-| 1 | Expensive — schema. | Storing the produced .dotx needs new columns on TenantWordTemplate (original P1) — i.e. Phase D carries an EF Core migration on a production multi-tenant database. |
 
 ### `checkbox-outside-a-follow-up-section` — 23 occurrence(s) across 22 file(s)
 
@@ -225,25 +213,20 @@ Each of these landed in a `doc_block` verbatim and was counted here. Nothing was
 
 | n | shape | example |
 |---:|---|---|
-| 8 | 7 unchecked, 0 checked | What remains, in order |
-| 6 | 6 unchecked, 0 checked | 8. Open measurements (fill these in during Phase 1) |
+| 8 | 7 unchecked, 0 checked | Done when |
+| 6 | 6 unchecked, 0 checked | Done when |
 | 3 | 5 unchecked, 0 checked | Done when |
 | 3 | 8 unchecked, 0 checked | Done when |
-| 2 | 4 unchecked, 0 checked | 4.2c Name resolution — ACCEPTED · whole 4.2 cycle committed as `ad03295e` |
+| 2 | 4 unchecked, 0 checked | Done when |
 | 1 | 2 unchecked, 0 checked | 4.1 IKnowledgeContext + EntitySearcher — ACCEPTED (commit `844f7983`) |
 
 ### `assumption-evidence-token` — 18 occurrence(s) across 10 file(s)
 
-**Judgement.** Prose. `evidence_level` covers the ground; the corpus simply writes the provenance ('owner statement', 'recon, repo-wide grep') next to the level rather than as it. A free-text `evidence_note` beside the enum would keep it.
+**Judgement.** The level is unread, but the text is no longer lost: the raw cell goes to `evidence_note` and only the enum falls back to `asserted`. What is counted here is the vocabulary gap.
 
 | n | shape | example |
 |---:|---|---|
 | 3 | MEDIUM | SubscriptionStatus alone is a safe reconcile trigger (no extra flag) because Cancel sets PendingCancellation only after intent is persisted |
-| 1 | Follows from "one template per kind, not… | Translations belong in the row's i18n block, produced + reviewed at authoring time, not at ingest time |
-| 1 | MATERIALISED AND RESOLVED 2026-08-26 — i… | The concurrent run's drop of voice_agent_languages.disclaimer will break our tests via the shared gaia_dev |
-| 1 | confirmed: LarchSysAi:OpenAI:ApiKeys in… | An OpenAI key usable for embeddings is available outside production |
-| 1 | confirmed — LarchSysAi:OpenAI:ApiKeys in… | OpenAI key for embeddings usable outside prod |
-| 1 | judgement; KVM host scheduling dominates | A lowlatency kernel is not worth a reboot of a 648-day-uptime prod box |
 | 1 | MEDIUM — matches how the real trial flow… | A subscription order with a future start_date can be confirmed without generating an invoice, so the probe never creates a fiscal document |
 | 1 | MEDIUM — they asked for it "based on the… | Rendering *every* plan the checkout pricelist prices is what the owner wants, rather than a Biennale special case |
 | 1 | HIGH — that is how the existing "-17%" i… | The monthly plan is the correct baseline for every discount badge |
@@ -254,6 +237,11 @@ Each of these landed in a `doc_block` verbatim and was counted here. Nothing was
 | 1 | René's decision, recorded in SPEC.md Uni… | Odoo ids stay on the tombstone |
 | 1 | user answered 2026-09-17 (SPEC.md) | The email-hash half is wanted |
 | 1 | raised by the 2.1 worker | Nothing mechanically forces PurgeTenant to agree with PurgeTables |
+| 1 | Follows from "one template per kind, not… | Translations belong in the row's i18n block, produced + reviewed at authoring time, not at ingest time |
+| 1 | MATERIALISED AND RESOLVED 2026-08-26 — i… | The concurrent run's drop of voice_agent_languages.disclaimer will break our tests via the shared gaia_dev |
+| 1 | confirmed: LarchSysAi:OpenAI:ApiKeys in… | An OpenAI key usable for embeddings is available outside production |
+| 1 | confirmed — LarchSysAi:OpenAI:ApiKeys in… | OpenAI key for embeddings usable outside prod |
+| 1 | judgement; KVM host scheduling dominates | A lowlatency kernel is not worth a reboot of a 648-day-uptime prod box |
 
 ### `verify-cell-with-no-runnable-command` — 16 occurrence(s) across 3 file(s)
 
@@ -277,21 +265,7 @@ Each of these landed in a `doc_block` verbatim and was counted here. Nothing was
 
 | n | shape | example |
 |---:|---|---|
-| 8 | a CONVENTIONS section with no list to split on | ⚠⚠ WHAT A DELETE HERE DOES *NOT* DO — say it in the UI, and know it before you t… |
-
-### `red-check-without-verify-command` — 8 occurrence(s) across 1 file(s)
-
-**Judgement.** The schema should change, in the same direction as the verification finding: a red-check is evidence in its own right and currently cannot be stored without a command to hang it on.
-
-| n | shape | example |
-|---:|---|---|
-| 2 | 6 sabotage variants under 2.3 | \| sabotage \| failed \| which \| |
-| 1 | 3 sabotage variants under phase-1 | \| sabotage \| result \| |
-| 1 | 5 sabotage variants under 2.1 | \| sabotage \| result \| |
-| 1 | 7 sabotage variants under 2.3 | \| sabotage \| failed \| which \| |
-| 1 | 7 sabotage variants under phase-2 | \| sabotage \| failed \| which \| |
-| 1 | 5 sabotage variants under phase-2 | \| sabotage \| failed \| which \| |
-| 1 | 6 sabotage variants under phase-2 | \| sabotage \| failed \| which \| |
+| 8 | a CONVENTIONS section with no list to split on | Verification commands |
 
 ### `assumptions-as-a-list-not-a-table` — 7 occurrence(s) across 7 file(s)
 
@@ -299,7 +273,21 @@ Each of these landed in a `doc_block` verbatim and was counted here. Nothing was
 
 | n | shape | example |
 |---:|---|---|
-| 7 | an assumptions section with no evidence-level or reversal-cost column | 2 entries under ⚠ OPEN ASSUMPTION 6 MATERIALISED, AND IS RESOLVED — 2026-08-… |
+| 7 | an assumptions section with no evidence-level or reversal-cost column | 4 entries under Open assumptions |
+
+### `assumption-reversal-unreadable` — 7 occurrence(s) across 6 file(s)
+
+**Judgement.** The empty cell is no longer counted here — `reversal` is nullable and a resolved assumption stores no cost. What remains is a cell carrying a word the vocabulary cannot read, which is a vocabulary gap rather than a column.
+
+| n | shape | example |
+|---:|---|---|
+| 1 | Owner's explicit decision. Every UI clai… | Build + typecheck are the *only* gates; all behaviour is unproven until the owner tests |
+| 1 | n/a — accepted for the run | Build + typecheck are the only gates; all behaviour is unproven at handover |
+| 1 | 1.2, part of 3.1, and phase 5. | The email-hash half is wanted (SPEC.md › *What recon changed*, answered 2026-09-17). Task 1.2 now sits on the mandatory path because of it, and 3.1's tenant_users update writes the hash. Revisit before Phase 1 starts, not before Phase 5 — by Phase 5 the purge is already writing hashes that would have no reader, and 3.1 is review-gated and irreversible in production. |
+| 1 | 1.2, 1.3, part of 3.1, phase 5 | The email-hash half is wanted |
+| 1 | Expensive — schema. | Storing the produced .dotx needs new columns on TenantWordTemplate (original P1) — i.e. Phase D carries an EF Core migration on a production multi-tenant database. |
+| 1 | Data gone from production; a Down cannot… | VoiceAgentLanguage.Disclaimer holds nothing worth keeping. IdentityPage.tsx:206-211 writes it, so a live row may hold operator-typed text. Owner decision 6 says delete. |
+| 1 | Blocked on a human, not a decision. | Phase 4's live gate needs the owner (Ctrl+F5) and touches voice agent 1, a real phone line, on the live DB. Precedent: Phase 8.5 did this and restored state. |
 
 ### `task-log-entry-without-a-verdict` — 4 occurrence(s) across 1 file(s)
 

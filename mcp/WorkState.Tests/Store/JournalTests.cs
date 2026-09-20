@@ -124,6 +124,39 @@ public sealed class JournalTests(PostgresFixture fixture)
         var stored = await context.Verifications.AsNoTracking().SingleAsync(v => v.ItemId == task.Id, Ct);
         Assert.Equal(VerifyRunner.Orchestrator, stored.RunBy);
         Assert.Contains("Passed!", stored.ResultLine);
+        Assert.Equal(task.VerifyCmd, stored.Command);
+    }
+
+    /// <summary>
+    /// doc 02 §6, corrected by import finding #1: the corpus records the result far more often than the
+    /// command, and a store that cannot hold "35/35, build 0 errors" holds most of the evidence nowhere.
+    /// </summary>
+    [Fact]
+    public async Task A_verification_with_no_command_is_accepted_and_reads_back_null()
+    {
+        var world = await Seed.CreateWorldAsync(fixture);
+
+        await using var context = fixture.NewContext();
+        var task = Seed.NewItem(world.WorkspaceId, world.RunA, "task", "v-nocmd", 1m);
+        context.Items.Add(task);
+        await context.SaveChangesAsync(Ct);
+
+        context.Verifications.Add(new Verification
+        {
+            Id = Guid.CreateVersion7(),
+            WorkspaceId = world.WorkspaceId,
+            ItemId = task.Id,
+            Command = null,
+            ResultLine = "35/35, build 0 errors",
+            Passed = true,
+            RunBy = VerifyRunner.Orchestrator,
+        });
+        await context.SaveChangesAsync(Ct);
+
+        var stored = await context.Verifications.AsNoTracking().SingleAsync(v => v.ItemId == task.Id, Ct);
+        Assert.Null(stored.Command);
+        Assert.Equal("35/35, build 0 errors", stored.ResultLine);
+        Assert.Equal(VerifyRunner.Orchestrator, stored.RunBy);
     }
 
     [Fact]

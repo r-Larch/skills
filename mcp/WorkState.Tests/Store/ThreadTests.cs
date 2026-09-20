@@ -182,6 +182,57 @@ public sealed class ThreadTests(PostgresFixture fixture)
         Assert.Equal("assumption_resolved", error.ConstraintName);
     }
 
+    /// <summary>
+    /// doc 02 §7, corrected by import finding #2: the corpus writes `—` in the reversal column of every
+    /// assumption it has already resolved, and forcing a value there made the importer invent `medium`.
+    /// </summary>
+    [Fact]
+    public async Task A_resolved_assumption_stores_no_reversal_cost_and_an_open_one_still_does()
+    {
+        var world = await Seed.CreateWorldAsync(fixture);
+
+        await using var context = fixture.NewContext();
+        var resolved = NewAssumption(world.WorkspaceId, world.RunA, "A-none");
+        resolved.Reversal = null;
+        resolved.State = AssumptionState.Confirmed;
+        resolved.ResolvedAt = DateTimeOffset.UtcNow;
+        resolved.ResolutionNote = "settled by the 2.1 worker; the cost stopped mattering";
+
+        var open = NewAssumption(world.WorkspaceId, world.RunA, "A-cost");
+        open.Reversal = ReversalCost.Irreversible;
+
+        context.Assumptions.AddRange(resolved, open);
+        await context.SaveChangesAsync(Ct);
+
+        var stored = await context.Assumptions.AsNoTracking()
+            .Where(a => a.RefScopeId == world.RunA)
+            .ToDictionaryAsync(a => a.Ref, Ct);
+
+        Assert.Null(stored["A-none"].Reversal);
+        Assert.Equal(ReversalCost.Irreversible, stored["A-cost"].Reversal);
+    }
+
+    /// <summary>
+    /// doc 02 §7, import finding #3: the enum keeps the level, and the provenance beside it — which is
+    /// the part a later reader needs — has nowhere else to go.
+    /// </summary>
+    [Fact]
+    public async Task An_evidence_note_round_trips_across_lines_and_outside_ascii()
+    {
+        var world = await Seed.CreateWorldAsync(fixture);
+        const string note = "confirmed: the key is in configuration\nMEDIUM — matches the real trial flow · ✅";
+
+        await using var context = fixture.NewContext();
+        var assumption = NewAssumption(world.WorkspaceId, world.RunA, "A-note");
+        assumption.EvidenceNote = note;
+        context.Assumptions.Add(assumption);
+        await context.SaveChangesAsync(Ct);
+
+        var stored = await context.Assumptions.AsNoTracking().SingleAsync(a => a.Id == assumption.Id, Ct);
+
+        Assert.Equal(note, stored.EvidenceNote);
+    }
+
     [Fact]
     public async Task A_note_addressed_to_an_item_stays_pending_until_it_is_consumed()
     {

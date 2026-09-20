@@ -156,6 +156,10 @@ namespace WorkState.Core.Migrations
                         .HasColumnType("evidence_level")
                         .HasColumnName("evidence");
 
+                    b.Property<string>("EvidenceNote")
+                        .HasColumnType("text")
+                        .HasColumnName("evidence_note");
+
                     b.Property<string>("Ref")
                         .IsRequired()
                         .HasColumnType("text")
@@ -174,7 +178,7 @@ namespace WorkState.Core.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("resolved_at");
 
-                    b.Property<ReversalCost>("Reversal")
+                    b.Property<ReversalCost?>("Reversal")
                         .HasColumnType("reversal_cost")
                         .HasColumnName("reversal");
 
@@ -523,7 +527,7 @@ namespace WorkState.Core.Migrations
                         .ValueGeneratedOnAddOrUpdate()
                         .HasColumnType("tsvector")
                         .HasColumnName("search")
-                        .HasComputedColumnSql("setweight(to_tsvector('english', coalesce(heading, '')), 'A') ||\nsetweight(to_tsvector('english', body), 'B')", true);
+                        .HasComputedColumnSql("setweight(to_tsvector('english', coalesce(heading, '')), 'A') ||\r\nsetweight(to_tsvector('english', body), 'B')", true);
 
                     b.Property<decimal>("Seq")
                         .HasColumnType("numeric")
@@ -749,7 +753,7 @@ namespace WorkState.Core.Migrations
                         .ValueGeneratedOnAddOrUpdate()
                         .HasColumnType("tsvector")
                         .HasColumnName("search")
-                        .HasComputedColumnSql("setweight(to_tsvector('simple', coalesce(ref, '')), 'A') ||\nsetweight(to_tsvector('english', coalesce(title, '')), 'B') ||\nsetweight(to_tsvector('english', coalesce(intent, '')), 'C')", true);
+                        .HasComputedColumnSql("setweight(to_tsvector('simple', coalesce(ref, '')), 'A') ||\r\nsetweight(to_tsvector('english', coalesce(title, '')), 'B') ||\r\nsetweight(to_tsvector('english', coalesce(intent, '')), 'C')", true);
 
                     b.Property<decimal>("Seq")
                         .HasColumnType("numeric")
@@ -1235,7 +1239,6 @@ namespace WorkState.Core.Migrations
                         .HasColumnName("attempt_id");
 
                     b.Property<string>("Command")
-                        .IsRequired()
                         .HasColumnType("text")
                         .HasColumnName("command");
 

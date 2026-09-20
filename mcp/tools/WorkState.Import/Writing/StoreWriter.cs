@@ -435,6 +435,7 @@ public sealed class StoreWriter(string connectionString, string workspaceSlug = 
 
             row.Statement = source.Statement;
             row.Evidence = source.Evidence;
+            row.EvidenceNote = source.EvidenceNote;
             row.Reversal = source.Reversal;
             row.State = source.State;
             row.ResolvedAt = source.State == AssumptionState.Open ? null : source.ResolvedAt ?? DateTimeOffset.UtcNow;

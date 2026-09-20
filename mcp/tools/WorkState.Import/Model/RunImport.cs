@@ -71,7 +71,8 @@ public sealed record AssumptionImport(
     string Ref,
     string Statement,
     EvidenceLevel Evidence,
-    ReversalCost Reversal,
+    string? EvidenceNote,
+    ReversalCost? Reversal,
     AssumptionState State,
     string? RevisitRef,
     DateTimeOffset? ResolvedAt,
@@ -83,7 +84,7 @@ public sealed record ConstraintImport(ConstraintKind Kind, string Text, string? 
 
 public sealed record VerificationImport(
     string ItemRef,
-    string Command,
+    string? Command,
     string ResultLine,
     bool Passed,
     VerifyRunner RunBy,

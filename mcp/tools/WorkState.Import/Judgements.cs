@@ -19,33 +19,29 @@ public static class Judgements
             + "correctly. The exception is any header carrying a lifecycle word, which is a shape the "
             + "importer should learn rather than a column the schema should grow.",
 
-        ["verification-result-without-command"] =
-            "The schema should change. `verification.command` is NOT NULL, but the corpus records the "
-            + "result line far more often than the command that produced it, and an orchestrator's "
-            + "re-verification is usually prose with a count and no command at all.",
-
         ["verification-table-without-a-command-column"] =
-            "The schema should change, and this is the same finding as the verify cells with no command: a "
-            + "table of `| checked | result |` or `| step | result |` is evidence somebody gathered, with "
-            + "no command anywhere in it. Add these counts to that one.",
+            "The schema has changed and this shape is still unread: a table of `| checked | result |` or "
+            + "`| step | result |` is evidence somebody gathered, and `verification.command` being nullable "
+            + "now makes it storable. What is missing is a parser that knows the left column is the check "
+            + "rather than the command.",
 
         ["assumption-reversal-unreadable"] =
-            "The schema should change. `reversal` is NOT NULL, and a resolved assumption's reversal "
-            + "cost is written as `—` because it has stopped mattering. Either the column is nullable "
-            + "or `assumption_state` closing has to clear it.",
+            "The empty cell is no longer counted here — `reversal` is nullable and a resolved assumption "
+            + "stores no cost. What remains is a cell carrying a word the vocabulary cannot read, which is "
+            + "a vocabulary gap rather than a column.",
 
         ["assumption-evidence-token"] =
-            "Prose. `evidence_level` covers the ground; the corpus simply writes the provenance "
-            + "('owner statement', 'recon, repo-wide grep') next to the level rather than as it. A "
-            + "free-text `evidence_note` beside the enum would keep it.",
+            "The level is unread, but the text is no longer lost: the raw cell goes to `evidence_note` "
+            + "and only the enum falls back to `asserted`. What is counted here is the vocabulary gap.",
 
         ["assumptions-as-a-list-not-a-table"] =
             "Prose, and a process finding: these sections predate the table shape and carry no evidence "
             + "level or reversal cost at all, so importing them typed would manufacture both.",
 
         ["red-check-without-verify-command"] =
-            "The schema should change, in the same direction as the verification finding: a red-check "
-            + "is evidence in its own right and currently cannot be stored without a command to hang it on.",
+            "A red-check is evidence in its own right and a nullable `verification.command` now stores it "
+            + "without a command to hang it on. What is left here is a red-check table under no task at all, "
+            + "which has nothing to attach to.",
 
         ["malformed-row"] =
             "Prose. A row whose cell count disagrees with its header is a hand-editing accident; the "
@@ -95,39 +91,50 @@ public static class Judgements
     public const string SchemaDoubts = """
         ## What the real data says about the model
 
-        Six things, worst first. None of them was fixed here: a schema edited mid-import by the importer is
-        a schema nobody reviewed.
+        Six things, worst first. None was fixed by the import itself — a schema edited mid-import by the
+        importer is a schema nobody reviewed. Findings 1–4 were reviewed and **corrected in U2c**
+        (migration `NullableEvidence`, `WorkStateQueries.ReadyFrontierAsync`); each is kept below with
+        what changed, because the evidence is why the schema reads as it does.
 
         ### 1. `verification.command` is NOT NULL and the corpus usually has no command
 
         The single largest unmapped shape. A ledger records *the result* — `35/35, build 0 errors`,
         `full suite 1807/1` — far more often than the command that produced it, and a controller's
-        re-verification is frequently a sentence with a count in it. Every one of those is evidence the
-        store currently cannot hold, so the import writes a fraction of the verifications the corpus
-        actually contains. Either `command` becomes nullable, or `verification` gains a shape for
-        "verified, this is what I saw" with the command optional. This one blocks U3: a `verify` tool that
-        demands a command will be unable to record most of what really happens.
+        re-verification is frequently a sentence with a count in it. Every one of those was evidence the
+        store could not hold, so the first import wrote a fraction of the verifications the corpus
+        actually contains.
+
+        **Corrected in U2c.** `command` is nullable, `result_line` stays required, and the `done` guard
+        reads a null command as "not checked" rather than as a failure (doc 07 §3, condition 2). This run's
+        verification count is the count with result-only evidence storable.
 
         ### 2. `assumption.reversal` is NOT NULL and a closed assumption has no reversal cost
 
         The corpus writes `—` in the reversal column of every assumption it has already resolved, because
-        the cost of reversing a settled question is not a fact about anything. The importer has to invent
-        `medium` to satisfy the column. Make it nullable, or have the closing transition clear it.
+        the cost of reversing a settled question is not a fact about anything. The first import had to
+        invent `medium` to satisfy the column.
+
+        **Corrected in U2c.** `reversal` is nullable and the importer no longer invents a value; an empty
+        cell stores null. A cell carrying a word the vocabulary cannot read is still counted, as a
+        vocabulary gap.
 
         ### 3. `evidence_level` is an enum and the corpus writes the provenance, not the level
 
         `MEDIUM — matches how the real trial flow behaves`, `confirmed: the key is in configuration`,
         `raised by the 2.1 worker`. The level is recoverable from the leading clause; the *provenance* is
-        the part a later reader needs and there is nowhere to put it. A free-text `evidence_note` beside
-        the enum would keep it, and would cost one column.
+        the part a later reader needs and there was nowhere to put it.
+
+        **Corrected in U2c.** `assumption.evidence_note text` holds the cell verbatim beside the enum.
 
         ### 4. `item.seq` is per-sibling, so `ready_frontier` cannot order across phases
 
-        `SeqAllocator` numbers children within a parent, correctly — but the frontier query orders a whole
+        `SeqAllocator` numbers children within a parent, correctly — but the frontier query ordered a whole
         run's subtree by `priority DESC, seq`, and every phase's first task has `seq = 1`. Over a real
-        multi-phase run the frontier's order between phases is arbitrary. Either the frontier orders by
-        the ancestor path as well, or "what next" needs the phase's own frontier and a phase order above
-        it. Cheap to fix in SQL; expensive to discover in U3.
+        multi-phase run the frontier's order between phases was arbitrary.
+
+        **Corrected in U2c.** The frontier orders by `priority DESC, <document path>`, the ancestor-seq
+        path the subtree query already built, now shared between the two. 53 tests passed over the wrong
+        version because the fixtures were single-phase; the test that catches it is multi-phase.
 
         ### 5. Nothing in the tree expresses "this checkbox belongs to that task"
 

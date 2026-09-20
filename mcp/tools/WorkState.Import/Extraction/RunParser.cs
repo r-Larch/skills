@@ -320,11 +320,14 @@ public sealed partial class RunParser(RunImport run)
 
             var reversalCell = MarkdownTable.Cell(row, reversalColumn);
             var reversal = Vocabulary.ReadReversal(reversalCell);
-            if (reversal is null)
+
+            // An empty cell is now a storable value, not a parse failure: a resolved assumption has no
+            // reversal cost (doc 02 §7). Only a cell carrying a word the vocabulary cannot read is.
+            if (reversal is null && !MdText.IsEmpty(reversalCell))
             {
                 run.Unmapped.Record(
                     "assumption-reversal-unreadable",
-                    MdText.IsEmpty(reversalCell) ? "(empty cell)" : MdText.Truncate(MdText.Plain(reversalCell), 40),
+                    MdText.Truncate(MdText.Plain(reversalCell), 40),
                     statement,
                     _currentFile);
             }
@@ -344,11 +347,14 @@ public sealed partial class RunParser(RunImport run)
             var revisitCell = MarkdownTable.Cell(row, revisitColumn);
             var revisitRef = MdText.IsEmpty(revisitCell) ? null : Refs.Parse(revisitCell);
 
+            var evidenceNote = MdText.Plain(evidenceCell);
+
             run.Assumptions.Add(new AssumptionImport(
                 reference,
                 MdText.Truncate(statement, 4000),
                 evidence ?? EvidenceLevel.Asserted,
-                reversal ?? ReversalCost.Medium,
+                evidenceNote.Length == 0 ? null : MdText.Truncate(evidenceNote, 2000),
+                reversal,
                 state,
                 revisitRef,
                 state == AssumptionState.Open ? null : MdText.Date(statement) ?? DateTimeOffset.UtcNow,
@@ -623,11 +629,11 @@ public sealed partial class RunParser(RunImport run)
         }
 
         var item = CurrentItem();
-        if (item?.VerifyCmd is null)
+        if (item is null)
         {
             run.Unmapped.Record(
                 "red-check-without-verify-command",
-                $"{variants.Count} sabotage variants under " + (item?.Ref ?? "no task"),
+                $"{variants.Count} sabotage variants under no task",
                 table.Signature,
                 _currentFile);
             return;
@@ -661,19 +667,10 @@ public sealed partial class RunParser(RunImport run)
         }
 
         var command = ExtractCommand(verifyCell) ?? item.VerifyCmd;
-        if (command is null)
-        {
-            run.Unmapped.Record(
-                "verification-result-without-command",
-                "a verify cell carrying a result line and no command",
-                MdText.Truncate(result, 120),
-                _currentFile);
-            return;
-        }
 
         run.Verifications.Add(new VerificationImport(
             item.Ref,
-            MdText.Truncate(command, 400),
+            command is null ? null : MdText.Truncate(command, 400),
             MdText.Truncate(result, 800),
             Passed(result, verdict),
             runBy,
