@@ -11,6 +11,21 @@ namespace WorkState.Core.Queries;
 /// </summary>
 public sealed class WorkStateQueries(NpgsqlDataSource dataSource)
 {
+    /// <summary>
+    /// The document path of <c>i</c> — every ancestor's <c>seq</c> in tree order — exposed as
+    /// <c>p.path</c>, so <c>p.path || i.seq</c> sorts a whole subtree the way the plan reads.
+    /// <c>seq</c> alone orders siblings, so on its own it leaves the order between phases arbitrary
+    /// (doc 02 §4, corrected by import finding #4). Both the frontier and the subtree order by this.
+    /// </summary>
+    private const string DocumentPath =
+        """
+        CROSS JOIN LATERAL (
+          SELECT coalesce(array_agg(a.seq ORDER BY u.ord), '{}'::numeric[]) AS path
+          FROM   unnest(i.ancestors) WITH ORDINALITY AS u(id, ord)
+          JOIN   item a ON a.id = u.id
+        ) p
+        """;
+
     static WorkStateQueries() => SqlMapper.AddTypeHandler(new TextArrayHandler());
 
     /// <summary>
@@ -22,30 +37,31 @@ public sealed class WorkStateQueries(NpgsqlDataSource dataSource)
         CancellationToken cancellationToken = default)
     {
         const string sql =
-            """
-            WITH scope AS (
-              SELECT id FROM item WHERE id = @scope OR ancestors @> ARRAY[@scope]::uuid[]
-            )
-            SELECT i.id         AS "Id",
-                   i.ref        AS "Ref",
-                   i.kind       AS "Kind",
-                   i.title      AS "Title",
-                   i.verify_cmd AS "VerifyCmd",
-                   i.risk_tags  AS "RiskTags",
-                   i.priority   AS "Priority",
-                   i.seq        AS "Seq"
-            FROM   item i
-            JOIN   scope s ON s.id = i.id
-            WHERE  i.status IN ('open','ready')
-              AND  NOT EXISTS (
-                    SELECT 1 FROM item_link l JOIN item b ON b.id = l.from_item_id
-                    WHERE l.to_item_id = i.id AND l.type = 'blocks'
-                      AND b.status NOT IN ('done','cancelled','superseded'))
-              AND  NOT EXISTS (
-                    SELECT 1 FROM item c WHERE c.parent_id = i.id
-                      AND c.status NOT IN ('done','cancelled','superseded'))
-            ORDER BY i.priority DESC, i.seq;
-            """;
+            $"""
+             WITH scope AS (
+               SELECT id FROM item WHERE id = @scope OR ancestors @> ARRAY[@scope]::uuid[]
+             )
+             SELECT i.id         AS "Id",
+                    i.ref        AS "Ref",
+                    i.kind       AS "Kind",
+                    i.title      AS "Title",
+                    i.verify_cmd AS "VerifyCmd",
+                    i.risk_tags  AS "RiskTags",
+                    i.priority   AS "Priority",
+                    i.seq        AS "Seq"
+             FROM   item i
+             JOIN   scope s ON s.id = i.id
+             {DocumentPath}
+             WHERE  i.status IN ('open','ready')
+               AND  NOT EXISTS (
+                     SELECT 1 FROM item_link l JOIN item b ON b.id = l.from_item_id
+                     WHERE l.to_item_id = i.id AND l.type = 'blocks'
+                       AND b.status NOT IN ('done','cancelled','superseded'))
+               AND  NOT EXISTS (
+                     SELECT 1 FROM item c WHERE c.parent_id = i.id
+                       AND c.status NOT IN ('done','cancelled','superseded'))
+             ORDER BY i.priority DESC, p.path || i.seq;
+             """;
 
         return await QueryAsync<ReadyItem>(sql, new { scope = scopeItemId }, cancellationToken);
     }
@@ -102,29 +118,25 @@ public sealed class WorkStateQueries(NpgsqlDataSource dataSource)
         CancellationToken cancellationToken = default)
     {
         const string sql =
-            """
-            SELECT i.id              AS "Id",
-                   i.parent_id       AS "ParentId",
-                   i.ref             AS "Ref",
-                   i.kind            AS "Kind",
-                   i.title           AS "Title",
-                   i.status          AS "Status",
-                   i.depth           AS "Depth",
-                   i.seq             AS "Seq",
-                   r.open_count      AS "OpenCount",
-                   r.doing_count     AS "DoingCount",
-                   r.blocked_count   AS "BlockedCount",
-                   r.done_count      AS "DoneCount"
-            FROM   item i
-            JOIN   item_rollup r ON r.id = i.id
-            CROSS JOIN LATERAL (
-              SELECT coalesce(array_agg(a.seq ORDER BY u.ord), '{}'::numeric[]) AS path
-              FROM   unnest(i.ancestors) WITH ORDINALITY AS u(id, ord)
-              JOIN   item a ON a.id = u.id
-            ) p
-            WHERE  i.id = @scope OR i.ancestors @> ARRAY[@scope]::uuid[]
-            ORDER BY p.path || i.seq;
-            """;
+            $"""
+             SELECT i.id              AS "Id",
+                    i.parent_id       AS "ParentId",
+                    i.ref             AS "Ref",
+                    i.kind            AS "Kind",
+                    i.title           AS "Title",
+                    i.status          AS "Status",
+                    i.depth           AS "Depth",
+                    i.seq             AS "Seq",
+                    r.open_count      AS "OpenCount",
+                    r.doing_count     AS "DoingCount",
+                    r.blocked_count   AS "BlockedCount",
+                    r.done_count      AS "DoneCount"
+             FROM   item i
+             JOIN   item_rollup r ON r.id = i.id
+             {DocumentPath}
+             WHERE  i.id = @scope OR i.ancestors @> ARRAY[@scope]::uuid[]
+             ORDER BY p.path || i.seq;
+             """;
 
         return await QueryAsync<SubtreeNode>(sql, new { scope = scopeItemId }, cancellationToken);
     }

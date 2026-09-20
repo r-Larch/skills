@@ -18,7 +18,15 @@ public class Assumption
     public string Ref { get; set; } = "";
     public string Statement { get; set; } = "";
     public EvidenceLevel Evidence { get; set; }
-    public ReversalCost Reversal { get; set; }
+
+    /// <summary>
+    /// The provenance beside the level — "confirmed: the key is in configuration" (doc 02 §7,
+    /// import finding #3). The enum keeps only the level, which is not the part a later reader needs.
+    /// </summary>
+    public string? EvidenceNote { get; set; }
+
+    /// <summary>Null once the assumption is resolved: a settled question has no reversal cost.</summary>
+    public ReversalCost? Reversal { get; set; }
 
     /// <summary>"Revisit when: task 1.1" as a real edge, not a sentence nobody re-reads.</summary>
     public Guid? RevisitItemId { get; set; }

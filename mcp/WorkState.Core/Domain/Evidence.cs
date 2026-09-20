@@ -38,7 +38,13 @@ public class Verification
     public Guid WorkspaceId { get; set; }
     public Guid ItemId { get; set; }
     public Guid? AttemptId { get; set; }
-    public string Command { get; set; } = "";
+
+    /// <summary>
+    /// Optional: the corpus records the result far more often than the command that produced it
+    /// (doc 02 §6, import finding #1), and the `done` guard reads a null command as "not checked"
+    /// rather than as a failure (doc 07 §3, condition 2).
+    /// </summary>
+    public string? Command { get; set; }
 
     /// <summary>"Passed! 187/187" — the actual line, not an exit code. Required, by decision.</summary>
     public string ResultLine { get; set; } = "";
