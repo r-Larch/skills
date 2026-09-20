@@ -95,6 +95,51 @@ public static partial class Vocabulary
     private static partial Regex ShoutRegex();
 
     /// <summary>
+    /// A phase gate's outcome, kept apart from <see cref="Verdicts"/> because the words differ: a
+    /// gate <c>PASSES</c> or <c>FAILS</c> where a task is <c>ACCEPTED</c>, and a bare <c>PASS</c> in
+    /// a task cell is far more often prose than a verdict.
+    /// </summary>
+    private static readonly Dictionary<string, Verdict> GateOutcomes = new(StringComparer.Ordinal)
+    {
+        ["PASS"] = new("PASS", ItemStatus.Done, ItemResolution.Accepted),
+        ["PASSED"] = new("PASSED", ItemStatus.Done, ItemResolution.Accepted),
+        ["PASSES"] = new("PASSES", ItemStatus.Done, ItemResolution.Accepted),
+        ["CLOSED"] = new("CLOSED", ItemStatus.Done, ItemResolution.Accepted),
+        ["COMPLETE"] = new("COMPLETE", ItemStatus.Done, ItemResolution.Accepted),
+        ["FAIL"] = new("FAIL", ItemStatus.Review, null),
+        ["FAILS"] = new("FAILS", ItemStatus.Review, null),
+        ["FAILED"] = new("FAILED", ItemStatus.Review, null),
+    };
+
+    /// <summary>
+    /// The outcome a phase heading records for its gate, or null where it records none. Only a
+    /// heading that names a gate is read, and the <em>last</em> token wins: the corpus writes the
+    /// whole history in one line — <c>Phase 2 gate — FAILED, then PASSED after rework</c> — so the
+    /// first token is the outcome that was superseded.
+    /// </summary>
+    public static Verdict? ReadGateOutcome(string? heading)
+    {
+        if (heading is null || !GateRegex().IsMatch(heading))
+        {
+            return null;
+        }
+
+        Verdict? last = null;
+        foreach (Match match in ShoutRegex().Matches(heading))
+        {
+            if (GateOutcomes.TryGetValue(match.Value, out var outcome))
+            {
+                last = outcome;
+            }
+        }
+
+        return last;
+    }
+
+    [GeneratedRegex(@"\bgate", RegexOptions.IgnoreCase)]
+    private static partial Regex GateRegex();
+
+    /// <summary>
     /// The evidence level, read from the leading clause before the whole cell. The corpus writes the
     /// level first and its provenance after — <c>reasoned; one TOAST read per call</c> — and a reader
     /// scanning the whole cell at once would grade that as <c>code_read</c> on the word "read".

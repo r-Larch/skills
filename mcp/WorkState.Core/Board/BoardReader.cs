@@ -132,6 +132,16 @@ public sealed partial class BoardReader(WorkStateQueries queries, BoardQueries b
                 $"work_status(ref:\"{blocker.FindingRef}\", to:\"done\")"));
         }
 
+        // doc 07 §2: nothing promoted this phase and nothing will. The obligation is named, with the
+        // call that discharges it, and the agent decides — FINDINGS-live F-L1b.
+        foreach (var gate in await board.UngatedPhasesAsync(item.Id, cancellationToken))
+        {
+            lines.Add(new AttentionLine(
+                AttentionRank.PhaseGateNotRun,
+                $"{gate.PhaseRef}: all {gate.TaskCount} tasks done, gate not run",
+                $"work_brief(scope:\"{gate.PhaseRef}\") to run it"));
+        }
+
         foreach (var reference in await board.DoneUnverifiedAsync(item.Id, cancellationToken))
         {
             lines.Add(new AttentionLine(

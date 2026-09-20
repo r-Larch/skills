@@ -499,12 +499,21 @@ public sealed class StoreWriter(string connectionString, string workspaceSlug = 
         RunImport run,
         CancellationToken token)
     {
-        var existing = (await db.ConstraintRules
-                .Where(c => c.ScopeItemId == runItem.Id)
-                .Select(c => new { c.Kind, c.Text })
-                .ToListAsync(token))
-            .Select(c => (c.Kind, c.Text))
-            .ToHashSet();
+        var rows = await db.ConstraintRules
+            .Where(c => c.ScopeItemId == runItem.Id)
+            .ToListAsync(token);
+
+        var existing = rows.Select(c => (c.Kind, c.Text)).ToHashSet();
+        var incoming = run.Constraints.Select(c => (c.Kind, c.Text)).ToHashSet();
+
+        // A rule this CONVENTIONS file no longer states is retracted, not deleted: the fix that
+        // reunites a red line with its verb produces different text, and a store that kept both
+        // would go on handing an agent the fragment (FINDINGS-live F-L2). Deactivating leaves the
+        // row for an audit to find and costs the brief nothing, because it reads only active rules.
+        foreach (var row in rows)
+        {
+            row.Active = incoming.Contains((row.Kind, row.Text));
+        }
 
         foreach (var source in run.Constraints)
         {

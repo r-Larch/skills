@@ -139,8 +139,19 @@ Omitted entirely — header included — when empty.
 Every line is `<what> — <the call that fixes it>`. A line without a call is a defect: it is the
 1,241 ⚠ markers of the old corpus reinvented, and those are what this replaces.
 
-Ranking: expired claims → blocker findings → items done-but-unverified → assumptions past revisit →
-unconsumed notes for the current scope → stale `in_progress`.
+Ranking: expired claims → blocker findings → **phases whose tasks are all done and whose gate has not
+run** → items done-but-unverified → assumptions past revisit → unconsumed notes for the current scope
+→ stale `in_progress`.
+
+```
+⚠ phase-2: all 8 tasks done, gate not run — work_brief(scope:"phase-2") to run it
+```
+
+> **Why that line exists, 2026-09-20 (FINDINGS-live F-L1b).** Nothing promotes a phase when its last
+> child closes, on purpose: a write triggered by another write is invisible and untestable, and a
+> phase whose tasks are done is *ready to be gated*, not done. It outranks done-but-unverified
+> because what goes unexamined is the composition across every task in the phase, not one task's
+> missing evidence.
 
 ---
 

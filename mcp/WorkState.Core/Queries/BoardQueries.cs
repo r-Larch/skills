@@ -182,6 +182,12 @@ public sealed class BoardQueries(NpgsqlDataSource dataSource)
             cancellationToken);
     }
 
+    /// <summary>
+    /// FINDINGS-live F-L3: every imported note of a run shares one <c>created_at</c>, so ordering on
+    /// it alone left the whole block tied and the first line arbitrary. The kind is the ranking a
+    /// reader can act on — a correction retracts something they would otherwise believe — and the id
+    /// makes what is left deterministic rather than whatever the scan returned.
+    /// </summary>
     public async Task<IReadOnlyList<NoteRow>> UnconsumedNotesAsync(
         Guid workspaceId,
         Guid? scopeItemId,
@@ -204,7 +210,17 @@ public sealed class BoardQueries(NpgsqlDataSource dataSource)
                     OR EXISTS (SELECT 1 FROM item i
                                WHERE i.id IN (n.to_item_id, n.from_item_id)
                                  AND i.ancestors @> ARRAY[@scope]::uuid[]))
-            ORDER BY (n.to_item_id IS NOT NULL) DESC, n.created_at DESC;
+            ORDER BY (n.to_item_id IS NOT NULL) DESC,
+                     CASE n.kind
+                       WHEN 'correction'      THEN 0
+                       WHEN 'incident'        THEN 1
+                       WHEN 'carry_forward'   THEN 2
+                       WHEN 'do_not_rederive' THEN 3
+                       WHEN 'decision'        THEN 4
+                       WHEN 'environment'     THEN 5
+                       ELSE 6 END,
+                     n.created_at DESC,
+                     n.id DESC;
             """;
 
         return await ListAsync<NoteRow>(
@@ -396,6 +412,34 @@ public sealed class BoardQueries(NpgsqlDataSource dataSource)
              """;
 
         return await ListAsync<StaleRow>(sql, new { scope = scopeItemId, hours }, cancellationToken);
+    }
+
+    /// <summary>
+    /// doc 07 §2 — phases whose every task is closed and which are not themselves closed. The store
+    /// deliberately runs no transition for this (FINDINGS-live F-L1): a phase with nothing left to
+    /// do is <em>ready to be gated</em>, and auto-closing it would delete the composition review.
+    /// The obligation is surfaced instead, which is what doc 06 §5's attention block is for.
+    /// </summary>
+    public async Task<IReadOnlyList<GateRow>> UngatedPhasesAsync(
+        Guid scopeItemId,
+        CancellationToken cancellationToken = default)
+    {
+        const string sql =
+            $"""
+             SELECT p.ref                 AS "PhaseRef",
+                    count(*)::int         AS "TaskCount"
+             FROM   item p
+             JOIN   item c ON c.ancestors @> ARRAY[p.id]::uuid[] AND c.kind IN ('task','subtask')
+             WHERE  p.kind = 'phase'
+               AND  p.status NOT IN ('done','cancelled','superseded')
+               AND  (p.id = @scope OR p.ancestors @> ARRAY[@scope]::uuid[])
+             GROUP  BY p.id, p.ref, p.seq
+             HAVING count(*) FILTER (
+                      WHERE c.status NOT IN ('done','cancelled','superseded')) = 0
+             ORDER  BY p.seq;
+             """;
+
+        return await ListAsync<GateRow>(sql, new { scope = scopeItemId }, cancellationToken);
     }
 
     /// <summary>

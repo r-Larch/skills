@@ -8,10 +8,18 @@ public enum AttentionRank
 {
     ExpiredClaim = 0,
     BlockerFinding = 1,
-    DoneUnverified = 2,
-    AssumptionPastRevisit = 3,
-    UnconsumedNote = 4,
-    StaleInProgress = 5,
+
+    /// <summary>
+    /// doc 07 §2 and FINDINGS-live F-L1b: a phase whose tasks are all done is <em>ready to be
+    /// gated</em>, and nothing transitions it. It outranks a single task's missing verification
+    /// because what goes unexamined is the composition across every task in the phase.
+    /// </summary>
+    PhaseGateNotRun = 2,
+
+    DoneUnverified = 3,
+    AssumptionPastRevisit = 4,
+    UnconsumedNote = 5,
+    StaleInProgress = 6,
 }
 
 /// <summary>

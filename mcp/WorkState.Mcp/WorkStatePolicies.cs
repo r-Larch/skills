@@ -19,7 +19,4 @@ public static class WorkStatePolicies
 
     /// <summary>Any recognised token. <c>/mcp</c> requires it, so an unknown token never reaches a tool.</summary>
     public const string Any = "workstate-any";
-
-    public const string Reader = "workstate-reader";
-    public const string Writer = "workstate-writer";
 }

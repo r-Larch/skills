@@ -161,6 +161,8 @@ public sealed partial class RunParser(RunImport run)
                 item.Title = MdText.Plain(heading);
             }
 
+            ReadGate(item, heading);
+
             _currentPhaseRef = phaseRef;
             _currentItemRef = null;
             return;
@@ -204,6 +206,79 @@ public sealed partial class RunParser(RunImport run)
             run.Artifacts.Add(new ArtifactImport(reference, "commit", sha, "{}"));
         }
     }
+
+    /// <summary>
+    /// doc 07 §2 and FINDINGS-live F-L1: a phase closes on its <em>gate</em>, never on its last
+    /// child, and the corpus records that gate in prose. Mapping the outcome is the only way the
+    /// store learns a phase is finished without inventing a transition nobody ran.
+    /// </summary>
+    private void ReadGate(ItemImport phase, string heading)
+    {
+        if (Vocabulary.ReadGateOutcome(heading) is not { } outcome)
+        {
+            return;
+        }
+
+        ApplyVerdict(phase, outcome);
+        run.Events.Add(new EventImport(
+            phase.Ref,
+            "judged",
+            ActorRole.Orchestrator,
+            "orchestrator",
+            $"{phase.Ref}: GATE {outcome.Token}",
+            JsonSerializer.Serialize(new
+            {
+                verdict = outcome.Token,
+                source = "phase-gate-heading",
+                heading = MdText.Truncate(MdText.Plain(heading), 200),
+                file = _currentFile,
+            })));
+    }
+
+    /// <summary>
+    /// FINDINGS-live F-L1, the half no gate line answers: a phase whose every task is closed and
+    /// whose gate went unrecorded is <c>review</c> — finished work awaiting its composition review.
+    /// It is never derived as <c>done</c>, because deriving that would delete the gate.
+    /// </summary>
+    public void RollUpPhases()
+    {
+        var children = run.Items.Values
+            .Where(i => i.Kind is "task" or "subtask" && i.ParentRef is not null)
+            .ToLookup(i => i.ParentRef!, StringComparer.OrdinalIgnoreCase);
+
+        foreach (var phase in run.Items.Values.Where(i => i.Kind == "phase"))
+        {
+            if (phase.Status is not (ItemStatus.Open or ItemStatus.Ready))
+            {
+                continue;
+            }
+
+            var tasks = children[phase.Ref].ToList();
+            if (tasks.Count == 0 || tasks.Any(t => !Closed(t.Status)))
+            {
+                continue;
+            }
+
+            phase.Status = ItemStatus.Review;
+            phase.Resolution = null;
+
+            run.Events.Add(new EventImport(
+                phase.Ref,
+                "judged",
+                ActorRole.Orchestrator,
+                "orchestrator",
+                $"{phase.Ref}: REVIEW — {tasks.Count} task(s) done, no gate outcome recorded",
+                JsonSerializer.Serialize(new
+                {
+                    verdict = "REVIEW",
+                    source = "children-all-done-no-gate",
+                    tasks = tasks.Count,
+                })));
+        }
+    }
+
+    private static bool Closed(ItemStatus status)
+        => status is ItemStatus.Done or ItemStatus.Cancelled or ItemStatus.Superseded;
 
     private string? PhaseRefFor(string reference)
         => Refs.PhaseOf(reference) is { } n && run.Items.ContainsKey("phase-" + n)
@@ -1176,7 +1251,7 @@ public sealed partial class RunParser(RunImport run)
                         ? ConstraintKind.GeneratedCode
                         : ConstraintKind.DomainRule;
 
-        var rules = Bullets(block.Body).ToList();
+        var rules = ConventionRules(block.Body).ToList();
         if (rules.Count == 0)
         {
             var body = block.Body.Trim();
@@ -1205,6 +1280,148 @@ public sealed partial class RunParser(RunImport run)
                 MdText.Truncate(rule, 4000),
                 Route(rule),
                 Vocabulary.ReadRiskTags(rule)));
+        }
+    }
+
+    /// <summary>
+    /// The rules a CONVENTIONS section states. A list introduced by a colon whose entries are all
+    /// fragments is one rule's operands, not a list of rules: splitting it per entry is what left
+    /// <c>Gaia.Web/Core/Rag/**</c> standing alone as a constraint that instructs nobody
+    /// (FINDINGS-live F-L2), so the sentence carrying the verb is kept with them. A list whose
+    /// entries are sentences is still one rule per entry.
+    /// </summary>
+    public static IEnumerable<string> ConventionRules(string body)
+    {
+        var rules = new List<string>();
+        var group = new List<string>();
+        string? leadIn = null;
+
+        foreach (var (isEntry, text) in ConventionSegments(body))
+        {
+            if (isEntry)
+            {
+                group.Add(text);
+                continue;
+            }
+
+            Close();
+            leadIn = text.EndsWith(':') ? text : null;
+        }
+
+        Close();
+        return rules;
+
+        void Close()
+        {
+            if (group.Count > 0)
+            {
+                if (leadIn is { } sentence && group.All(IsFragment))
+                {
+                    rules.Add(sentence + " " + string.Join(" · ", group));
+                }
+                else
+                {
+                    rules.AddRange(group);
+                }
+
+                group.Clear();
+            }
+
+            leadIn = null;
+        }
+    }
+
+    /// <summary>
+    /// An entry that cannot be a rule on its own: a path, a name, an enumerated operand. A sentence
+    /// carries its own verb and stays its own rule.
+    /// </summary>
+    private static bool IsFragment(string entry)
+        => entry.Length <= 160 && !SentenceRegex().IsMatch(entry);
+
+    /// <summary>
+    /// A CONVENTIONS body as prose paragraphs and list entries, in order. <see cref="ListEntries"/>
+    /// drops the prose, which is exactly the sentence a fragment list needs.
+    /// </summary>
+    private static IReadOnlyList<(bool IsEntry, string Text)> ConventionSegments(string body)
+    {
+        var segments = new List<(bool, string)>();
+        var entry = new List<string>();
+        var paragraph = new List<string>();
+        var fenced = false;
+
+        foreach (var line in body.Split('\n'))
+        {
+            var trimmed = line.TrimStart();
+
+            if (trimmed.StartsWith("```", StringComparison.Ordinal) || trimmed.StartsWith("~~~", StringComparison.Ordinal))
+            {
+                fenced = !fenced;
+                continue;
+            }
+
+            if (fenced)
+            {
+                continue;
+            }
+
+            var indent = line.Length - trimmed.Length;
+
+            if (indent <= 3 && BulletRegex().IsMatch(trimmed))
+            {
+                Close();
+                entry.Add(trimmed);
+                continue;
+            }
+
+            if (trimmed.Length == 0)
+            {
+                Close();
+                continue;
+            }
+
+            if (entry.Count > 0)
+            {
+                entry.Add(trimmed);
+                continue;
+            }
+
+            paragraph.Add(trimmed);
+        }
+
+        Close();
+        return segments;
+
+        void Close()
+        {
+            if (paragraph.Count > 0)
+            {
+                var text = MdText.Plain(string.Join(' ', paragraph));
+                if (text.Length > 0)
+                {
+                    segments.Add((false, text));
+                }
+
+                paragraph.Clear();
+            }
+
+            if (entry.Count == 0)
+            {
+                return;
+            }
+
+            var raw = string.Join(' ', entry);
+            entry.Clear();
+
+            if (CheckboxRegex().IsMatch(raw))
+            {
+                return;
+            }
+
+            var plain = MdText.Plain(BulletRegex().Replace(raw, "", 1));
+            if (plain.Length > 0)
+            {
+                segments.Add((true, plain));
+            }
         }
     }
 
@@ -1346,7 +1563,7 @@ public sealed partial class RunParser(RunImport run)
     [GeneratedRegex(@"^(?:[-*+]|\d+[.)])\s+\[([ xX])\]\s*")]
     private static partial Regex CheckboxRegex();
 
-    [GeneratedRegex(@"^#*\s*(?:⚠\s*)?Phase\s+([0-9]+)\b", RegexOptions.IgnoreCase)]
+    [GeneratedRegex(@"^#*\s*(?:⚠\s*)*Phase\s+([0-9]+)\b", RegexOptions.IgnoreCase)]
     private static partial Regex PhaseHeadingRegex();
 
     [GeneratedRegex(@"^([0-9]+\.[0-9A-Za-z]+(?:\.[0-9A-Za-z]+)*)\s*[—–-]?\s*(.*)$")]
@@ -1364,6 +1581,9 @@ public sealed partial class RunParser(RunImport run)
 
     [GeneratedRegex(@"`([^`]+)`")]
     private static partial Regex CodeSpanRegex();
+
+    [GeneratedRegex(@"[.!?](\s|$)")]
+    private static partial Regex SentenceRegex();
 
     [GeneratedRegex(@"\bfailed[: ]+([0-9]+)")]
     private static partial Regex FailedCountRegex();

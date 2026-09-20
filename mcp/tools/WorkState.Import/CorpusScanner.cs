@@ -193,6 +193,7 @@ public static class CorpusScanner
         }
 
         parser.ResolveParents();
+        parser.RollUpPhases();
         return run;
     }
 

@@ -11,9 +11,6 @@ namespace WorkState.Api.Auth;
 
 public sealed class StaticTokenOptions : AuthenticationSchemeOptions
 {
-    public string? ReaderToken { get; set; }
-    public string? WriterToken { get; set; }
-
     /// <summary>doc 01 §6. Nested, not parallel: a controller token is also an orchestrator and a worker.</summary>
     public string? WorkerToken { get; set; }
 
@@ -57,8 +54,6 @@ public sealed class StaticTokenHandler(
             : Matches(Options.OrchestratorToken, presented)
                 ? [WorkStatePolicies.Worker, WorkStatePolicies.Orchestrator]
             : Matches(Options.WorkerToken, presented) ? [WorkStatePolicies.Worker]
-            : Matches(Options.WriterToken, presented) ? [WorkStatePolicies.Reader, WorkStatePolicies.Writer]
-            : Matches(Options.ReaderToken, presented) ? [WorkStatePolicies.Reader]
             : [];
 
         if (roles.Length == 0)
