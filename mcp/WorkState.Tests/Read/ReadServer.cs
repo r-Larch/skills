@@ -95,6 +95,28 @@ internal sealed class ReadServer : IAsyncDisposable
         return block.Text;
     }
 
+    /// <summary>
+    /// The same contract, but a refusal is an expected outcome rather than a failure: a write tool
+    /// answers <c>isError: true</c> with the remedial text of doc 06 §6, and that text is the thing
+    /// under test.
+    /// </summary>
+    public static async Task<(string Text, bool Refused)> CallEitherAsync(
+        McpClient client,
+        string tool,
+        IReadOnlyDictionary<string, object?>? arguments,
+        CancellationToken cancellationToken)
+    {
+        var result = await client.CallToolAsync(
+            tool,
+            arguments?.ToDictionary(a => a.Key, a => a.Value),
+            cancellationToken: cancellationToken);
+
+        Xunit.Assert.Null(result.StructuredContent);
+        var block = Xunit.Assert.IsType<TextContentBlock>(Xunit.Assert.Single(result.Content));
+
+        return (block.Text, result.IsError is true);
+    }
+
     public async ValueTask DisposeAsync()
     {
         await _app.StopAsync();

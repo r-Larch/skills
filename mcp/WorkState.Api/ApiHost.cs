@@ -5,6 +5,7 @@ using WorkState.Api.Auth;
 using WorkState.Core.Board;
 using WorkState.Core.Data;
 using WorkState.Core.Queries;
+using WorkState.Core.Writing;
 using WorkState.Mcp;
 using WorkState.Mcp.Resources;
 using WorkState.Mcp.Tools;
@@ -120,5 +121,15 @@ public static class ApiHost
         builder.Services.AddSingleton(sp => new BoardReader(
             sp.GetRequiredService<WorkStateQueries>(),
             sp.GetRequiredService<BoardQueries>()));
+
+        // The write side. CallerIdentity reads the bearer token's roles off the request, which is
+        // where the actor and work_verify's run_by come from (doc 01 §6) — never from an argument.
+        builder.Services.AddHttpContextAccessor();
+        builder.Services.AddSingleton(sp => new Housekeeping(sp.GetRequiredService<NpgsqlDataSource>()));
+        builder.Services.AddSingleton(sp => new WorkWriter(
+            sp.GetRequiredService<NpgsqlDataSource>(),
+            sp.GetRequiredService<BoardQueries>(),
+            sp.GetRequiredService<Housekeeping>()));
+        builder.Services.AddSingleton<CallerIdentity>();
     }
 }
