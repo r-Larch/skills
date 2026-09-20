@@ -290,7 +290,22 @@ WHERE  i.status IN ('open','ready')
   AND  NOT EXISTS (                          -- and it has no open children of its own
         SELECT 1 FROM item c WHERE c.parent_id = i.id
           AND c.status NOT IN ('done','cancelled','superseded'))
-ORDER BY i.priority DESC, i.seq;
+ORDER BY i.priority DESC, sort_path(i);   -- NOT i.seq. See the note below.
+```
+
+> **Corrected 2026-09-20, by finding #4 of the corpus import.** `seq` orders *siblings*, so every
+> phase's first task has `seq = 1` and ordering a whole subtree by it is arbitrary between phases.
+> Order by the **document path** — the `seq` of each ancestor, then own `seq` — which the subtree
+> query already builds:
+>
+> ```sql
+> SELECT coalesce(array_agg(a.seq ORDER BY u.ord), '{}'::numeric[]) || i.seq
+> FROM   unnest(i.ancestors) WITH ORDINALITY AS u(id, ord)
+> JOIN   item a ON a.id = u.id
+> ```
+>
+> 53 tests passed over the wrong version because **fixtures are single-phase and this defect only
+> exists across phases.** Real multi-phase data found it in one run.
 ```
 
 **Unclosed dependencies** — edges pointing at work that will never arrive:
@@ -392,7 +407,11 @@ CREATE TABLE verification (
   workspace_id uuid NOT NULL REFERENCES workspace ON DELETE CASCADE,
   item_id     uuid NOT NULL REFERENCES item ON DELETE CASCADE,
   attempt_id  uuid REFERENCES attempt ON DELETE SET NULL,
-  command     text NOT NULL,
+  command     text,              -- NULLABLE. Corrected 2026-09-20 by finding #1 of the import:
+                                 -- the corpus records the RESULT far more often than the command
+                                 -- ("35/35, build 0 errors"). A NOT NULL here would mean the store
+                                 -- cannot hold most of the evidence that actually exists, and a
+                                 -- work_verify demanding one would teach agents to skip recording.
   result_line text NOT NULL,        -- "Passed! 187/187" — NOT an exit code. Required.
   passed      boolean NOT NULL,
   counts      jsonb,                -- {passed:187, failed:0, warnings:21}
@@ -443,7 +462,12 @@ CREATE TABLE assumption (
   ref            text NOT NULL,                            -- 'A6'
   statement      text NOT NULL,
   evidence       evidence_level NOT NULL,
-  reversal       reversal_cost  NOT NULL,
+  evidence_note  text,            -- Added 2026-09-20, finding #3: the corpus writes the PROVENANCE
+                                  -- ("confirmed: the key is in configuration"), and the enum keeps
+                                  -- only the level. The provenance is the part a later reader needs.
+  reversal       reversal_cost,   -- NULLABLE. Finding #2: a RESOLVED assumption has no reversal
+                                  -- cost - the corpus writes an em dash - and forcing a value here
+                                  -- made the importer invent 'medium'.
   revisit_item_id uuid REFERENCES item,      -- "Revisit when: task 1.1"  — a real edge
   revisit_at     timestamptz,                -- or a date
   state          assumption_state NOT NULL DEFAULT 'open',

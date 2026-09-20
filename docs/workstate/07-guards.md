@@ -63,10 +63,17 @@ Refused unless **all** hold. Each maps to a rule the corpus shows being broken:
 | # | Condition | The corpus failure it prevents |
 |---|---|---|
 | 1 | every `item_criterion` is `checked` | 424 unchecked boxes in "finished" runs |
-| 2 | ≥1 `verification` with `passed = true`, `command` matching `verify_cmd`, and **`run_by = 'orchestrator'`** | *"worker self-reports of 'tests pass' are the claim you would most regret trusting"* |
+| 2 | ≥1 `verification` with `passed = true` and **`run_by = 'orchestrator'`**. If **both** the item's `verify_cmd` and the verification's `command` are present they must match; a null `command` does **not** fail the guard | *"worker self-reports of 'tests pass' are the claim you would most regret trusting"* |
 | 3 | no child item is open | a phase closed over unfinished tasks |
 | 4 | no open `finding` with `severity = 'blocker'` targets it | gate blockers dissolved into prose |
 | 5 | for kinds with `requires_commit`: ≥1 `artifact` of kind `commit` | *"every accepted task ends in a commit"* |
+
+> **Why condition 2 loosened, 2026-09-20.** `verification.command` became nullable (doc 02, import
+> finding #1): the corpus records the *result* far more often than the command. The essential
+> protection is **`run_by = 'orchestrator'`** — that a human-directed agent ran it, not the worker
+> who wrote the code. Command-matching was belt-and-braces, and keeping it mandatory would have
+> made the guard unsatisfiable for most real evidence, which teaches agents to reach for `force`.
+> A guard that cannot be satisfied honestly is worse than a weaker one.
 
 Conditions 1–5 are checked **together**, and the refusal lists **all** failures at once — doc 06 §6.
 Three round-trips to discover three problems reads as an adversarial system and trains an agent to
