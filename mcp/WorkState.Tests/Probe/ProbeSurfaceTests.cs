@@ -15,14 +15,9 @@ public sealed class ProbeSurfaceTests(ProbeServerFixture server) : IClassFixture
 {
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
-    [Fact]
-    public async Task ServerInstructions_reach_the_client_with_the_greppable_token()
-    {
-        await using var client = await server.ConnectAsync(ProbeServerFixture.ReaderToken, Ct);
-
-        Assert.NotNull(client.ServerInstructions);
-        Assert.Contains(ProbeTokens.ServerInstructions, client.ServerInstructions);
-    }
+    // The probe's own ServerInstructions assertion is gone: the host now ships doc 05's text
+    // verbatim, and one server has one set of instructions. Its coverage moved to
+    // ReadToolTests.ServerInstructions_reach_the_client_whole_and_inside_their_line_budget.
 
     [Fact]
     public async Task ProbeLink_returns_a_resource_link_to_the_fixed_resource()
