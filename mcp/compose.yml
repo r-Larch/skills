@@ -32,8 +32,9 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: Production
       ASPNETCORE_HTTP_PORTS: 8080
-      WorkState__Auth__ReaderToken: ${WORKSTATE_READER_TOKEN:?set WORKSTATE_READER_TOKEN in .env}
-      WorkState__Auth__WriterToken: ${WORKSTATE_WRITER_TOKEN:?set WORKSTATE_WRITER_TOKEN in .env}
+      WorkState__Auth__WorkerToken: ${WORKSTATE_WORKER_TOKEN:?set WORKSTATE_WORKER_TOKEN in .env}
+      WorkState__Auth__OrchestratorToken: ${WORKSTATE_ORCHESTRATOR_TOKEN:?set WORKSTATE_ORCHESTRATOR_TOKEN in .env}
+      WorkState__Auth__ControllerToken: ${WORKSTATE_CONTROLLER_TOKEN:?set WORKSTATE_CONTROLLER_TOKEN in .env}
       ConnectionStrings__WorkState: >-
         Host=db;Port=5432;Database=${POSTGRES_DB:-workstate};Username=${POSTGRES_USER:-workstate};Password=${POSTGRES_PASSWORD}
     ports:

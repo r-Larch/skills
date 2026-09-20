@@ -11,7 +11,9 @@ second description of it.
 | `Domain/` | the entities, one file per group: `Tree`, `Docs`, `Evidence`, `Threads`, `Enums` |
 | `Data/` | `WorkStateDbContext` + the enum/naming registration every entry point must share, the design-time factory, and `SeqAllocator` |
 | `Migrations/` | four migrations: `InitialTree`, `EvidenceAndJournal`, `Threads`, `Views` |
-| `Queries/` | the hand-written read side — frontier, unclosed dependencies, rollup, subtree, open threads, search |
+| `Queries/` | the hand-written read side — frontier, unclosed dependencies, rollup, subtree, open threads, search, plus the brief's constraints / notes / evidence / attention projections |
+| `Rendering/` | the exact output formats of `docs/workstate/06-rendering.md`. Pure functions: no database, no web host |
+| `Board/` | `BoardReader` — the composition from `Queries/` into the models `Rendering/` takes. What the eight MCP read tools are a thin transport over |
 
 ## Two things that will surprise you
 
@@ -34,6 +36,13 @@ EF cannot express them — so they are **not in the model snapshot**. Consequenc
   `item`, `doc_block`, `event` or `claim`.**
 - The snapshot is therefore *not* a complete description of the database. The complete description is
   `docs/workstate/02-data-model.md` plus the raw SQL in `Migrations/`.
+
+**Dapper matches a record constructor by the reader's field types, so a near-miss is a hard
+failure, not a conversion.** Two traps, both hit once already: a `timestamptz` comes back as a UTC
+`DateTime`, so a record field typed `DateTimeOffset` will not materialise without the
+`TimestampHandler` in `Queries/BoardQueries.cs`; and a native enum column comes back as the CLR
+enum, so a field typed `string` throws the same way. The error names the signature it wanted —
+read it, it is telling you the column types.
 
 Migrations are generated here (`dotnet ef migrations add … --project mcp/WorkState.Core`) and applied
 by the host or by the tests. Never run `dotnet ef database update`.

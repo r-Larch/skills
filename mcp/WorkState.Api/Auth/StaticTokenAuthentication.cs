@@ -13,11 +13,18 @@ public sealed class StaticTokenOptions : AuthenticationSchemeOptions
 {
     public string? ReaderToken { get; set; }
     public string? WriterToken { get; set; }
+
+    /// <summary>doc 01 §6. Nested, not parallel: a controller token is also an orchestrator and a worker.</summary>
+    public string? WorkerToken { get; set; }
+
+    public string? OrchestratorToken { get; set; }
+    public string? ControllerToken { get; set; }
 }
 
 /// <summary>
-/// Bearer token against two configured values. A writer token also satisfies the reader policy;
-/// there is no token that can write but not read.
+/// Bearer token against the configured values. Roles are nested — a writer also satisfies the
+/// reader policy, a controller satisfies every profile — so there is no token that can act at one
+/// tier and not read at a lower one.
 /// </summary>
 public sealed class StaticTokenHandler(
     IOptionsMonitor<StaticTokenOptions> options,
@@ -45,7 +52,12 @@ public sealed class StaticTokenHandler(
         var presented = raw[BearerPrefix.Length..].Trim();
 
         string[] roles =
-            Matches(Options.WriterToken, presented) ? [WorkStatePolicies.Reader, WorkStatePolicies.Writer]
+            Matches(Options.ControllerToken, presented)
+                ? [WorkStatePolicies.Worker, WorkStatePolicies.Orchestrator, WorkStatePolicies.Controller]
+            : Matches(Options.OrchestratorToken, presented)
+                ? [WorkStatePolicies.Worker, WorkStatePolicies.Orchestrator]
+            : Matches(Options.WorkerToken, presented) ? [WorkStatePolicies.Worker]
+            : Matches(Options.WriterToken, presented) ? [WorkStatePolicies.Reader, WorkStatePolicies.Writer]
             : Matches(Options.ReaderToken, presented) ? [WorkStatePolicies.Reader]
             : [];
 
@@ -55,7 +67,7 @@ public sealed class StaticTokenHandler(
         }
 
         var identity = new ClaimsIdentity(SchemeName);
-        identity.AddClaim(new Claim(ClaimTypes.Name, roles.Contains(WorkStatePolicies.Writer) ? "writer" : "reader"));
+        identity.AddClaim(new Claim(ClaimTypes.Name, roles[^1]));
         foreach (var role in roles)
         {
             identity.AddClaim(new Claim(ClaimTypes.Role, role));
