@@ -192,6 +192,32 @@ nothing"* — pointed at ourselves.
 Run it **at least twice, with different seeded states** (one mid-run, one empty server). A single
 transcript is an anecdote; the second run is what catches a channel that only worked by luck.
 
+### The two prompts, pre-registered 2026-09-20
+
+Written **before** the read side shipped and **before** any tool name was final — deliberately, and
+committed now so the timestamp is checkable. The less its author knows about the finished surface,
+the less of that surface can leak into the prompt. Writing these after seeing the tools would be the
+easiest way to contaminate the test without noticing.
+
+**Run A — mid-run state** (a fixture run imported, multi-phase, with open assumptions):
+
+> Use workstate to pick up the next piece of work on the imported run and take it as far as you can.
+
+**Run B — empty server** (nothing seeded at all):
+
+> I want to track a piece of work in workstate. Set it up and tell me where things stand.
+
+Checked against the forbidden list: no tool name, no ordering, no closure conditions, no mention of
+briefs, refs, attention or verification. Neither would tell a server-less agent what to do — which
+is the test that they are clean.
+
+Run B matters as much as Run A. **An empty server is the state every new user meets**, and it is the
+one a designer never looks at, because their own instance always has data in it.
+
+**These prompts are frozen.** If a run fails, the fix goes in a channel — `ServerInstructions`, a
+tool description, a refusal — never in the prompt. A prompt edited to make the test pass is the
+test deleting itself.
+
 ### The three checks
 
 1. **Cold-start transcript**, per the protocol above. **Zero uncorrected wrong calls.**
