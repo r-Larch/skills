@@ -84,8 +84,9 @@ public sealed partial class BoardReader(WorkStateQueries queries, BoardQueries b
             BindingTotal: constraints.Count,
             Assumptions: [.. assumptions.Take(BriefAssumptionCap).Select(ToAssumption)],
             AssumptionTotal: assumptions.Count,
-            Addressed: [.. notes.Take(BriefNoteCap).Select(n => Glyph.Flat(n.Body))],
-            AddressedTotal: notes.Count,
+            Notes: [.. notes.Take(BriefNoteCap).Select(n => Glyph.Flat(n.Body))],
+            NoteTotal: notes.Count,
+            AddressedTotal: notes.Count(n => n.ToRef is { Length: > 0 }),
             AddressedTo: notes.FirstOrDefault(n => n.ToRef is { Length: > 0 })?.ToRef,
             LastVerify: verify is null
                 ? null

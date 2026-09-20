@@ -120,6 +120,18 @@ LAST VERIFY  dotnet test --filter Importer → 181/181, by orchestrator, 6m ago
 **`NEXT` is a literal, callable line.** An agent that only ever does what `NEXT` says is running the
 system correctly — that is the tutorial channel of doc 04 §4, and it is why this line is never prose.
 
+**The note header names what it is holding.** `ADDRESSED TO YOU (n)` counts only notes that name a
+target item — those are the ones a worker brief renders and consumes. Where a run carries unconsumed
+notes that name nobody, the section is instead:
+
+```
+NOTES IN SCOPE (140)   — carried forward by this run; none names an item, so none is consumed
+```
+
+> **Corrected 2026-09-20 (FINDINGS-live F-L3).** The real run rendered `ADDRESSED TO YOU (140)` over
+> 140 notes, not one of which named a target: an honest count under a dishonest label, and the label
+> is the part an agent reads.
+
 **On an empty server** `work_brief` returns onboarding instead: what a project is, what makes a good
 `verify_cmd`, and the one call to make next. Cold start uses the same mechanism as every other path.
 

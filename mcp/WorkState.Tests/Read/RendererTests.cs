@@ -133,12 +133,40 @@ public sealed class RendererTests
         {
             BindingTotal = 40,
             AssumptionTotal = 30,
+            NoteTotal = 25,
             AddressedTotal = 25,
         });
 
         Assert.True(text.Split('\n').Length <= 35, $"the brief is {text.Split('\n').Length} lines");
         Assert.Contains("+39 more — read work://workspace/conventions", text, StringComparison.Ordinal);
         Assert.Contains("+29 more — work_threads(", text, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// FINDINGS-live F-L3, the half the count was hiding: the real run rendered
+    /// <c>ADDRESSED TO YOU (140)</c> over 140 notes, not one of which named a target.
+    /// </summary>
+    [Fact]
+    public void The_note_header_says_addressed_only_when_a_note_names_an_item()
+    {
+        var addressed = BriefRenderer.Render(Sample([]) with { NoteTotal = 5, AddressedTotal = 2 });
+
+        Assert.Contains("ADDRESSED TO YOU (2)   — these render into 2.8's brief", addressed, StringComparison.Ordinal);
+        Assert.Contains("+4 more unconsumed in scope — work_threads(", addressed, StringComparison.Ordinal);
+
+        var broadcast = BriefRenderer.Render(Sample([]) with
+        {
+            NoteTotal = 140,
+            AddressedTotal = 0,
+            AddressedTo = null,
+        });
+
+        Assert.DoesNotContain("ADDRESSED TO YOU", broadcast, StringComparison.Ordinal);
+        Assert.Contains("NOTES IN SCOPE (140)", broadcast, StringComparison.Ordinal);
+        Assert.Contains("none names an item", broadcast, StringComparison.Ordinal);
+
+        var header = broadcast.Split('\n').Single(l => l.StartsWith("NOTES IN SCOPE", StringComparison.Ordinal));
+        Assert.True(header.Length <= Columns.Width, $"the header is {header.Length} columns");
     }
 
     [Fact]
@@ -177,7 +205,8 @@ public sealed class RendererTests
             BindingTotal: 1,
             Assumptions: [new AssumptionLine("A3", "DSS jsonexport reachable", "probed", "medium", "3.1")],
             AssumptionTotal: 1,
-            Addressed: ["facets must be replaced per entity per run"],
+            Notes: ["facets must be replaced per entity per run"],
+            NoteTotal: 1,
             AddressedTotal: 1,
             AddressedTo: "2.8",
             LastVerify: new VerifyLine("dotnet test --filter Importer", "181/181", "orchestrator", TimeSpan.FromMinutes(6), true),
