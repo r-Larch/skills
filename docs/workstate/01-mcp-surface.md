@@ -444,8 +444,8 @@ with no fighting the framework.
 | Symbol | Use here |
 |---|---|
 | `WithRequestFilters` / `WithMessageFilters` | The **attention block**, actor resolution from the token, and OpenTelemetry spans — all as filters, so no tool body repeats them. |
-| `WithListToolsHandler` | Per-authorization `tools/list` narrowing (§6). |
-| `WithCompleteHandler` | `completions/complete` for `{ref}` / `{project}` autocompletion. |
+| ~~`WithListToolsHandler`~~ | **Exists, NOT used.** `[Authorize]` narrows `tools/list` unaided (measured, §6). |
+| ~~`WithCompleteHandler`~~ | **Exists, NOT used.** The client offers no completion mechanism at all (measured, §8). |
 | `WithSubscriptionsListenHandler` | SEP-2575 subscription stream, if we later push `resources/updated` to a watching controller. |
 | `WithSetLoggingLevelHandler` | `[Obsolete]` — confirms the Logging deprecation. Do not wire it. |
 | `AddMcp()` on `AuthenticationBuilder` | OAuth protected-resource-metadata handler. **Not needed** for a static bearer token; keep in reserve if this is ever exposed beyond localhost. |

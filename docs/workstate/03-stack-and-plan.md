@@ -192,7 +192,7 @@ is a **separate undertaking**, gated on Phase 4 being real:
 | `ancestors uuid[]` + GIN, not `ltree`, not a closure table | **Low.** Both alternatives are a rewrite of one trigger and one index. |
 | Fractional `numeric` `seq` | **Low.** Rebalance job; or switch to LexoRank strings. |
 | Blocks with stable ids instead of markdown blobs | **Medium.** It is the whole patch story; changing it changes `work_patch` and every renderer. Committed deliberately — see doc 00 §4. |
-| Compact text in `content`, JSON in `structuredContent`, **not duplicated** | **Trivial.** One renderer flag if a client turns out to need the back-compat duplicate. |
+| ~~Compact text in `content`, JSON in `structuredContent`~~ → **text only** | **Superseded by measurement, 2026-09-18.** `structuredContent` *replaces* the text block, so the original decision would have made the compact rendering invisible — doc 01 §2. Reversal cost of the *new* decision: **trivial**, a `format: "json"` argument if a programmatic MCP consumer ever appears. |
 | Confirmation via server-minted handle, not MRTR elicitation | **Trivial.** Add MRTR alongside when client support is uniform. |
 | Scoped tokens drive `tools/list` | **Settled: it works.** `[Authorize]` alone narrows the list; reader saw 2 tools, writer 3. No caching issue — lists are per-registration. |
 | Specs stay in git; the store owns state | **Low**, and it is the corpus's own rule. |
