@@ -192,6 +192,19 @@ nothing"* — pointed at ourselves.
 Run it **at least twice, with different seeded states** (one mid-run, one empty server). A single
 transcript is an anecdote; the second run is what catches a channel that only worked by luck.
 
+### When it runs — before the polish, not after
+
+**The acceptance runs the moment the write side lands, and its findings become the work list for
+the unit that fixes the channels.** The original plan had it the other way round: polish the four
+channels, then test them. That is backwards, and worth naming because it is a natural mistake.
+
+Testing *after* the polish measures whether the polish happened to be right. Testing *before* it
+tells the polish where to aim — and it produces the one thing no audit can, which is a record of
+where a real agent actually got lost. An audit checks whether the text matches the doctrine; the
+transcript checks whether the text **works**.
+
+The audit still happens. It simply starts from evidence instead of from a checklist.
+
 ### The two prompts, pre-registered 2026-09-20
 
 Written **before** the read side shipped and **before** any tool name was final — deliberately, and
