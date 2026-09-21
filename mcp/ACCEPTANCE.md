@@ -164,6 +164,40 @@ That is not the whole truth, and the transcript is worth more than the score:
 **So: the four channels work. Three server surfaces lie.** Both of those are true at once, and only
 a transcript could have shown it — every one of these defects passes its own unit tests.
 
+### Run A, re-run after the fixes  ·  `accept-a3` (`6f187583`), 2026-09-21, HEAD `3ab9a61`
+
+**Same frozen prompt. Same neutral tree. All four defects gone from the agent's own experience.**
+
+| # | Call | Then (`aa4feed`) | Now (`3ab9a61`) |
+|---|---|---|---|
+| 4 | `work_brief` | unprompted first call | **unprompted first call** — third run in a row |
+| 6 | `work_get(["3.1", …])` | refusal named **one wrong run** | **lists all three candidates**: `entity-store/3.1`, `document-store/3.1`, `voice-rtp-pacing/3.1` — **A-1 fixed** |
+| 7 | `work_get(["entity-store/3.1", …])` | — | took the right candidate straight from the refusal |
+| 9 | `work://item/3.1/brief` | *"this server holds no work yet"* | **REFUSED, ambiguous, candidates listed** — **A-2 fixed** |
+| 10 | `work_brief("entity-store/3.1")` | `RUN 3.1 · project phase-3` | **`TASK 3.1 · run entity-store · project Gaia`** — **A-3 fixed** |
+| 11 | `work://item/entity-store/3.1` | 404 on a composed URI | **resolves** — **A-4 fixed** |
+| 12 | `work_brief("3.R1-mapper-seed-reconstruct")` | — | resolves unqualified, because that ref is unique |
+| 13 | `Get-ChildItem …` | — | boundary: went looking for the repo. §4b: success. |
+
+**Score: 8 WorkState calls · 7 correct · 1 self-corrected · 0 uncorrected wrong.**
+
+Two details worth keeping:
+
+- **At call 6 the agent asked for two refs at once**, one ambiguous and one not. The server refused
+  the ambiguous one **and returned the other in the same result.** Partial success rather than
+  all-or-nothing — nobody specified that, and it is the right shape.
+- **The self-correction is now cheap and correct.** In the first run the agent had to overrule a
+  wrong suggestion using its own judgement. Now the refusal hands it the right answer and it simply
+  takes it. That is the difference between a channel that survives a careful reader and one that
+  works for any reader.
+
+### Verdict — the goal is met, on evidence
+
+Three cold-start runs, two prompts, one steered continuation. **`work_brief` was the unprompted
+first call in every run.** Zero uncorrected wrong calls in every run. Check 2 passed with an agent
+choosing the remedy over an override it could see. And the four surfaces that lied have been shown
+to stop lying **in a transcript, not in a test name.**
+
 ### Run B — empty server  ·  `accept-b` (`bcb3480f`), 2026-09-21
 
 | | |
