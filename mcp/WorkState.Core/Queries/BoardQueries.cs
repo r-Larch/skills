@@ -208,6 +208,8 @@ public sealed class BoardQueries(NpgsqlDataSource dataSource)
         const string sql =
             """
             SELECT a.ref            AS "Ref",
+                   CASE WHEN s.ref IS NULL THEN a.ref ELSE s.ref || '/' || a.ref END
+                                    AS "QualifiedRef",
                    a.statement      AS "Statement",
                    a.evidence       AS "Evidence",
                    a.evidence_note  AS "EvidenceNote",
@@ -217,6 +219,7 @@ public sealed class BoardQueries(NpgsqlDataSource dataSource)
                    r.status         AS "RevisitStatus",
                    r.closed_at      AS "RevisitClosedAt"
             FROM   assumption a
+            LEFT   JOIN item s ON s.id = a.ref_scope_id
             LEFT   JOIN item r ON r.id = a.revisit_item_id
             WHERE  a.workspace_id = @workspace
               AND  (NOT @openOnly OR a.state = 'open')
@@ -250,10 +253,13 @@ public sealed class BoardQueries(NpgsqlDataSource dataSource)
             SELECT n.kind  AS "Kind",
                    n.body  AS "Body",
                    t.ref   AS "ToRef",
+                   CASE WHEN ts.ref IS NULL THEN t.ref ELSE ts.ref || '/' || t.ref END
+                          AS "ToQualifiedRef",
                    f.ref   AS "FromRef"
             FROM   note n
-            LEFT   JOIN item t ON t.id = n.to_item_id
-            LEFT   JOIN item f ON f.id = n.from_item_id
+            LEFT   JOIN item t  ON t.id  = n.to_item_id
+            LEFT   JOIN item ts ON ts.id = t.ref_scope_id AND ts.id <> t.id
+            LEFT   JOIN item f  ON f.id  = n.from_item_id
             WHERE  n.workspace_id = @workspace
               AND  n.consumed_at IS NULL
               AND  (@scope IS NULL
@@ -373,9 +379,12 @@ public sealed class BoardQueries(NpgsqlDataSource dataSource)
         const string sql =
             $"""
              SELECT i.ref   AS "FindingRef",
+                    CASE WHEN s.ref IS NULL THEN i.ref ELSE s.ref || '/' || i.ref END
+                           AS "QualifiedRef",
                     i.title AS "FindingTitle",
                     t.ref   AS "TargetRef"
              FROM   item i
+             LEFT   JOIN item s ON s.id = i.ref_scope_id AND s.id <> i.id
              LEFT   JOIN item t ON t.id = i.parent_id
              WHERE  i.kind = 'finding'
                AND  i.severity = 'blocker'
@@ -420,14 +429,17 @@ public sealed class BoardQueries(NpgsqlDataSource dataSource)
     {
         const string sql =
             $"""
-             SELECT "ItemRef", "AgentName", "ExpiresAt" FROM (
+             SELECT "ItemRef", "QualifiedRef", "AgentName", "ExpiresAt" FROM (
                SELECT DISTINCT ON (c.item_id)
                       i.ref        AS "ItemRef",
+                      CASE WHEN s.ref IS NULL THEN i.ref ELSE s.ref || '/' || i.ref END
+                                   AS "QualifiedRef",
                       c.agent_name AS "AgentName",
                       c.expires_at AS "ExpiresAt",
                       c.item_id
                FROM   claim c
                JOIN   item i ON i.id = c.item_id
+               LEFT   JOIN item s ON s.id = i.ref_scope_id AND s.id <> i.id
                WHERE  c.expires_at < now()
                  AND  (c.released_at IS NULL OR c.release_reason = 'expired')
                  AND  i.status NOT IN ('done','cancelled','superseded')
@@ -489,8 +501,11 @@ public sealed class BoardQueries(NpgsqlDataSource dataSource)
         const string sql =
             $"""
              SELECT i.ref        AS "Ref",
+                    CASE WHEN s.ref IS NULL THEN i.ref ELSE s.ref || '/' || i.ref END
+                                 AS "QualifiedRef",
                     i.started_at AS "StartedAt"
              FROM   item i
+             LEFT   JOIN item s ON s.id = i.ref_scope_id AND s.id <> i.id
              WHERE  i.status = 'in_progress'
                AND  i.started_at IS NOT NULL
                AND  i.started_at < now() - make_interval(hours => @hours)
@@ -516,13 +531,16 @@ public sealed class BoardQueries(NpgsqlDataSource dataSource)
         const string sql =
             $"""
              SELECT p.ref                 AS "PhaseRef",
+                    CASE WHEN s.ref IS NULL THEN p.ref ELSE s.ref || '/' || p.ref END
+                                          AS "QualifiedRef",
                     count(*)::int         AS "TaskCount"
              FROM   item p
              JOIN   item c ON c.ancestors @> ARRAY[p.id]::uuid[] AND c.kind IN ('task','subtask')
+             LEFT   JOIN item s ON s.id = p.ref_scope_id AND s.id <> p.id
              WHERE  p.kind = 'phase'
                AND  p.status NOT IN ('done','cancelled','superseded')
                AND  (p.id = @scope OR p.ancestors @> ARRAY[@scope]::uuid[])
-             GROUP  BY p.id, p.ref, p.seq
+             GROUP  BY p.id, p.ref, p.seq, s.ref
              HAVING count(*) FILTER (
                       WHERE c.status NOT IN ('done','cancelled','superseded')) = 0
              ORDER  BY p.seq;
@@ -535,15 +553,18 @@ public sealed class BoardQueries(NpgsqlDataSource dataSource)
     /// Closed without the orchestrator verification doc 07 §3 condition 2 demands. U4 makes this
     /// unwritable; until then it is the highest-value thing an audit can say about finished work.
     /// </summary>
-    public async Task<IReadOnlyList<string>> DoneUnverifiedAsync(
+    public async Task<IReadOnlyList<UnverifiedRow>> DoneUnverifiedAsync(
         Guid scopeItemId,
         CancellationToken cancellationToken = default)
     {
         const string sql =
             $"""
-             SELECT i.ref
+             SELECT i.ref AS "Ref",
+                    CASE WHEN s.ref IS NULL THEN i.ref ELSE s.ref || '/' || i.ref END
+                         AS "QualifiedRef"
              FROM   item i
              JOIN   item_kind k ON k.key = i.kind
+             LEFT   JOIN item s ON s.id = i.ref_scope_id AND s.id <> i.id
              WHERE  i.status = 'done'
                AND  k.requires_verify
                AND  {InScope}
@@ -552,7 +573,7 @@ public sealed class BoardQueries(NpgsqlDataSource dataSource)
              ORDER  BY i.closed_at DESC NULLS LAST, i.ref;
              """;
 
-        return await ListAsync<string>(sql, new { scope = scopeItemId }, cancellationToken);
+        return await ListAsync<UnverifiedRow>(sql, new { scope = scopeItemId }, cancellationToken);
     }
 
     /// <summary>

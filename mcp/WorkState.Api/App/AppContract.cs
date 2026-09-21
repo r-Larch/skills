@@ -21,9 +21,22 @@ public sealed record LeaseView(
     string Title,
     DateTimeOffset ExpiresAt);
 
-/// <summary>doc 09 §5's NEEDS YOU row. <see cref="Call"/> is the MCP call that resolves it and is
-/// never empty — the dashboard shows the operator the same route the agent is given.</summary>
-public sealed record AttentionView(string Rank, string? Ref, string What, string Call);
+/// <summary>
+/// doc 09 §5's NEEDS YOU row. <see cref="Call"/> is the MCP call that resolves it and is never empty
+/// — the dashboard shows the operator the same route the agent is given.
+/// <para>
+/// <see cref="QualifiedRef"/> is what the row links on, exactly as <see cref="LeaseView"/> does.
+/// <see cref="Ref"/> alone cannot identify an item here: this endpoint spans every run under a
+/// project, and the real corpus has one <c>phase-4</c> in each of four runs. It is null only on the
+/// unconsumed-note row, whose subject is an addressee rather than one item.
+/// </para>
+/// </summary>
+public sealed record AttentionView(
+    string Rank,
+    string? Ref,
+    string? QualifiedRef,
+    string What,
+    string Call);
 
 /// <summary>
 /// The honesty strip of doc 09 §5 — one line, three counts, and the reason the product exists.

@@ -337,13 +337,13 @@ public sealed partial class BoardReader
         rows.AddRange(await board.UncoveredRiskAsync(scope.Item.Id, cancellationToken));
         rows.AddRange(await board.RouteLessConstraintsAsync(scope.WorkspaceId, scope.Item.Id, cancellationToken));
 
-        foreach (var reference in await board.DoneUnverifiedAsync(scope.Item.Id, cancellationToken))
+        foreach (var unverified in await board.DoneUnverifiedAsync(scope.Item.Id, cancellationToken))
         {
             rows.Add(new AuditRow(
                 "done-unverified",
-                reference,
+                unverified.Ref,
                 "closed with no passing orchestrator verification",
-                $"work_verify(ref:\"{reference}\", result_line:\"…\", run_by:\"orchestrator\")"));
+                $"work_verify(ref:\"{unverified.Ref}\", result_line:\"…\", run_by:\"orchestrator\")"));
         }
 
         foreach (var dep in await queries.UnclosedDependenciesAsync(scope.Item.Id, cancellationToken))

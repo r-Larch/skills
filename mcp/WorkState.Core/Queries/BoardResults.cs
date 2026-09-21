@@ -33,6 +33,7 @@ public sealed record ConstraintRow(ConstraintKind Kind, string Text, string? Rou
 
 public sealed record AssumptionRow(
     string Ref,
+    string? QualifiedRef,
     string Statement,
     EvidenceLevel Evidence,
     string? EvidenceNote,
@@ -42,7 +43,12 @@ public sealed record AssumptionRow(
     ItemStatus? RevisitStatus,
     DateTimeOffset? RevisitClosedAt);
 
-public sealed record NoteRow(NoteKind Kind, string Body, string? ToRef, string? FromRef);
+public sealed record NoteRow(
+    NoteKind Kind,
+    string Body,
+    string? ToRef,
+    string? ToQualifiedRef,
+    string? FromRef);
 
 public sealed record VerificationRow(
     string ItemRef,
@@ -67,11 +73,19 @@ public sealed record ItemFacts(
     string? ParentRef,
     DateTimeOffset? StartedAt);
 
-public sealed record BlockerRow(string FindingRef, string FindingTitle, string? TargetRef);
+public sealed record BlockerRow(
+    string FindingRef,
+    string QualifiedRef,
+    string FindingTitle,
+    string? TargetRef);
 
 public sealed record BlockedRow(string Ref, string BlockedByRef);
 
-public sealed record ClaimRow(string ItemRef, string AgentName, DateTimeOffset ExpiresAt);
+public sealed record ClaimRow(
+    string ItemRef,
+    string QualifiedRef,
+    string AgentName,
+    DateTimeOffset ExpiresAt);
 
 /// <summary>
 /// A lease the watch floor shows (doc 09 §5): the claim itself, plus the title and qualified ref a
@@ -86,13 +100,20 @@ public sealed record LiveClaimRow(
     string AgentName,
     DateTimeOffset ExpiresAt);
 
-public sealed record StaleRow(string Ref, DateTimeOffset StartedAt);
+public sealed record StaleRow(string Ref, string QualifiedRef, DateTimeOffset StartedAt);
 
 /// <summary>One entry of the dashboard's project switcher (doc 09 §5), with the runs under it.</summary>
 public sealed record ProjectRow(Guid Id, string Ref, string Title, ItemStatus Status, int RunCount);
 
 /// <summary>A phase with nothing left to do and no gate recorded against it (doc 07 §2).</summary>
-public sealed record GateRow(string PhaseRef, int TaskCount);
+public sealed record GateRow(string PhaseRef, string QualifiedRef, int TaskCount);
+
+/// <summary>
+/// One item closed without the orchestrator verification doc 07 §3 demands. A bare ref would do for
+/// the rendered line, which is always read inside one run — but not for doc 09 §5's queue, which
+/// spans every run under a project and where <c>phase-4</c> names four different phases.
+/// </summary>
+public sealed record UnverifiedRow(string Ref, string QualifiedRef);
 
 public sealed record EventRow(
     long Seq,

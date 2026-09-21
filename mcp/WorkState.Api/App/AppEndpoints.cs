@@ -137,7 +137,7 @@ public static class AppEndpoints
                 .Select(c => new LeaseView(c.AgentName, c.ItemRef, c.QualifiedRef, c.Title, c.ExpiresAt)));
 
             needsYou.AddRange((await reader.AttentionAsync(scope, cancellationToken))
-                .Select(a => new AttentionView(Rank(a.Rank), a.Ref, a.What, a.Call)));
+                .Select(a => new AttentionView(Rank(a.Rank), a.Ref, a.QualifiedRef, a.What, a.Call)));
 
             doneUnverified += (await board.DoneUnverifiedAsync(id, cancellationToken)).Count;
             forced += (await board.ForcedTransitionsAsync(id, cancellationToken)).Count;

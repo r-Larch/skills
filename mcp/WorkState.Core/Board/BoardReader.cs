@@ -178,7 +178,8 @@ public sealed partial class BoardReader(WorkStateQueries queries, BoardQueries b
                 AttentionRank.ExpiredClaim,
                 $"{claim.ItemRef} claim by {claim.AgentName} expired {Glyph.Age(Since(claim.ExpiresAt))} ago",
                 $"work_status(ref:\"{claim.ItemRef}\", to:\"in_progress\") to retake it",
-                claim.ItemRef));
+                claim.ItemRef,
+                claim.QualifiedRef));
         }
 
         foreach (var blocker in await board.BlockerFindingsAsync(item.Id, cancellationToken))
@@ -188,7 +189,8 @@ public sealed partial class BoardReader(WorkStateQueries queries, BoardQueries b
                 AttentionRank.BlockerFinding,
                 $"{blocker.FindingRef} (BLOCKER) is open{target}: {Glyph.Clip(blocker.FindingTitle, 40)}",
                 $"work_status(ref:\"{blocker.FindingRef}\", to:\"done\")",
-                blocker.FindingRef));
+                blocker.FindingRef,
+                blocker.QualifiedRef));
         }
 
         // doc 07 §2: nothing promoted this phase and nothing will. The obligation is named, with the
@@ -199,16 +201,18 @@ public sealed partial class BoardReader(WorkStateQueries queries, BoardQueries b
                 AttentionRank.PhaseGateNotRun,
                 $"{gate.PhaseRef}: all {gate.TaskCount} tasks done, gate not run",
                 $"work_brief(scope:\"{gate.PhaseRef}\") to run it",
-                gate.PhaseRef));
+                gate.PhaseRef,
+                gate.QualifiedRef));
         }
 
-        foreach (var reference in await board.DoneUnverifiedAsync(item.Id, cancellationToken))
+        foreach (var unverified in await board.DoneUnverifiedAsync(item.Id, cancellationToken))
         {
             lines.Add(new AttentionLine(
                 AttentionRank.DoneUnverified,
-                $"{reference} is done with no orchestrator verification",
-                $"work_verify(ref:\"{reference}\", result_line:\"…\", run_by:\"orchestrator\")",
-                reference));
+                $"{unverified.Ref} is done with no orchestrator verification",
+                $"work_verify(ref:\"{unverified.Ref}\", result_line:\"…\", run_by:\"orchestrator\")",
+                unverified.Ref,
+                unverified.QualifiedRef));
         }
 
         var assumptions = await board.AssumptionsAsync(scope.WorkspaceId, item.Id, true, cancellationToken);
@@ -218,17 +222,23 @@ public sealed partial class BoardReader(WorkStateQueries queries, BoardQueries b
                 AttentionRank.AssumptionPastRevisit,
                 $"{assumption.Ref} is past revisit_when ({assumption.RevisitRef} is closed)",
                 $"work_assume(ref:\"{assumption.Ref}\", resolve:\"confirmed\", evidence:\"…\")",
-                assumption.Ref));
+                assumption.Ref,
+                assumption.QualifiedRef));
         }
 
         var notes = await board.UnconsumedNotesAsync(scope.WorkspaceId, item.Id, cancellationToken);
         foreach (var addressed in notes.Where(n => n.ToRef is { Length: > 0 }).GroupBy(n => n.ToRef!))
         {
+            // The line is about the addressee, and the addressee is a bare ref: grouping on the
+            // qualified one instead would split this line in two, which doc 06 §5 fixes as text.
+            var qualified = addressed.Select(n => n.ToQualifiedRef).Distinct().ToList();
+
             lines.Add(new AttentionLine(
                 AttentionRank.UnconsumedNote,
                 $"{addressed.Count()} note(s) addressed to {addressed.Key} unconsumed",
                 $"work_brief(scope:\"{addressed.Key}\", for:\"worker\")",
-                addressed.Key));
+                addressed.Key,
+                qualified.Count == 1 ? qualified[0] : null));
         }
 
         foreach (var stale in await board.StaleInProgressAsync(item.Id, StaleHours, cancellationToken))
@@ -237,7 +247,8 @@ public sealed partial class BoardReader(WorkStateQueries queries, BoardQueries b
                 AttentionRank.StaleInProgress,
                 $"{stale.Ref} has been in_progress {Glyph.Age(Since(stale.StartedAt))} with no live claim",
                 $"work_status(ref:\"{stale.Ref}\", to:\"in_progress\") to retake it",
-                stale.Ref));
+                stale.Ref,
+                stale.QualifiedRef));
         }
 
         return lines;
