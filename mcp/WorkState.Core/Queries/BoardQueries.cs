@@ -49,7 +49,8 @@ public sealed class BoardQueries(NpgsqlDataSource dataSource)
              LEFT JOIN item_rollup r ON r.id = i.id
              WHERE  i.workspace_id = @workspace AND i.kind IN ('run','project')
              ORDER BY (i.kind = 'run') DESC,
-                      (coalesce(r.open_count,0) + coalesce(r.doing_count,0)) DESC,
+                      (coalesce(r.open_count,0) + coalesce(r.doing_count,0)
+                       + coalesce(r.review_count,0)) DESC,
                       k.rank, i.seq
              LIMIT 1;
              """;
@@ -337,7 +338,8 @@ public sealed class BoardQueries(NpgsqlDataSource dataSource)
                    coalesce(v.orch, 0)::int     AS "OrchestratorVerifications",
                    a.value                      AS "Commit",
                    coalesce(r.open_count, 0) + coalesce(r.doing_count, 0)
-                     + coalesce(r.blocked_count, 0)                        AS "OpenChildren",
+                     + coalesce(r.blocked_count, 0)
+                     + coalesce(r.review_count, 0)                         AS "OpenChildren",
                    i.review_required            AS "ReviewRequired",
                    k.requires_verify            AS "RequiresVerify",
                    i.severity                   AS "Severity",
