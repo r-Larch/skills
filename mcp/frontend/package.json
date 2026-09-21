@@ -9,7 +9,8 @@
     "ts": "tsc --project tsconfig.json --noEmit",
     "verify": "node verify/brief-identity.mjs",
     "verify:board": "node verify/board-numbers.mjs",
-    "verify:journal": "node verify/journal-divider.mjs"
+    "verify:journal": "node verify/journal-divider.mjs",
+    "verify:empty": "node verify/empty-states.mjs"
   },
   "dependencies": {
     "@solidjs/router": "^1.0.0",

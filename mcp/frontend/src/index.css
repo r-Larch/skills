@@ -320,6 +320,12 @@ input:focus-visible {
   font-family: var(--font-sans);
   font-size: 13px;
   color: var(--color-text-3);
+  margin: 0;
+}
+
+/* No answer yet. `—` is this product's own mark for "no value here" (doc 06 §3), and it is static. */
+.empty.unknown {
+  font-family: var(--font-mono);
 }
 
 .note {

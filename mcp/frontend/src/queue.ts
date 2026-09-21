@@ -1,4 +1,5 @@
 import type { Attention } from './api'
+import { UNKNOWN } from './fill.ts'
 
 /** How many rows of a rank the operator sees before asking for the rest. */
 export const PREVIEW = 5
@@ -53,7 +54,14 @@ export function group(rows: Attention[]): Group[] {
   })
 }
 
-export type HonestyCell = { n: number; tone: string; label: string; note: string }
+export type HonestyCell = { n: string; tone: string; label: string; note: string }
+
+type Honesty = {
+  doneUnverified: number
+  forced: number
+  ungated: number
+  followupsOpen: number
+}
 
 /**
  * doc 09 §5. Four cells, and the fourth is deliberately unlike the other three: an open follow-up is
@@ -61,37 +69,48 @@ export type HonestyCell = { n: number; tone: string; label: string; note: string
  * decision gets no colour, which is doc 06 rule 4 applied to the one strip that exists to break it.
  * (This is where the prototype is diverged from: it paints `0 forced` green, and green is reserved
  * for evidence somebody other than the author ran.)
+ *
+ * `undefined` renders `—`, never `0`. This is the strip the product is named for, and four zeroes on
+ * a first paint say "nothing is being closed dishonestly" — the one sentence it exists to refuse to
+ * say without evidence. Unknown is not clean.
  */
-export function honestyCells(h: {
-  doneUnverified: number
-  forced: number
-  ungated: number
-  followupsOpen: number
-}): HonestyCell[] {
+export function honestyCells(h: Honesty | undefined): HonestyCell[] {
+  const cell = (
+    n: number | undefined,
+    hue: string,
+    label: string,
+    note: string,
+  ): HonestyCell => ({
+    n: n === undefined ? UNKNOWN : String(n),
+    tone: n !== undefined && n > 0 ? hue : '',
+    label,
+    note,
+  })
+
   return [
-    {
-      n: h.doneUnverified,
-      tone: h.doneUnverified > 0 ? 'refused' : '',
-      label: 'closed with no independent verification',
-      note: 'Someone marked it done. Nobody but the author checked.',
-    },
-    {
-      n: h.forced,
-      tone: h.forced > 0 ? 'refused' : '',
-      label: 'forced closures',
-      note: 'Overrides are permitted and permanently recorded.',
-    },
-    {
-      n: h.ungated,
-      tone: h.ungated > 0 ? 'attention' : '',
-      label: 'phases finished but never gated',
-      note: 'Every task closed; the composition review never ran.',
-    },
-    {
-      n: h.followupsOpen,
-      tone: '',
-      label: 'follow-ups still open',
-      note: 'Deferred work that went somewhere real instead of vanishing.',
-    },
+    cell(
+      h?.doneUnverified,
+      'refused',
+      'closed with no independent verification',
+      'Someone marked it done. Nobody but the author checked.',
+    ),
+    cell(
+      h?.forced,
+      'refused',
+      'forced closures',
+      'Overrides are permitted and permanently recorded.',
+    ),
+    cell(
+      h?.ungated,
+      'attention',
+      'phases finished but never gated',
+      'Every task closed; the composition review never ran.',
+    ),
+    cell(
+      h?.followupsOpen,
+      '',
+      'follow-ups still open',
+      'Deferred work that went somewhere real instead of vanishing.',
+    ),
   ]
 }
