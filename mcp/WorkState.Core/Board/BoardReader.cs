@@ -293,7 +293,7 @@ public sealed partial class BoardReader(WorkStateQueries queries, BoardQueries b
                 : $"{done} of {tasks.Count} tasks done.";
         }
 
-        var current = phases.FirstOrDefault(p => p.DoingCount > 0)
+        var current = phases.FirstOrDefault(p => p.DoingCount > 0 || p.ReviewCount > 0)
                       ?? phases.FirstOrDefault(p => p.OpenCount > 0 || p.BlockedCount > 0)
                       ?? phases[^1];
         var index = phases.IndexOf(current) + 1;

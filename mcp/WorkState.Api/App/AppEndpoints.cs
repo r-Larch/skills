@@ -179,7 +179,8 @@ public static class AppEndpoints
 
         var nodes = subtree.Select(n =>
         {
-            var total = (int)(n.OpenCount + n.DoingCount + n.BlockedCount + n.DoneCount);
+            var total = (int)(n.OpenCount + n.DoingCount + n.BlockedCount
+                              + n.ReviewCount + n.DoneCount);
             var done = (int)n.DoneCount;
 
             return new TreeNodeView(
@@ -189,6 +190,7 @@ public static class AppEndpoints
                 Status(n.Status),
                 n.Depth - root.Depth,
                 done,
+                (int)n.ReviewCount,
                 total,
                 Disagrees(n.Status, done, total));
         }).ToList();

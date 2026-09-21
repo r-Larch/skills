@@ -90,7 +90,8 @@ public sealed partial class BoardReader
         foreach (var node in nodes)
         {
             facts.TryGetValue(node.Ref, out var fact);
-            var total = node.OpenCount + node.DoingCount + node.BlockedCount + node.DoneCount;
+            var total = node.OpenCount + node.DoingCount + node.BlockedCount
+                      + node.ReviewCount + node.DoneCount;
             var rollup = includeCounts && total > 0 ? $"{node.DoneCount}/{total} done" : null;
 
             lines.Add(BoardRenderer.TreeRow(new TreeItem(

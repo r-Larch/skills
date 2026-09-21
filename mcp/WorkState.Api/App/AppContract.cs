@@ -48,6 +48,10 @@ public sealed record WatchView(
 /// <see cref="Disagrees"/> is the pair read together: a container the store calls closed while its
 /// children are not. doc 09 §5 — <c>phase-4</c> is <c>done</c> with 10 of 23 and <c>phase-6</c>
 /// with 0 of 9. Sending the status alone would launder the one thing this product exists to show.
+/// <para>
+/// <see cref="ReviewCount"/> is already inside <see cref="TotalCount"/> — it is broken out so the
+/// client can say "3 in review" rather than lumping work in flight in with work not started.
+/// </para>
 /// </summary>
 public sealed record TreeNodeView(
     string Ref,
@@ -56,6 +60,7 @@ public sealed record TreeNodeView(
     string Status,
     int Depth,
     int DoneCount,
+    int ReviewCount,
     int TotalCount,
     bool Disagrees);
 

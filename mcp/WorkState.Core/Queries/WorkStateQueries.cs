@@ -100,6 +100,7 @@ public sealed class WorkStateQueries(NpgsqlDataSource dataSource)
                    open_count    AS "OpenCount",
                    doing_count   AS "DoingCount",
                    blocked_count AS "BlockedCount",
+                   review_count  AS "ReviewCount",
                    done_count    AS "DoneCount"
             FROM   item_rollup WHERE id = @item;
             """;
@@ -130,6 +131,7 @@ public sealed class WorkStateQueries(NpgsqlDataSource dataSource)
                     r.open_count      AS "OpenCount",
                     r.doing_count     AS "DoingCount",
                     r.blocked_count   AS "BlockedCount",
+                    r.review_count    AS "ReviewCount",
                     r.done_count      AS "DoneCount"
              FROM   item i
              JOIN   item_rollup r ON r.id = i.id

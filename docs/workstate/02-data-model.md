@@ -652,12 +652,15 @@ the `actor` on every event — so attribution is not self-declared. Compare with
 ## 13. Views the server leans on
 
 ```sql
--- per-item rollup, used by work_tree and the board
+-- per-item rollup, used by work_tree and the board. The four unclosed buckets plus done_count
+-- sum to the denominator of every "X of Y": 'review' is work in flight and counts, while
+-- 'cancelled' and 'superseded' are in no bucket — they are closed and were not done.
 CREATE VIEW item_rollup AS
 SELECT p.id,
        count(*) FILTER (WHERE c.status IN ('open','ready'))  AS open_count,
        count(*) FILTER (WHERE c.status = 'in_progress')      AS doing_count,
        count(*) FILTER (WHERE c.status = 'blocked')          AS blocked_count,
+       count(*) FILTER (WHERE c.status = 'review')           AS review_count,
        count(*) FILTER (WHERE c.status = 'done')             AS done_count
 FROM   item p LEFT JOIN item c ON c.ancestors @> ARRAY[p.id]
 GROUP  BY p.id;
