@@ -266,11 +266,19 @@ public static class AppEndpoints
         {
             // First load. The newest page, reversed into the same ascending order, so the shape of
             // the response never depends on which call the client is making.
+            //
+            // One extra row again, for the same reason as the catch-up branch and in the other
+            // direction: it is the only way to know whether history was cut off behind this page.
+            // This said `more = false` unconditionally, which was not a simplification but a claim
+            // — and a false one. `entity-store` holds 66 events; a 60-row first load returned 60 of
+            // them and reported that there were no more, so the six oldest were unreachable and
+            // nothing on the page could say so. A board that quietly drops six rows is the failure
+            // this product exists to name in other people's tools.
             var page = await board.EventsAsync(
-                found.WorkspaceId, found.Item.Id, 0, take, oldestFirst: false, cancellationToken);
+                found.WorkspaceId, found.Item.Id, 0, take + 1, oldestFirst: false, cancellationToken);
 
-            more = false;
-            rows = [.. page.Reverse()];
+            more = page.Count > take;
+            rows = [.. page.Take(take).Reverse()];
         }
 
         return Results.Ok(new JournalView(

@@ -2,6 +2,8 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Text.Json;
 using WorkState.Core.Domain;
+using WorkState.Core.Queries;
+using WorkState.Core.Writing;
 using WorkState.Tests.Import;
 using WorkState.Tests.Read;
 using WorkState.Tests.Store;
@@ -174,6 +176,54 @@ public sealed class AppReadTests(PostgresFixture fixture)
         var watch = await AppServer.ReadJsonAsync(client, "/api/watch", Ct);
 
         Assert.Equal(2, watch.GetProperty("honesty").GetProperty("followupsOpen").GetInt32());
+    }
+
+    /// <summary>
+    /// A first load takes the newest page, which means history can be cut off behind it. Saying so
+    /// is the whole job of <c>hasMore</c>: the pane cannot offer what it cannot know exists. This
+    /// returned <c>false</c> unconditionally, and on the real corpus that turned a 66-event run
+    /// into a 60-event journal with nothing on the page admitting the difference.
+    /// </summary>
+    [Fact]
+    public async Task A_truncated_first_page_says_that_older_events_exist()
+    {
+        var world = await WriteSeed.CreateAsync(fixture);
+
+        // Real writes through the real writer: the journal is fed from `event`, and seeding items
+        // straight through EF produces rows with no history at all.
+        var writer = new WorkWriter(
+            fixture.DataSource,
+            new BoardQueries(fixture.DataSource),
+            new Housekeeping(fixture.DataSource));
+
+        for (var n = 0; n < 6; n++)
+        {
+            var wrote = await writer.NoteAsync(
+                world.WorkspaceId,
+                new Actor("orchestrator-a", ActorRole.Orchestrator),
+                "observation", $"note {n}", "1.1", null, Ct);
+            Assert.False(wrote.Refused, wrote.Text);
+        }
+
+        await using var server = await StartAsync(world.Slug);
+        var client = await server.SignInAsync(Ct);
+
+        var full = await AppServer.ReadJsonAsync(client, "/api/runs/run-a/journal?since=0", Ct);
+        var total = full.GetProperty("events").GetArrayLength();
+        Assert.True(total >= 3, $"fixture needs several events to truncate; it has {total}");
+
+        var page = await AppServer.ReadJsonAsync(client, $"/api/runs/run-a/journal?since=0&limit={total - 1}", Ct);
+
+        Assert.Equal(total - 1, page.GetProperty("events").GetArrayLength());
+        Assert.True(page.GetProperty("hasMore").GetBoolean(), "a cut-off first page must admit it");
+
+        // And the page that is NOT cut off must not cry wolf.
+        var whole = await AppServer.ReadJsonAsync(client, $"/api/runs/run-a/journal?since=0&limit={total}", Ct);
+        Assert.False(whole.GetProperty("hasMore").GetBoolean());
+
+        // Ascending order survives the extra row being trimmed off the old end.
+        var seqs = page.GetProperty("events").EnumerateArray().Select(e => e.GetProperty("seq").GetInt64()).ToList();
+        Assert.Equal(seqs.OrderBy(s => s), seqs);
     }
 
     [Fact]
