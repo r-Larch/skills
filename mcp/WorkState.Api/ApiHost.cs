@@ -74,6 +74,8 @@ public static class ApiHost
 
         var app = builder.Build();
 
+        app.Services.GetService<SchemaOwner>()?.Apply();
+
         app.UseAuthentication();
         app.UseAuthorization();
 
@@ -103,6 +105,14 @@ public static class ApiHost
         if (string.IsNullOrWhiteSpace(connectionString))
         {
             return;
+        }
+
+        // FINDINGS-live F-L6: until now the only thing that created the schema was the corpus
+        // importer, so a first run of WorkState meant pointing an ingest tool at markdown you may
+        // not have. The service owns this database outright, so it brings it up itself.
+        if (builder.Configuration.GetValue("WorkState:Migrate", true))
+        {
+            builder.Services.AddSingleton(new SchemaOwner(connectionString));
         }
 
         builder.Services.AddSingleton(_ => WorkStateDataSource.Create(connectionString));

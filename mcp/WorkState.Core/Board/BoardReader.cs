@@ -45,13 +45,34 @@ public sealed partial class BoardReader(WorkStateQueries queries, BoardQueries b
         var asked = scope.Trim();
         var matches = await board.ResolveAsync(workspace, asked, cancellationToken);
 
-        return matches.Count switch
+        if (matches.Count == 1)
         {
-            1 => new ScopeResult.Found(workspace, matches[0]),
-            > 1 => new ScopeResult.Ambiguous(asked, [.. matches.Select(m => m.QualifiedRef ?? m.Ref)]),
-            _ => new ScopeResult.Missing(asked, await NearbyAsync(workspace, asked, cancellationToken)),
-        };
+            return new ScopeResult.Found(workspace, matches[0]);
+        }
+
+        if (matches.Count == 0)
+        {
+            return new ScopeResult.Missing(asked, await NearbyAsync(workspace, asked, cancellationToken));
+        }
+
+        var home = await board.DefaultScopeAsync(workspace, cancellationToken);
+        return new ScopeResult.Ambiguous(
+            asked,
+            [.. Prefer(matches, home).Select(m => m.QualifiedRef ?? m.Ref)]);
     }
+
+    /// <summary>
+    /// A bare ref that exists in several runs is disambiguated in favour of the caller's own run.
+    /// ACCEPTANCE A-1: the refusal named <c>document-store/3.1</c> to an agent working in
+    /// <c>entity-store</c> — a callable line that satisfies doc 04 §3 and sends the caller to the
+    /// wrong item, which is worse than naming no candidate at all. LINQ ordering is stable, so
+    /// everything else keeps the query's plan order.
+    /// </summary>
+    internal static IReadOnlyList<ScopeRef> Prefer(IReadOnlyList<ScopeRef> matches, ScopeRef? home)
+        => home is null ? matches : [.. matches.OrderByDescending(m => AtHome(m, home))];
+
+    private static bool AtHome(ScopeRef candidate, ScopeRef home)
+        => candidate.RefScopeId is { } scope && (scope == home.RefScopeId || scope == home.Id);
 
     /// <summary>
     /// doc 06 §4. The one call that starts a session: goal, position, the literal next action, the
@@ -73,6 +94,8 @@ public sealed partial class BoardReader(WorkStateQueries queries, BoardQueries b
         var attention = await AttentionAsync(scope, cancellationToken);
 
         var model = new BriefModel(
+            ScopeKind: item.Kind,
+            ScopeRef: item.Ref,
             RunRef: header?.RunRef ?? item.Ref,
             ProjectRef: header?.ProjectRef,
             Branch: header?.Branch,

@@ -1,8 +1,13 @@
 # AGENTS.md — working in this repo
 
-A Claude Code **plugin marketplace** named `rlarch`, published at `github.com/r-Larch/skills`.
-No application code, no test suite. The product is manifests + Markdown + self-contained tools that
-ship as source.
+Two things live here, and they ship by completely different rules.
+
+1. A Claude Code **plugin marketplace** named `rlarch`, published at `github.com/r-Larch/skills`.
+   Manifests + Markdown + self-contained tools that ship as source. **A change here needs a version
+   bump** (next section) or it reaches nobody.
+2. **`mcp/` — WorkState**, a .NET 10 solution: an MCP server that replaces `PLAN.md` / `LEDGER.md`
+   with a queryable store, designed in `docs/workstate/`. Real application code with a real test
+   suite. **A change here needs no version bump** — see the table below.
 
 ```
 .claude-plugin/marketplace.json     # the marketplace — ONE plugin entry
@@ -14,8 +19,32 @@ plugins/rlarch/
   skills/dotnet-source/             # SKILL.md + ds.ps1/ds.sh + tool/   (.NET, compiled once to cache)
   skills/ts-source/                 # SKILL.md + tss.ps1/tss.sh + tool/ (plain .mjs, no build)
   skills/orchestrate/               # SKILL.md + references/ + assets/
+docs/workstate/                     # WorkState's spec — 00..07. The spec, not notes.
+mcp/                                # WorkState.slnx (SLNX, not .sln)
+  WorkState.Core/                   # store, queries, renderers, guards — no web host
+  WorkState.Mcp/                    # the 18 tools, the work:// resources, ServerInstructions
+  WorkState.Api/                    # Kestrel + MapMcp + bearer-token roles; owns its schema
+  WorkState.Tests/                  # xunit.v3 + Testcontainers postgres:17
+  tools/WorkState.Import/           # one-way importer for existing PLAN.md/LEDGER.md corpora
+  ACCEPTANCE.md, PROBE.md           # the cold-start runbook, and what the client measurably does
 README.md, upgrade_guide.md
 ```
+
+## Working in `mcp/`
+
+- **Build** `dotnet build mcp/WorkState.slnx` · **test** `dotnet test mcp/WorkState.Tests/WorkState.Tests.csproj`.
+  Tests need Docker: they spin a throwaway `postgres:17` per run through Testcontainers and seed
+  nothing, so they cannot reach or damage a dev database.
+- **`docs/workstate/` is the spec.** If you believe a document is wrong, say so — do not implement
+  around it. `04-self-explaining.md` is the acceptance bar the whole thing is judged against.
+- **Every tool description, every error message and `ServerInstructions` are product, not
+  documentation.** An error that says what is wrong without naming the call that fixes it is a
+  defect, and there is a test that fails on it.
+- `ServerInstructions` is `docs/workstate/05-server-instructions.md` **verbatim**; a test compares
+  them. Edit the document.
+- The token budgets (`ServerInstructions` lines, `tools/list` per role, `work_brief`) are
+  build-failing tests and **ratchet detectors, not targets**. If a change moves one, report the new
+  number — do not raise the ceiling.
 
 ## Shipping a change — the version bump is not optional
 
@@ -36,6 +65,13 @@ clone fetched it, and the plugin stayed three commits behind with three skills i
 | New skill, new command, new capability | **minor** — `1.0.0` → `1.1.0` |
 | Fix, wording, doc correction inside a skill | **patch** — `1.1.0` → `1.1.1` |
 | Removing a skill, renaming one, breaking a documented flag | **major** |
+| **Anything under `mcp/` or `docs/`** | **none** — see below |
+
+**`mcp/` and `docs/` do not ship through the plugin.** The gate exists because the updater caches a
+*plugin payload* per version, and WorkState is not in that payload: it is a service someone runs, and
+it reaches its users by being rebuilt, not by `/plugin` fetching it. Bumping the plugin version for
+an `mcp/` change would publish a plugin update that changes nothing in the plugin, and the next
+person to wonder why would have to read the diff to find out. **Do not bump it.**
 
 > Older notes in this repo say *"no version bump needed — every commit is picked up as an update"*
 > (see `docs/dotnet-source-design.md` › Packaging). That was true when `plugin.json` had **no**
@@ -72,6 +108,11 @@ claude plugin marketplace update rlarch && claude plugin details rlarch   # skil
   guidance in `.claude/orchestration/` — it is per-run and invisible to the next agent.
 - Nothing in the shipped tools executes user code: Roslyn and the TypeScript compiler API only ever
   parse and bind it. Keep it that way.
+- **Do not mix a `plugins/` change and an `mcp/` change in one commit.** One needs a version bump and
+  the other must not have one; a commit that needs both answers has neither.
+- `mcp/` is localhost-only and single-user by design. The Postgres credentials committed under
+  `mcp/compose*.yml` and `appsettings.Development.json` are throwaway and deliberate; do not
+  "fix" them into secrets, and do not point any of it at anything real.
 
 ## Where the tools' own docs live
 

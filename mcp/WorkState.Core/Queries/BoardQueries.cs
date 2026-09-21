@@ -89,32 +89,56 @@ public sealed class BoardQueries(NpgsqlDataSource dataSource)
             cancellationToken);
     }
 
+    /// <summary>
+    /// The scope's own identity plus the run and project it sits under. Both ancestors are looked up
+    /// by <em>kind</em> rather than taken from the parent row: a task's parent is a phase, and
+    /// printing that phase as the project is how <c>work_brief</c> came to render
+    /// <c>RUN 3.1 · project phase-3</c> over a task (ACCEPTANCE A-3).
+    /// </summary>
     public async Task<ScopeHeader?> HeaderAsync(Guid scopeItemId, CancellationToken cancellationToken = default)
     {
-        const string sql =
-            """
-            SELECT i.ref        AS "RunRef",
-                   p.ref        AS "ProjectRef",
-                   rc.branch    AS "Branch",
-                   h.value      AS "Head",
-                   coalesce(i.intent, pr.intent) AS "Goal"
-            FROM   item i
-            LEFT   JOIN run_config rc ON rc.item_id = i.id
-            LEFT   JOIN item p  ON p.id  = coalesce(rc.project_item_id, i.parent_id)
-            LEFT   JOIN item pr ON pr.id = i.ref_scope_id
-            LEFT   JOIN LATERAL (
-                     SELECT a.value
-                     FROM   artifact a
-                     JOIN   item c ON c.id = a.item_id
-                     WHERE  a.kind = 'commit'
-                       AND  (c.id = i.id OR c.ancestors @> ARRAY[i.id]::uuid[])
-                     ORDER  BY a.at DESC
-                     LIMIT  1) h ON true
-            WHERE  i.id = @scope;
-            """;
+        var sql =
+            $"""
+             SELECT i.kind      AS "Kind",
+                    i.ref       AS "Ref",
+                    r.ref       AS "RunRef",
+                    p.ref       AS "ProjectRef",
+                    rc.branch   AS "Branch",
+                    h.value     AS "Head",
+                    coalesce(i.intent, r.intent, p.intent) AS "Goal"
+             FROM   item i
+             LEFT   JOIN LATERAL ({Nearest("'run'")}) r ON true
+             LEFT   JOIN run_config rc ON rc.item_id = r.id
+             LEFT   JOIN LATERAL ({Nearest("'project'", "OR a.id = rc.project_item_id")}) p ON true
+             LEFT   JOIN LATERAL (
+                      SELECT a.value
+                      FROM   artifact a
+                      JOIN   item c ON c.id = a.item_id
+                      WHERE  a.kind = 'commit'
+                        AND  (c.id = i.id OR c.ancestors @> ARRAY[i.id]::uuid[])
+                      ORDER  BY a.at DESC
+                      LIMIT  1) h ON true
+             WHERE  i.id = @scope;
+             """;
 
         return await SingleAsync<ScopeHeader>(sql, new { scope = scopeItemId }, cancellationToken);
     }
+
+    /// <summary>
+    /// The nearest ancestor-or-self of one kind. <c>ancestors</c> is ordered root..parent, so the
+    /// deepest match is the last position in it, and the item itself outranks any of them.
+    /// </summary>
+    private static string Nearest(string kind, string alsoWhere = "")
+        => $"""
+            SELECT a.id, a.ref, a.intent
+            FROM   item a
+            WHERE  a.kind = {kind}
+              AND  (a.id = i.id OR a.id = ANY(i.ancestors) {alsoWhere})
+            ORDER  BY (a.id = i.id) DESC,
+                      (array_position(i.ancestors, a.id) IS NOT NULL) DESC,
+                      array_position(i.ancestors, a.id) DESC
+            LIMIT  1
+            """;
 
     /// <summary>
     /// doc 02 §8 — the workspace rules plus every rule scoped to this item or one of its ancestors.

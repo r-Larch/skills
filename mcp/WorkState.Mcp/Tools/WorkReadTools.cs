@@ -42,9 +42,7 @@ public sealed class WorkReadTools(BoardReader reader, WorkspaceOptions workspace
         var resolved = await reader.ResolveAsync(workspace.Slug, scope, cancellationToken);
         if (resolved is not ScopeResult.Found found)
         {
-            return Text(resolved is ScopeResult.Empty
-                ? BriefRenderer.Onboarding()
-                : Explain(resolved, scope));
+            return Text(ScopeExplain.Text(resolved, "work_brief", scope));
         }
 
         // doc 07 §5: the sweep is what makes an expired lease visible, and it runs here because
@@ -80,6 +78,7 @@ public sealed class WorkReadTools(BoardReader reader, WorkspaceOptions workspace
         string? kind = null,
         CancellationToken cancellationToken = default)
         => await WithScopeAsync(
+            "work_next",
             scope,
             found => reader.NextAsync(found, Clamp(limit, 1, 50), kind, cancellationToken),
             cancellationToken,
@@ -105,6 +104,7 @@ public sealed class WorkReadTools(BoardReader reader, WorkspaceOptions workspace
         bool includeCounts = true,
         CancellationToken cancellationToken = default)
         => await WithScopeAsync(
+            "work_tree",
             scope,
             found => reader.TreeAsync(found, Clamp(depth, 1, 8), Split(status), includeCounts, cancellationToken),
             cancellationToken);
@@ -113,8 +113,9 @@ public sealed class WorkReadTools(BoardReader reader, WorkspaceOptions workspace
     [McpServerTool(Name = "work_get", Title = "Read: one or more items in full", ReadOnly = true)]
     [Description("""
         Full detail for one or more refs: intent, done-criteria with their check state, the
-        verifications recorded against them, the links in and out, and the work:// URI of the body.
-        Reach for it before starting an item, or whenever a board row is not enough. The body is
+        verifications recorded against them, the links in and out, and the work:// URIs of the item
+        and of its worker brief.
+        Reach for it before starting an item, or whenever a board row is not enough. The brief is
         never inlined — read the printed work://item/<ref>/brief URI with ReadMcpResourceTool.
         Next: work_status(ref, "in_progress") to start it, or work_brief(scope:"<ref>",
         for:"worker") to hand it to someone else.
@@ -122,17 +123,17 @@ public sealed class WorkReadTools(BoardReader reader, WorkspaceOptions workspace
     public async Task<CallToolResult> GetAsync(
         [Description("One or more refs, e.g. [\"2.3\", \"F-07\"]. Qualify across runs: \"entity-store/2.3\".")]
         string[] refs,
-        [Description("Comma-separated extras: \"deps\" for links, \"body\" for the document URI.")]
+        [Description("Comma-separated extras: \"deps\" for the links in and out.")]
         string? include = null,
         CancellationToken cancellationToken = default)
     {
         var resolved = await reader.ResolveAsync(workspace.Slug, null, cancellationToken);
         if (resolved is not ScopeResult.Found found)
         {
-            return Text(resolved is ScopeResult.Empty ? BriefRenderer.Onboarding() : Explain(resolved, null));
+            return Text(ScopeExplain.Text(resolved, "work_get", null));
         }
 
-        var body = await reader.GetAsync(found.WorkspaceId, refs ?? [], Split(include), cancellationToken);
+        var body = await reader.GetAsync(found, refs ?? [], Split(include), cancellationToken);
         return Text(Attention.Append(body, await reader.AttentionAsync(found, cancellationToken)));
     }
 
@@ -155,7 +156,7 @@ public sealed class WorkReadTools(BoardReader reader, WorkspaceOptions workspace
         var resolved = await reader.ResolveAsync(workspace.Slug, null, cancellationToken);
         if (resolved is not ScopeResult.Found found)
         {
-            return Text(resolved is ScopeResult.Empty ? BriefRenderer.Onboarding() : Explain(resolved, null));
+            return Text(ScopeExplain.Text(resolved, "work_search", null));
         }
 
         var body = await reader.SearchAsync(found.WorkspaceId, q ?? string.Empty, Clamp(limit, 1, 50), cancellationToken);
@@ -179,6 +180,7 @@ public sealed class WorkReadTools(BoardReader reader, WorkspaceOptions workspace
         string? include = null,
         CancellationToken cancellationToken = default)
         => await WithScopeAsync(
+            "work_threads",
             scope,
             found => reader.ThreadsAsync(found, Split(include), cancellationToken),
             cancellationToken);
@@ -199,7 +201,11 @@ public sealed class WorkReadTools(BoardReader reader, WorkspaceOptions workspace
         [Description("A run or item ref to audit. Omit for the busiest run.")]
         string? scope = null,
         CancellationToken cancellationToken = default)
-        => await WithScopeAsync(scope, found => reader.AuditAsync(found, cancellationToken), cancellationToken);
+        => await WithScopeAsync(
+            "work_audit",
+            scope,
+            found => reader.AuditAsync(found, cancellationToken),
+            cancellationToken);
 
     [Authorize(Policy = WorkStatePolicies.Orchestrator)]
     [McpServerTool(Name = "work_history", Title = "Recover: what happened while you were away", ReadOnly = true)]
@@ -222,7 +228,7 @@ public sealed class WorkReadTools(BoardReader reader, WorkspaceOptions workspace
         var resolved = await reader.ResolveAsync(workspace.Slug, scope, cancellationToken);
         if (resolved is not ScopeResult.Found found)
         {
-            return Text(resolved is ScopeResult.Empty ? BriefRenderer.Onboarding() : Explain(resolved, scope));
+            return Text(ScopeExplain.Text(resolved, "work_history", scope));
         }
 
         var body = await reader.HistoryAsync(
@@ -236,6 +242,7 @@ public sealed class WorkReadTools(BoardReader reader, WorkspaceOptions workspace
     }
 
     private async Task<CallToolResult> WithScopeAsync(
+        string call,
         string? scope,
         Func<ScopeResult.Found, Task<string>> render,
         CancellationToken cancellationToken,
@@ -244,7 +251,7 @@ public sealed class WorkReadTools(BoardReader reader, WorkspaceOptions workspace
         var resolved = await reader.ResolveAsync(workspace.Slug, scope, cancellationToken);
         if (resolved is not ScopeResult.Found found)
         {
-            return Text(resolved is ScopeResult.Empty ? BriefRenderer.Onboarding() : Explain(resolved, scope));
+            return Text(ScopeExplain.Text(resolved, call, scope));
         }
 
         if (sweep)
@@ -255,28 +262,6 @@ public sealed class WorkReadTools(BoardReader reader, WorkspaceOptions workspace
         var body = await render(found);
         return Text(Attention.Append(body, await reader.AttentionAsync(found, cancellationToken)));
     }
-
-    /// <summary>
-    /// doc 04 §3 — a refusal that states the problem without naming the call that fixes it is a
-    /// defect, so neither branch here ends without one.
-    /// </summary>
-    private static string Explain(ScopeResult result, string? scope) => result switch
-    {
-        ScopeResult.Ambiguous ambiguous =>
-            $"REFUSED  scope \"{ambiguous.Asked}\" matches {ambiguous.Candidates.Count} items across runs.\n"
-            + string.Join("\n", ambiguous.Candidates.Take(5).Select(c => $"  → retry with scope:\"{c}\"")),
-
-        ScopeResult.Missing missing when missing.Nearby.Count > 0 =>
-            $"REFUSED  no item has ref \"{missing.Asked}\".\n"
-            + string.Join("\n", missing.Nearby.Select(n => $"  → did you mean scope:\"{n}\"?"))
-            + "\n  → work_tree() to see every ref that exists.",
-
-        ScopeResult.Missing missing =>
-            $"REFUSED  no item has ref \"{missing.Asked}\".\n"
-            + $"  → work_search(q:\"{missing.Asked}\") to find it, or work_tree() to see what exists.",
-
-        _ => $"REFUSED  scope \"{scope}\" could not be resolved.\n  → work_tree() to see what exists.",
-    };
 
     private static CallToolResult Text(string body)
         => new() { Content = [new TextContentBlock { Text = body }] };

@@ -21,7 +21,9 @@ public sealed record ScopeRef(
     string? QualifiedRef);
 
 public sealed record ScopeHeader(
-    string RunRef,
+    string Kind,
+    string Ref,
+    string? RunRef,
     string? ProjectRef,
     string? Branch,
     string? Head,
