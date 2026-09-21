@@ -18,15 +18,30 @@ public static class WorkUris
     public const string Handoff = "work://workspace/handoff";
 
     public const string WorkspaceTemplate = "work://workspace/{slug}";
-    public const string ItemTemplate = "work://item/{ref}";
-    public const string ItemBriefTemplate = "work://item/{ref}/brief";
+
+    /// <summary>
+    /// <c>{+ref}</c> is RFC 6570 reserved expansion, which matches <c>/</c> as well — so a qualified
+    /// ref reads back as <c>work://item/entity-store/3.1</c>, the form an agent composes and the form
+    /// <see cref="Item"/> prints. A plain <c>{ref}</c> stops at the first slash, which is why
+    /// <c>work://item/entity-store/3.1/brief</c> was a 404 (ACCEPTANCE A-4).
+    /// </summary>
+    public const string ItemTemplate = "work://item/{+ref}";
+
+    public const string ItemBriefTemplate = "work://item/{+ref}/brief";
     public const string DocTemplate = "work://doc/{slug}";
+
+    public const string BriefSuffix = "/brief";
 
     public static string Item(string reference) => $"work://item/{Escape(reference)}";
 
-    public static string ItemBrief(string reference) => $"work://item/{Escape(reference)}/brief";
+    public static string ItemBrief(string reference) => $"work://item/{Escape(reference)}{BriefSuffix}";
 
-    public static string Doc(string slug) => $"work://doc/{Escape(slug)}";
+    public static string Doc(string slug) => $"work://doc/{Uri.EscapeDataString(slug)}";
 
-    private static string Escape(string segment) => Uri.EscapeDataString(segment);
+    /// <summary>
+    /// A qualified ref is two path segments, not one escaped string: <c>entity-store%2F3.1</c> is
+    /// unreadable in a result and is not what a model composes when it needs one.
+    /// </summary>
+    private static string Escape(string reference)
+        => string.Join('/', reference.Split('/').Select(Uri.EscapeDataString));
 }

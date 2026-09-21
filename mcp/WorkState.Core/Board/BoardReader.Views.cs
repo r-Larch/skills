@@ -118,11 +118,12 @@ public sealed partial class BoardReader
     /// resource link renders as a bare URI in this client and only a named follow-up call retrieves it.
     /// </summary>
     public async Task<string> GetAsync(
-        Guid workspaceId,
+        ScopeResult.Found home,
         IReadOnlyList<string> references,
         IReadOnlyCollection<string> include,
         CancellationToken cancellationToken = default)
     {
+        var workspaceId = home.WorkspaceId;
         var resolved = new List<ScopeRef>();
         var problems = new List<string>();
 
@@ -135,8 +136,14 @@ public sealed partial class BoardReader
                     resolved.Add(matches[0]);
                     break;
                 case > 1:
-                    problems.Add($"✗ \"{reference}\" is ambiguous across runs "
-                               + $"→ work_get(refs:[\"{matches[0].QualifiedRef}\"])");
+                    // ACCEPTANCE A-1. Every candidate, the caller's own run first — a single
+                    // confidently-named wrong run is worse than naming none, because a careful
+                    // agent acts on a callable line and this one is callable.
+                    var candidates = Prefer(matches, home.Item)
+                        .Take(5)
+                        .Select(m => $"\"{m.QualifiedRef ?? m.Ref}\"");
+                    problems.Add($"✗ \"{reference}\" exists in {matches.Count} runs — qualify it "
+                               + $"→ work_get(refs:[{string.Join(", ", candidates)}])");
                     break;
                 default:
                     problems.Add($"✗ no item has ref \"{reference}\" "
@@ -203,11 +210,10 @@ public sealed partial class BoardReader
                 lines.Add($"  link      {arrow}");
             }
 
+            // doc 01 §8: templates are undiscoverable, so a tool that names an item prints the whole
+            // URI for both projections rather than leaving the model to compose the second one.
             lines.Add($"  uri       {WorkUris.Item(item.Ref)}");
-            if (include.Contains("body"))
-            {
-                lines.Add($"  body      {WorkUris.ItemBrief(item.Ref)} — read it with ReadMcpResourceTool");
-            }
+            lines.Add($"  brief     {WorkUris.ItemBrief(item.Ref)} — read it with ReadMcpResourceTool");
         }
 
         lines.Add(string.Empty);

@@ -230,18 +230,65 @@ after fixing things it did not touch would only risk overwriting a clean record 
 
 ### Budgets
 
-| | Measured | Budget | |
-|---|---|---|---|
-| `ServerInstructions` | | ≤40 lines | |
-| `tools/list` — worker | | 2,200 tokens | |
-| `tools/list` — orchestrator | | 6,400 tokens | ceiling is measured+15%, a **ratchet detector, not a target** |
-| `work_brief` on a fixture | | ≤900 tokens | build-failing test |
-| `work_brief` on real `entity-store` | **581 tokens** | — | one-off; against **473,988 chars / ~118,500 tokens** of `LEDGER.md` = **204×** |
+Two columns, because a budget with one measurement is a number and a budget with two is a trend.
+**Before** is 2026-09-20, with the write half in place and before the acceptance runs; **after** is
+2026-09-21, with U5's fixes in.
+
+| | Before | After | Budget | |
+|---|---|---|---|---|
+| `ServerInstructions` | 35 lines | **35 lines** | ≤40 lines | doc 05 verbatim, now asserted against the document itself |
+| `tools/list` — worker | 1,881 | **1,890** (6 tools) | 2,200 tokens | |
+| `tools/list` — orchestrator | 5,538 | **5,557** (18 tools) | 6,400 tokens | ceiling is measured+15%, a **ratchet detector, not a target** — untouched |
+| `work_brief` on the `sample-run` fixture | 574 | **583** (2,331 chars, 34 lines) | ≤900 tokens | build-failing test |
+| `work_brief` on real `entity-store` | **581 tokens** | not re-run | — | one-off; against **473,988 chars / ~118,500 tokens** of `LEDGER.md` = **204×** |
+
+**+19 orchestrator tokens, +9 worker, +9 on the brief.** That is one reworded `Next:` line
+(`work_verify` now names `work_next`, which is what put every tool inside two hops of an orientation
+point), one reworded argument on `work_get`, and one extra line per item in `work_get` carrying the
+`work://item/<ref>/brief` URI the agent had to compose for itself. **The ceilings were not moved.**
+
+#### The overlap nobody had measured
+
+doc 04 §1 forbids `ServerInstructions` restating the schema. One level down, the same question: both
+the tool description and the `inputSchema` property descriptions ship in `tools/list`, so any overlap
+is paid for twice. **Measured over 18 tools: mean 13%, median 11%, six tools at 0%, one outlier at
+47%.**
+
+The outlier is `work_verify`, and it is not duplication: its description exists to say that `run_by`
+comes from the token and not from the argument, which cannot be said without naming the argument.
+
+**So 5,557 tokens is the price of the channel, not slack in it.** There is nothing to cut that is not
+doc 04 §2's third question, and the measurement is recorded as a finding rather than acted on.
 
 ### Defects found, and the channel each belongs to
 
-| # | What the agent did | Channel at fault | Fix |
-|---|---|---|---|
+All five carried forward from Run A-0 and Run A. **Every one of them passed its own unit tests on the
+day it was found** — which is the whole argument for the transcript.
+
+| # | What the agent saw | Channel at fault | Fix | Regression test |
+|---|---|---|---|---|
+| **A-1** | the ambiguity refusal named `document-store/3.1` to an agent working in `entity-store` — callable, confident, wrong | the refusal | every candidate is listed, the caller's own run first; `BoardReader.Prefer` | `An_ambiguous_ref_lists_every_candidate_and_puts_the_callers_own_run_first` |
+| **A-2** | `work://item/3.1/brief` answered *"this server holds no work yet"* about a store holding 267 tasks | the resource, which had its own copy of the not-found branch | one `ScopeExplain` for every surface that resolves a ref; only a genuinely empty workspace gets onboarding | `An_ambiguous_item_uri_refuses_and_never_claims_the_server_is_empty` |
+| **A-3** | `work_brief` on a task rendered `RUN 3.1 · project phase-3` | the brief renderer, and the header query behind it | the scope labels itself by its own kind; the run and the project are looked up by kind, not taken from the parent row | `A_brief_on_a_task_labels_it_a_task_and_names_the_real_run_and_project` |
+| **A-4** | the composed `work://item/entity-store/3.1/brief` 404'd | the URI template, and `work_get` for not printing the brief URI at all | `{+ref}` (RFC 6570 reserved expansion) matches a qualified ref; `work_get` prints both projections' full URIs | `A_qualified_item_uri_reads_back_in_both_its_projections` |
+| **F-L6** | no way to create a database without pointing the corpus importer at markdown | the API, which owns this database and did not create it | `SchemaOwner` applies the migrations at startup; `WorkState:Migrate=false` opts out | `The_api_creates_its_own_schema_so_a_first_run_needs_no_importer` |
+
+**Two of the four came from the same root cause**, and it is worth naming: A-2 and the read tools'
+scope refusal were two copies of "what do I say when a ref does not resolve", and only one of them
+had been thought about. The copy nobody looked at is the one that told an agent the store was empty.
+
+### The channel audit, now that it is a test rather than a checklist
+
+doc 04 §2 names three properties of the `Next:` graph. All three are assertions over the live
+`tools/list` payload, so they cover any tool added later:
+
+| Property | Where | Result |
+|---|---|---|
+| every `Next:` names a tool that exists | `Every_Next_line_names_a_tool_that_exists` | pass — no shipped description names `work_patch` |
+| every path reaches `work_next` or `work_brief` within two hops | `Every_tool_reaches_work_next_or_work_brief_within_two_hops` | **failed on first run**: `work_report → work_verify → work_status → work_next` was three. Fixed in the channel — `work_verify` now names `work_next` after the close. `work_note` is the one declared terminal, per doc 04 §2 |
+| `work_report → work_verify` in those words | `work_report_points_at_work_verify_in_those_words` | pass |
+| every refusal names a callable fix | `Every_refusal_the_server_can_emit_names_a_callable_fix` | pass over **25** refusal paths, read and write |
+| `ServerInstructions` is doc 05 verbatim | `ServerInstructions_are_doc_05_verbatim` | pass — compared against the document, not eyeballed |
 
 ---
 
@@ -321,4 +368,27 @@ verification one paragraph after praising the server for refusing exactly that.
 It does not affect the result — the refusals under test are about criteria and `run_by`, not about
 whether the command discriminates — but it is precisely the defect the plan audit calls the
 highest-yield thing to check, committed by the person who wrote that down. Left in the record.
+
+### The same check, scripted — so it survives the agent that passed it
+
+A transcript proves a thing happened once. Check 2 also has a mechanical half, and it is the half
+that keeps holding after everyone has moved on:
+`ErrorChannelTests.A_refused_close_explains_the_remedy_before_and_more_than_the_override`.
+
+It closes an unverified task and asserts four things about the refusal that comes back:
+
+- it **is** refused, and the refusal names every unmet condition with a `→` that is a callable line;
+- the **override is named** — doc 06 §6, an escape hatch that is hidden gets worked around;
+- the **first remedy appears before `force:true`** in the text, and there are **more remedies than
+  overrides**. This is the sentence from doc 04 check 2 turned into an assertion: *"if the refusal is
+  explaining the escape hatch better than the remedy, it is the refusal that is wrong."*
+- the honest route is spelled out by name: `work_verify(` and `work_update(` both appear.
+
+What it deliberately does **not** assert is what an agent chose to do, because no test can. The
+observed run above is the evidence for that half, and the two are worth different things: the
+transcript says *an agent that had never heard of the guard chose the work over the escape hatch*;
+the test says *the refusal it read cannot silently stop saying so.*
+
+A ratio rather than a wording check, for the reason the rest of this file keeps returning to: a
+wording check passes the moment someone writes the wording, whether or not it still reads that way.
 

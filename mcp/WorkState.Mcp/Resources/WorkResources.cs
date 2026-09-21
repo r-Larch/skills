@@ -86,6 +86,13 @@ public sealed class WorkResources(BoardReader reader, WorkspaceOptions workspace
         return string.Join("\n\n", brief, tree, threads);
     }
 
+    /// <summary>
+    /// <c>{+ref}</c> rather than <c>{ref}</c>: reserved expansion lets the value carry a <c>/</c>, so
+    /// the qualified ref a tool printed — <c>work://item/entity-store/3.1</c> — reads back instead of
+    /// 404ing (ACCEPTANCE A-4). Both item templates match a URI ending in <c>/brief</c>, and which of
+    /// them the server's linear template traversal reaches first is not a contract, so this one
+    /// forwards rather than depending on the order.
+    /// </summary>
     [Authorize(Policy = WorkStatePolicies.Worker)]
     [McpServerResource(
         UriTemplate = WorkUris.ItemTemplate,
@@ -97,12 +104,23 @@ public sealed class WorkResources(BoardReader reader, WorkspaceOptions workspace
         [Description("The item's ref, exactly as a tool result printed it.")] string @ref,
         CancellationToken cancellationToken)
     {
+        if (@ref.EndsWith(WorkUris.BriefSuffix, StringComparison.Ordinal))
+        {
+            return await ItemBriefAsync(@ref[..^WorkUris.BriefSuffix.Length], cancellationToken);
+        }
+
         var scope = await reader.ResolveAsync(workspace.Slug, null, cancellationToken);
         return scope is ScopeResult.Found found
-            ? await reader.GetAsync(found.WorkspaceId, [@ref], ["deps"], cancellationToken)
-            : BriefRenderer.Onboarding();
+            ? await reader.GetAsync(found, [@ref], ["deps"], cancellationToken)
+            : ScopeExplain.Text(scope, "work_get", @ref);
     }
 
+    /// <summary>
+    /// ACCEPTANCE A-2, the worst defect the cold-start transcript found: a ref that exists in more
+    /// than one run resolved to neither, fell through to the cold-start branch, and answered
+    /// <c>"this server holds no work yet"</c> about a store holding 267 tasks. Only an actually
+    /// empty workspace is a cold start; an unresolved ref is a refusal that names the candidates.
+    /// </summary>
     [Authorize(Policy = WorkStatePolicies.Worker)]
     [McpServerResource(
         UriTemplate = WorkUris.ItemBriefTemplate,
@@ -117,6 +135,6 @@ public sealed class WorkResources(BoardReader reader, WorkspaceOptions workspace
         var scope = await reader.ResolveAsync(workspace.Slug, @ref, cancellationToken);
         return scope is ScopeResult.Found found
             ? await reader.BriefAsync(found, "worker", cancellationToken)
-            : BriefRenderer.Onboarding();
+            : ScopeExplain.Text(scope, "work_brief", @ref);
     }
 }

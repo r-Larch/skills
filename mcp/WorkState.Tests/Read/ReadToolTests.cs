@@ -212,8 +212,10 @@ public sealed class ReadToolTests(PostgresFixture fixture)
     /// is the measurement plus about 15% headroom — enough for a description to be reworded, not
     /// enough for one to grow into a specification.
     /// <para>
-    /// <b>Measured 2026-09-20, with the write half in place:</b> worker 1881 tokens over 6 tools,
-    /// orchestrator and controller 5538 over 18. The cost is flat — the fattest tool is 434 tokens
+    /// <b>Measured 2026-09-21, after the acceptance fixes:</b> worker 1890 tokens over 6 tools,
+    /// orchestrator and controller 5557 over 18 — up 9 and 19 on the 2026-09-20 figures of 1881 and
+    /// 5538, which is one reworded <c>Next:</c> line and one reworded argument.
+    /// The cost is flat — the fattest tool is 437 tokens
     /// and the mean is 308 — so there is no fat tool to cut, only 18 tools each documenting every
     /// argument as doc 04 §2 requires. Recorded as a finding rather than met: halving it means
     /// stripping the per-argument descriptions, which is the channel doc 04 §3 leans on hardest.

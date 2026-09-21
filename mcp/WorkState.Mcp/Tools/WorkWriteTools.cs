@@ -66,7 +66,7 @@ public sealed class WorkWriteTools(
         Records what a command actually printed against an item. run_by comes from your token: a
         worker's evidence is recorded as a worker's and can never satisfy that item's own done
         guard, which needs an orchestrator run.
-        Next: work_status(ref, "done") if it passed and you are the orchestrator.
+        Next: work_status(ref, "done") if it passed and you are the orchestrator, then work_next.
         """)]
     public async Task<CallToolResult> VerifyAsync(
         [Description("The item this evidence belongs to.")]

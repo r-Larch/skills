@@ -40,7 +40,9 @@ public sealed record BriefModel(
     int AddressedTotal,
     string? AddressedTo,
     VerifyLine? LastVerify,
-    IReadOnlyList<AttentionLine> Attention);
+    IReadOnlyList<AttentionLine> Attention,
+    string? ScopeKind = null,
+    string? ScopeRef = null);
 
 public static class BriefRenderer
 {
@@ -53,8 +55,23 @@ public static class BriefRenderer
     public static string Render(BriefModel model)
     {
         var lines = new List<string>();
+        var handle = model.ScopeRef is { Length: > 0 } scope ? scope : model.RunRef;
 
-        var head = new StringBuilder($"RUN {model.RunRef}");
+        // The scope labels itself by its own kind, and the run and the project are named as such.
+        // A task printed as "RUN 3.1 · project phase-3" mislabels its own tree on the one surface an
+        // agent learns the tree from (ACCEPTANCE A-3).
+        var isRun = model.ScopeKind is not { Length: > 0 }
+                    || model.ScopeKind.Equals("run", StringComparison.OrdinalIgnoreCase);
+
+        var head = new StringBuilder(isRun
+            ? $"RUN {model.RunRef}"
+            : $"{model.ScopeKind!.ToUpperInvariant()} {model.ScopeRef ?? model.RunRef}");
+
+        if (!isRun && model.RunRef is { Length: > 0 } && model.RunRef != model.ScopeRef)
+        {
+            head.Append($"  ·  run {model.RunRef}");
+        }
+
         if (model.ProjectRef is { Length: > 0 })
         {
             head.Append($"  ·  project {model.ProjectRef}");
@@ -97,7 +114,7 @@ public static class BriefRenderer
             AddOverflow(
                 lines,
                 model.AssumptionTotal - model.Assumptions.Count,
-                $"work_threads(scope:\"{model.RunRef}\", include:\"assumptions\")");
+                $"work_threads(scope:\"{handle}\", include:\"assumptions\")");
         }
 
         // A note addressed to an item and a note the run merely carries are different obligations,
@@ -119,7 +136,7 @@ public static class BriefRenderer
             {
                 lines.Add(
                     $"  · +{hidden} more unconsumed in scope — "
-                    + $"work_threads(scope:\"{model.RunRef}\", include:\"notes\")");
+                    + $"work_threads(scope:\"{handle}\", include:\"notes\")");
             }
         }
 

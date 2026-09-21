@@ -30,7 +30,7 @@ public sealed class BoardReaderTests(PostgresFixture fixture)
             ["brief"] = await reader.BriefAsync(scope, "resume", Ct),
             ["next"] = await reader.NextAsync(scope, 10, null, Ct),
             ["tree"] = await reader.TreeAsync(scope, 3, [], true, Ct),
-            ["get"] = await reader.GetAsync(scope.WorkspaceId, ["T1.1", "phase-1"], ["deps", "body"], Ct),
+            ["get"] = await reader.GetAsync(scope, ["T1.1", "phase-1"], ["deps"], Ct),
             ["search"] = await reader.SearchAsync(scope.WorkspaceId, "token", 10, Ct),
             ["threads"] = await reader.ThreadsAsync(scope, [], Ct),
             ["audit"] = await reader.AuditAsync(scope, Ct),
