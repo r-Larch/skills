@@ -42,7 +42,7 @@ public sealed record AttentionView(
 /// The honesty strip of doc 09 §5 — one line, three counts, and the reason the product exists.
 /// Not a chart: a count that should be zero and usually is not.
 /// </summary>
-public sealed record HonestyView(int DoneUnverified, int Forced, int Ungated);
+public sealed record HonestyView(int DoneUnverified, int Forced, int Ungated, int FollowupsOpen);
 
 /// <summary>
 /// <see cref="AsOf"/> is the server's clock at the moment the board was read. The client needs it

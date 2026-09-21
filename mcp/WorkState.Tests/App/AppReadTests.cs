@@ -152,6 +152,30 @@ public sealed class AppReadTests(PostgresFixture fixture)
         Assert.All(needsYou, a => Assert.False(string.IsNullOrWhiteSpace(a.GetProperty("call").GetString())));
     }
 
+    /// <summary>
+    /// The fourth honesty number, and the only one that is not an accusation: a deferral that
+    /// became a tracked follow-up is doc 07 §4 working as designed. It counts what is still open,
+    /// so a follow-up that was closed must leave it — otherwise the number only ever grows and
+    /// stops meaning anything.
+    /// </summary>
+    [Fact]
+    public async Task The_honesty_strip_counts_open_followups_and_not_closed_ones()
+    {
+        var world = await WriteSeed.CreateAsync(fixture);
+
+        await WriteSeed.ChildAsync(world, world.PhaseId, "F-1", kind: "followup");
+        await WriteSeed.ChildAsync(world, world.PhaseId, "F-2", kind: "followup");
+        await WriteSeed.ChildAsync(world, world.PhaseId, "F-3", kind: "followup", status: ItemStatus.Done);
+        await WriteSeed.ChildAsync(world, world.PhaseId, "F-4", kind: "followup", status: ItemStatus.Cancelled);
+
+        await using var server = await StartAsync(world.Slug);
+        var client = await server.SignInAsync(Ct);
+
+        var watch = await AppServer.ReadJsonAsync(client, "/api/watch", Ct);
+
+        Assert.Equal(2, watch.GetProperty("honesty").GetProperty("followupsOpen").GetInt32());
+    }
+
     [Fact]
     public async Task An_unknown_project_is_a_404_rather_than_an_empty_watch_floor()
     {

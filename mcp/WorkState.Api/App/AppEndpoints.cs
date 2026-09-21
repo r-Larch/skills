@@ -128,6 +128,7 @@ public static class AppEndpoints
         var doneUnverified = 0;
         var forced = 0;
         var ungated = 0;
+        var followupsOpen = 0;
 
         foreach (var scope in scopes)
         {
@@ -142,6 +143,7 @@ public static class AppEndpoints
             doneUnverified += (await board.DoneUnverifiedAsync(id, cancellationToken)).Count;
             forced += (await board.ForcedTransitionsAsync(id, cancellationToken)).Count;
             ungated += (await board.UngatedPhasesAsync(id, cancellationToken)).Count;
+            followupsOpen += await board.OpenFollowupsAsync(id, cancellationToken);
         }
 
         return Results.Ok(new WatchView(
@@ -149,7 +151,7 @@ public static class AppEndpoints
             DateTimeOffset.UtcNow,
             [.. leases.OrderByDescending(l => l.ExpiresAt)],
             [.. needsYou],
-            new HonestyView(doneUnverified, forced, ungated)));
+            new HonestyView(doneUnverified, forced, ungated, followupsOpen)));
     }
 
     /// <summary>
@@ -285,7 +287,7 @@ public static class AppEndpoints
     }
 
     private static WatchView Empty(string? project)
-        => new(project, DateTimeOffset.UtcNow, [], [], new HonestyView(0, 0, 0));
+        => new(project, DateTimeOffset.UtcNow, [], [], new HonestyView(0, 0, 0, 0));
 
     /// <summary>
     /// A container the store calls closed while children of it are not. Counted from the rollup,

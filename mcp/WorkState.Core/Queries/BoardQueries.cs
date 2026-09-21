@@ -824,6 +824,28 @@ public sealed class BoardQueries(NpgsqlDataSource dataSource)
             => parameter.Value = value.UtcDateTime;
     }
 
+    /// <summary>
+    /// The fourth honesty number. Unlike the other three this one is not an accusation — a deferral
+    /// that became a tracked follow-up is the system working, and doc 07 §4 counts it as a move
+    /// rather than a failure. It is here because a strip that only ever shows what went wrong
+    /// teaches people to stop reading it.
+    /// </summary>
+    public async Task<int> OpenFollowupsAsync(
+        Guid scopeItemId,
+        CancellationToken cancellationToken = default)
+    {
+        const string sql =
+            $"""
+             SELECT count(*)::int
+             FROM   item i
+             WHERE  i.kind = 'followup'
+               AND  i.status NOT IN ('done','cancelled','superseded')
+               AND  {InScope};
+             """;
+
+        return await SingleAsync<int>(sql, new { scope = scopeItemId }, cancellationToken);
+    }
+
     private async Task<T?> SingleAsync<T>(string sql, object parameters, CancellationToken cancellationToken)
     {
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
