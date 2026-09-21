@@ -322,3 +322,39 @@ It does not affect the result — the refusals under test are about criteria and
 whether the command discriminates — but it is precisely the defect the plan audit calls the
 highest-yield thing to check, committed by the person who wrote that down. Left in the record.
 
+
+---
+
+## 8. What the store held afterwards — the product demonstrating itself
+
+The acceptance agent is gone. Its session ended, its context is discarded, its transcript is a file
+nobody will read again. **The work it did is still in the store, queryable, with its history:**
+
+```
+ws-acceptance     project  open         ws-acceptance — scratch working tree for WorkState…
+health-endpoint   run      open         Health endpoint run
+1.1               task     in_progress  Add a /health endpoint returning {"status":"ok"}
+
+criteria on 1.1
+  1  ☐  GET /health responds 200 with body {"status":"ok"}
+  2  ☐  The service starts from this tree with no manual steps beyond the do…
+
+events
+  created         ws-acceptance (project) created under —
+  created         health-endpoint (run) created under ws-acceptance
+  created         1.1 (task) created under health-endpoint
+  claim_acquired  1.1 claimed by orchestrator for 30m
+  status          1.1 open → in_progress
+```
+
+Read that as a handover and everything a successor needs is there: **what the work is, what would
+make it done, that someone started it, when, and that they never finished.** The claim has since
+expired, so the next `work_brief` will surface `1.1` as a stale lease with the call to retake it.
+
+Nobody wrote a ledger. Nobody remembered to update a checkbox. The two criteria are unchecked
+because **the work genuinely is not done** — not because someone forgot to tick them.
+
+That is the whole thesis in nine rows: *state that is the primary write gets maintained; state that
+is a side-effect of narration does not.* The corpus this project began from had **424 unchecked
+boxes in runs their own ledgers declared finished**. Here, an unchecked box means exactly what it
+says.
