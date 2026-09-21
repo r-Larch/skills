@@ -1,0 +1,37 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.7.0" />
+    <PackageReference Include="Testcontainers.PostgreSql" Version="4.15.0" />
+    <PackageReference Include="xunit.v3" Version="3.1.0" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.5" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\WorkState.Core\WorkState.Core.csproj" />
+    <ProjectReference Include="..\WorkState.Mcp\WorkState.Mcp.csproj" />
+    <ProjectReference Include="..\WorkState.Api\WorkState.Api.csproj" />
+    <ProjectReference Include="..\tools\WorkState.Import\WorkState.Import.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="Fixtures\**" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="Never" />
+
+    <!-- doc 05 is the source of WorkStateServerInstructions.Text; ChannelTests compares them. -->
+    <Content Include="..\..\docs\workstate\05-server-instructions.md"
+             Link="Fixtures\05-server-instructions.md"
+             CopyToOutputDirectory="PreserveNewest"
+             CopyToPublishDirectory="Never" />
+  </ItemGroup>
+
+</Project>
