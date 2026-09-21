@@ -147,7 +147,7 @@ assumed.
 | 3.1 | `work_create` (batch, with the kind rules), `work_update`, `work_move`, `work_link` + cycle check. |
 | 3.2 | `work_status` — the full transition guard, `force` + `forced_transition` events, deferral-as-a-move. |
 | 3.3 | `work_report`, `work_verify`, `work_note`, `work_assume`, `work_finding`. |
-| 3.4 | `work_patch` — block ops with `expected_revision` + block revision history. |
+| 3.4 | ~~`work_patch` — block ops with `expected_revision` + block revision history.~~ **DEFERRED by controller decision.** It needs its read half in the same slice or the write is untestable from a client, and that pairing did not fit U3. Still open, still wanted. |
 | 3.5 | Claims, leases, heartbeats, the serialization scope. |
 
 *Gate — required.* Seams: the `done` guard reads criteria **and** verifications **and** findings
@@ -160,14 +160,19 @@ assumed.
 | | |
 |---|---|
 | 4.1 | `work_import` + `tools/WorkState.Import`: parse a `.claude/orchestration/<slug>/` directory into items, docs and blocks, preserving every original line verbatim. Run it over all 181 files; the failures are the specification for what the schema is missing. |
-| 4.2 | Resources + templates + completions. |
-| 4.3 | Prompts: `worker_brief`, `review_brief`, `gate_brief`, `plan_audit_brief`, `handoff`, `retro`, `decompose` — with note-consumption on render. |
+| 4.2 | Resources + templates. ~~+ completions~~ — **cancelled by measurement 2026-09-18:** completions have **no client mechanism** (doc 01 §8), so the handler would have been dead code. Templates shipped, but are readable only if you already know the URI — exact URIs beat them. |
+| 4.3 | ~~Prompts: `worker_brief`, `review_brief`, `gate_brief`, … with note-consumption on render.~~ **CANCELLED by measurement 2026-09-18:** MCP prompts are **invisible to the client** (doc 01 §9, `mcp/PROBE.md`). Replaced by **`work_brief(for:)`** — a tool, and therefore actually reachable. Note-consumption happens there; see `BoardReader.BriefSessionAsync`. |
 | 4.4 | `work_audit` — the mechanical checks. |
 
 ### Phase 5 — Operator dashboard
 
 App API (cookie auth, excluded from the service OpenAPI) + SSE from `LISTEN/NOTIFY` + the SolidJS
-SPA. Design deferred, per the brief. Stack fixed in §1.
+SPA. Stack fixed in §1. **The design is no longer deferred** — it is
+`docs/workstate/09-dashboard-design.md`, and it is binding.
+
+The App API and the SSE stream landed in **U6**. Two contract defects it surfaced were fixed as
+**U6.1** (`item_rollup` had no `review` bucket, so every “X of Y” under-reported) and **U6.2**
+(the attention queue's refs were bare and collided across runs). The SPA is **U7**.
 
 ### Phase 6 — The skills
 
