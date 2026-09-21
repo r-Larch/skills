@@ -14,6 +14,7 @@ import * as api from '../api'
 import type { JournalEntry, TreeNode } from '../api'
 import { briefLines } from '../brief'
 import { dayOf, timeOfDay } from '../clock'
+import { dividerIndex, merge, newestFirst, newestSeq, seenKey } from '../journal'
 import { pulse } from '../live'
 import { itemHref } from '../nav'
 import TopBar from '../TopBar'
@@ -22,8 +23,6 @@ const JOURNAL_PAGE = 60
 
 /** A bound on one catch-up, so a client that has been away for a month cannot walk the whole table. */
 const CATCHUP_PAGES = 10
-
-const SEEN_KEY = (run: string) => `workstate.seen.${run}`
 
 type Branch = { node: TreeNode; children: TreeNode[] }
 
@@ -51,6 +50,35 @@ function branches(nodes: TreeNode[]): { root: TreeNode | undefined; list: Branch
 
 export default function RunView() {
   const params = useParams<{ run: string }>()
+
+  return (
+    <>
+      <TopBar
+        subtitle="run"
+        crumb={
+          <span class="crumb">
+            <A href="/">← watch floor</A>
+          </span>
+        }
+      />
+      {/*
+        Keyed, and that is the fix rather than a tidy-up: the router re-renders this route on a param
+        change without remounting it, so one instance could outlive the run it was built for. Two
+        things fell out of that — a cleanup that read `props.run` after the route had moved on and
+        wrote `workstate.seen.undefined`, and a journal that would have appended a second run's events
+        to the first run's list. Keying gives every run its own instance, and `run` a plain string.
+      */}
+      <Show when={params.run} keyed>
+        {(run) => <RunBody run={run} />}
+      </Show>
+    </>
+  )
+}
+
+function RunBody(props: { run: string }) {
+  // Read once, at creation. Everything below uses this, never `props.run` — a value, not a live read.
+  const run = props.run
+
   const [search] = useSearchParams<{ item?: string }>()
 
   // A rejected resource re-throws on read; the pane should say what went wrong, not vanish.
@@ -66,32 +94,17 @@ export default function RunView() {
     }
   }
 
-  const [tree] = createResource(
-    () => params.run,
-    (run: string) => guard(() => api.tree(run)),
-  )
-  const [brief] = createResource(
-    () => params.run,
-    (run: string) => guard(() => api.brief(run)),
-  )
+  const [tree] = createResource(() => guard(() => api.tree(run)))
+  const [brief] = createResource(() => guard(() => api.brief(run)))
 
   const shape = createMemo(() => branches(tree()?.nodes ?? []))
   const selected = () => search.item
 
   return (
     <>
-      <TopBar
-        subtitle="run"
-        crumb={
-          <span class="crumb">
-            <A href="/">← watch floor</A>
-          </span>
-        }
-      />
-
       <div class="wrap">
         <div class="sec-row">
-          <h2 class="sec">{params.run}</h2>
+          <h2 class="sec">{run}</h2>
           <span class="count">
             {tree()?.title ?? ''}
             {selected() ? ` · ${selected()}` : ''}
@@ -116,7 +129,7 @@ export default function RunView() {
               </Show>
             </p>
             <For each={shape().list}>
-              {(b) => <BranchRows branch={b} run={params.run} selected={selected()} />}
+              {(b) => <BranchRows branch={b} run={run} selected={selected()} />}
             </For>
             <p class="note" style={{ 'font-size': '11.5px', 'margin-top': '12px' }}>
               ⚠ marks a container its gate closed while children stayed open. The status and the
@@ -147,7 +160,7 @@ export default function RunView() {
             </p>
           </div>
 
-          <JournalPane run={params.run} />
+          <JournalPane run={run} />
         </div>
       </div>
     </>
@@ -257,6 +270,12 @@ function Row(props: {
  * it must not move under the operator's eyes while they are reading what it separates.
  */
 function JournalPane(props: { run: string }) {
+  // One string, computed at creation and used for both the read and the write. The previous version
+  // recomputed it from `props.run` inside `onCleanup`, which runs after the route has changed: it
+  // wrote `workstate.seen.undefined`, never matched what it had read, and the divider never rendered.
+  const key = seenKey(props.run)
+  const run = props.run
+
   const [events, setEvents] = createSignal<JournalEntry[]>([])
   const [more, setMore] = createSignal(false)
   const [seen, setSeen] = createSignal(0)
@@ -267,12 +286,12 @@ function JournalPane(props: { run: string }) {
   let cursor = 0
 
   const remember = () => {
-    const newest = events().reduce((max, e) => (e.seq > max ? e.seq : max), 0)
-    if (newest > 0) localStorage.setItem(SEEN_KEY(props.run), String(newest))
+    const newest = newestSeq(events())
+    if (newest > 0) localStorage.setItem(key, String(newest))
   }
 
   onMount(() => {
-    const stored = Number(localStorage.getItem(SEEN_KEY(props.run)) ?? '0')
+    const stored = Number(localStorage.getItem(key) ?? '0')
     setSeen(Number.isFinite(stored) ? stored : 0)
 
     // Closing the tab is the commonest way to stop looking, and it never unmounts the component.
@@ -291,15 +310,12 @@ function JournalPane(props: { run: string }) {
       void (async () => {
         try {
           for (let page = 0; page < CATCHUP_PAGES; page += 1) {
-            const answer = await api.journal(props.run, cursor, JOURNAL_PAGE)
+            const answer = await api.journal(run, cursor, JOURNAL_PAGE)
             setFailed('')
             cursor = answer.cursor
 
             if (answer.events.length > 0) {
-              setEvents((held) => {
-                const known = new Set(held.map((e) => e.seq))
-                return [...held, ...answer.events.filter((e) => !known.has(e.seq))]
-              })
+              setEvents((held) => merge(held, answer.events))
             }
 
             setMore(answer.hasMore)
@@ -312,11 +328,8 @@ function JournalPane(props: { run: string }) {
     }),
   )
 
-  const newestFirst = createMemo(() => [...events()].sort((a, b) => b.seq - a.seq))
-  const dividerBefore = createMemo(() => {
-    const cut = newestFirst().find((e) => e.seq <= seen())
-    return seen() > 0 && cut !== undefined && cut.seq !== newestFirst()[0]?.seq ? cut.seq : undefined
-  })
+  const rows = createMemo(() => newestFirst(events()))
+  const divider = createMemo(() => dividerIndex(rows(), seen()))
 
   return (
     <div class="journal">
@@ -329,10 +342,10 @@ function JournalPane(props: { run: string }) {
         when={events().length > 0}
         fallback={<p class="empty" style={{ padding: '0' }}>Nothing recorded for this run yet.</p>}
       >
-        <For each={newestFirst()}>
-          {(event) => (
+        <For each={rows()}>
+          {(event, index) => (
             <>
-              <Show when={dividerBefore() === event.seq}>
+              <Show when={divider() === index()}>
                 <div class="jdiv">since you last looked</div>
               </Show>
               <div class="jrow" title={`seq ${event.seq} · ${event.kind} · ${event.actor} (${event.role}) · ${dayOf(event.at)} ${event.at}`}>
@@ -347,6 +360,11 @@ function JournalPane(props: { run: string }) {
             </>
           )}
         </For>
+
+        {/* Every loaded event is newer than the cursor, so the line belongs below all of them. */}
+        <Show when={divider() === rows().length}>
+          <div class="jdiv">since you last looked</div>
+        </Show>
       </Show>
 
       <Show when={failed() !== ''}>

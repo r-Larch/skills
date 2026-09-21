@@ -8,7 +8,8 @@
     "serve": "vite preview",
     "ts": "tsc --project tsconfig.json --noEmit",
     "verify": "node verify/brief-identity.mjs",
-    "verify:board": "node verify/board-numbers.mjs"
+    "verify:board": "node verify/board-numbers.mjs",
+    "verify:journal": "node verify/journal-divider.mjs"
   },
   "dependencies": {
     "@solidjs/router": "^1.0.0",

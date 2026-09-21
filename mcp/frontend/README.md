@@ -34,6 +34,7 @@ one auth story, not two.
 | `pnpm --dir mcp/frontend build` | production build into `wwwroot` |
 | `pnpm --dir mcp/frontend verify` | **the brief is byte-identical** — see below |
 | `pnpm --dir mcp/frontend verify:board` | prints the honesty counts, the queue grouping, the lease clock and the ⚠ rows, computed by the same modules the views render with |
+| `pnpm --dir mcp/frontend verify:journal` | the cursor key and where the "since you last looked" divider lands — see below |
 
 Both verify scripts need the API running. They read the dashboard credential from
 `WorkState.Api/appsettings.Development.json`, or from `WORKSTATE_USER` / `WORKSTATE_PASSWORD`. No
@@ -46,6 +47,18 @@ only transform it applies, and it is deliberately shaped so that `rejoin(briefLi
 true for every input — the script asserts exactly that, against six adversarial strings and against
 the live endpoint. If a future change makes the pane do something a `<pre>` would not, this fails.
 
+### Why `verify:journal` exists
+
+The first version of the journal pane could never render the divider. It recomputed the
+`localStorage` key from `props.run` inside `onCleanup` — which runs *after* the route has changed —
+so it wrote `workstate.seen.undefined` while `onMount` had read `workstate.seen.<run>`. The read key
+and the write key never matched. The script reproduces that on the real solid-js reactive core and
+proves the fix, then checks where the divider lands against the live journal.
+
+The two things that keep it fixed: `RunBody` is **keyed** on the run, so every run gets its own
+component instance and `run` is a plain string rather than a live param read; and the key is computed
+once, at creation, and used for both the read and the write.
+
 ## Layout
 
 ```
@@ -53,10 +66,11 @@ src/
   api.ts      the App API, typed — one 401 flips the whole app to the sign-in gate
   brief.ts    the centre pane's only transform (lines in, lines out, text untouched)
   clock.ts    lease arithmetic in the *server's* frame of reference, via /api/watch's asOf
+  journal.ts  the cursor key, and where the "since you last looked" divider goes
   live.ts     one EventSource on /api/stream; a frame means "re-read", never "here is the state"
   nav.ts      where a qualifiedRef points
   queue.ts    the attention queue's grouping and the honesty strip's four cells
   theme.ts    dark · light · system on [data-theme]
   views/      WatchFloor.tsx, RunView.tsx — the two views of doc 09 §5, and no third
-verify/       the two checks above
+verify/       the three checks above
 ```
