@@ -73,7 +73,23 @@ public sealed record BlockedRow(string Ref, string BlockedByRef);
 
 public sealed record ClaimRow(string ItemRef, string AgentName, DateTimeOffset ExpiresAt);
 
+/// <summary>
+/// A lease the watch floor shows (doc 09 §5): the claim itself, plus the title and qualified ref a
+/// human needs to know what is being worked on. <see cref="ExpiresAt"/> is the instant, never a
+/// remaining duration — the client counts down against it, and a number computed here is wrong by
+/// the time it is read.
+/// </summary>
+public sealed record LiveClaimRow(
+    string ItemRef,
+    string QualifiedRef,
+    string Title,
+    string AgentName,
+    DateTimeOffset ExpiresAt);
+
 public sealed record StaleRow(string Ref, DateTimeOffset StartedAt);
+
+/// <summary>One entry of the dashboard's project switcher (doc 09 §5), with the runs under it.</summary>
+public sealed record ProjectRow(Guid Id, string Ref, string Title, ItemStatus Status, int RunCount);
 
 /// <summary>A phase with nothing left to do and no gate recorded against it (doc 07 §2).</summary>
 public sealed record GateRow(string PhaseRef, int TaskCount);

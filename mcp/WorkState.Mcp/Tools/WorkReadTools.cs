@@ -45,20 +45,10 @@ public sealed class WorkReadTools(BoardReader reader, WorkspaceOptions workspace
             return Text(ScopeExplain.Text(resolved, "work_brief", scope));
         }
 
-        // doc 07 §5: the sweep is what makes an expired lease visible, and it runs here because
-        // work_brief is the first call of every session — the moment a parked agent is noticed.
-        await housekeeping.SweepAsync(found.WorkspaceId, cancellationToken);
-
-        var variant = @for ?? "resume";
-        var brief = await reader.BriefAsync(found, variant, cancellationToken);
-
-        // doc 01 §3.4 — the notes have now been rendered into this brief, so they are delivered.
-        if (variant.Equals("worker", StringComparison.OrdinalIgnoreCase))
-        {
-            await housekeeping.ConsumeNotesAsync(found.Item.Id, cancellationToken);
-        }
-
-        return Text(brief);
+        // The sweep of doc 07 §5 and the note consumption of doc 01 §3.4 both live in
+        // BriefSessionAsync, because GET /api/runs/{ref}/brief must perform the identical writes in
+        // the identical order or the two surfaces return different bytes for the same scope.
+        return Text(await reader.BriefSessionAsync(found, @for ?? "resume", housekeeping, cancellationToken));
     }
 
     [Authorize(Policy = WorkStatePolicies.Orchestrator)]

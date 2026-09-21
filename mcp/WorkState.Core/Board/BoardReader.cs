@@ -1,6 +1,7 @@
 using WorkState.Core.Domain;
 using WorkState.Core.Queries;
 using WorkState.Core.Rendering;
+using WorkState.Core.Writing;
 
 namespace WorkState.Core.Board;
 
@@ -129,6 +130,38 @@ public sealed partial class BoardReader(WorkStateQueries queries, BoardQueries b
     }
 
     /// <summary>
+    /// A brief with the housekeeping a session owes around it: the sweep of doc 07 §5 before, and
+    /// the note consumption of doc 01 §3.4 after a worker variant.
+    /// <para>
+    /// <b>Every surface that serves a brief calls this and nothing else.</b> Both writes mutate the
+    /// attention block the brief ends with, so a second surface that rendered the brief without
+    /// them — or with its own copy of them — would return different bytes for the same scope
+    /// depending only on which surface was called first. The App API and <c>work_brief</c> are one
+    /// query layer with two presentations (doc 09 §8), and this method is where that is true.
+    /// </para>
+    /// </summary>
+    public async Task<string> BriefSessionAsync(
+        ScopeResult.Found scope,
+        string variant,
+        Housekeeping housekeeping,
+        CancellationToken cancellationToken = default)
+    {
+        await housekeeping.SweepAsync(scope.WorkspaceId, cancellationToken);
+
+        var brief = await BriefAsync(scope, variant, cancellationToken);
+
+        if (IsWorkerVariant(variant))
+        {
+            await housekeeping.ConsumeNotesAsync(scope.Item.Id, cancellationToken);
+        }
+
+        return brief;
+    }
+
+    public static bool IsWorkerVariant(string? variant)
+        => variant is not null && variant.Equals("worker", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
     /// doc 06 §5, ranked by cost of ignoring. Six sources, five lines: what gets dropped is decided
     /// by <see cref="AttentionRank"/> rather than by which query happened to run last.
     /// </summary>
@@ -144,7 +177,8 @@ public sealed partial class BoardReader(WorkStateQueries queries, BoardQueries b
             lines.Add(new AttentionLine(
                 AttentionRank.ExpiredClaim,
                 $"{claim.ItemRef} claim by {claim.AgentName} expired {Glyph.Age(Since(claim.ExpiresAt))} ago",
-                $"work_status(ref:\"{claim.ItemRef}\", to:\"in_progress\") to retake it"));
+                $"work_status(ref:\"{claim.ItemRef}\", to:\"in_progress\") to retake it",
+                claim.ItemRef));
         }
 
         foreach (var blocker in await board.BlockerFindingsAsync(item.Id, cancellationToken))
@@ -153,7 +187,8 @@ public sealed partial class BoardReader(WorkStateQueries queries, BoardQueries b
             lines.Add(new AttentionLine(
                 AttentionRank.BlockerFinding,
                 $"{blocker.FindingRef} (BLOCKER) is open{target}: {Glyph.Clip(blocker.FindingTitle, 40)}",
-                $"work_status(ref:\"{blocker.FindingRef}\", to:\"done\")"));
+                $"work_status(ref:\"{blocker.FindingRef}\", to:\"done\")",
+                blocker.FindingRef));
         }
 
         // doc 07 §2: nothing promoted this phase and nothing will. The obligation is named, with the
@@ -163,7 +198,8 @@ public sealed partial class BoardReader(WorkStateQueries queries, BoardQueries b
             lines.Add(new AttentionLine(
                 AttentionRank.PhaseGateNotRun,
                 $"{gate.PhaseRef}: all {gate.TaskCount} tasks done, gate not run",
-                $"work_brief(scope:\"{gate.PhaseRef}\") to run it"));
+                $"work_brief(scope:\"{gate.PhaseRef}\") to run it",
+                gate.PhaseRef));
         }
 
         foreach (var reference in await board.DoneUnverifiedAsync(item.Id, cancellationToken))
@@ -171,7 +207,8 @@ public sealed partial class BoardReader(WorkStateQueries queries, BoardQueries b
             lines.Add(new AttentionLine(
                 AttentionRank.DoneUnverified,
                 $"{reference} is done with no orchestrator verification",
-                $"work_verify(ref:\"{reference}\", result_line:\"…\", run_by:\"orchestrator\")"));
+                $"work_verify(ref:\"{reference}\", result_line:\"…\", run_by:\"orchestrator\")",
+                reference));
         }
 
         var assumptions = await board.AssumptionsAsync(scope.WorkspaceId, item.Id, true, cancellationToken);
@@ -180,7 +217,8 @@ public sealed partial class BoardReader(WorkStateQueries queries, BoardQueries b
             lines.Add(new AttentionLine(
                 AttentionRank.AssumptionPastRevisit,
                 $"{assumption.Ref} is past revisit_when ({assumption.RevisitRef} is closed)",
-                $"work_assume(ref:\"{assumption.Ref}\", resolve:\"confirmed\", evidence:\"…\")"));
+                $"work_assume(ref:\"{assumption.Ref}\", resolve:\"confirmed\", evidence:\"…\")",
+                assumption.Ref));
         }
 
         var notes = await board.UnconsumedNotesAsync(scope.WorkspaceId, item.Id, cancellationToken);
@@ -189,7 +227,8 @@ public sealed partial class BoardReader(WorkStateQueries queries, BoardQueries b
             lines.Add(new AttentionLine(
                 AttentionRank.UnconsumedNote,
                 $"{addressed.Count()} note(s) addressed to {addressed.Key} unconsumed",
-                $"work_brief(scope:\"{addressed.Key}\", for:\"worker\")"));
+                $"work_brief(scope:\"{addressed.Key}\", for:\"worker\")",
+                addressed.Key));
         }
 
         foreach (var stale in await board.StaleInProgressAsync(item.Id, StaleHours, cancellationToken))
@@ -197,7 +236,8 @@ public sealed partial class BoardReader(WorkStateQueries queries, BoardQueries b
             lines.Add(new AttentionLine(
                 AttentionRank.StaleInProgress,
                 $"{stale.Ref} has been in_progress {Glyph.Age(Since(stale.StartedAt))} with no live claim",
-                $"work_status(ref:\"{stale.Ref}\", to:\"in_progress\") to retake it"));
+                $"work_status(ref:\"{stale.Ref}\", to:\"in_progress\") to retake it",
+                stale.Ref));
         }
 
         return lines;

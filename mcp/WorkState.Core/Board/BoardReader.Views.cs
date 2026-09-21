@@ -398,7 +398,12 @@ public sealed partial class BoardReader
         int limit,
         CancellationToken cancellationToken = default)
     {
-        var events = await board.EventsAsync(workspaceId, scope?.Item.Id, sinceSeq, limit, cancellationToken);
+        var events = await board.EventsAsync(
+            workspaceId,
+            scope?.Item.Id,
+            sinceSeq,
+            limit,
+            cancellationToken: cancellationToken);
         if (events.Count == 0)
         {
             return $"HISTORY  no events after seq {sinceSeq}.";
