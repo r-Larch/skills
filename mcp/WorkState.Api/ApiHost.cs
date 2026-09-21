@@ -1,6 +1,8 @@
 using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authentication.Cookies;
 using ModelContextProtocol.Protocol;
 using Npgsql;
+using WorkState.Api.App;
 using WorkState.Api.Auth;
 using WorkState.Core.Board;
 using WorkState.Core.Data;
@@ -25,6 +27,12 @@ public static class ApiHost
         var builder = WebApplication.CreateBuilder(args);
         configure?.Invoke(builder);
 
+        // doc 08 §4 — one process, two audiences. The dashboard's credentials are read once here so
+        // the cookie handler and POST /api/session judge the same values.
+        var dashboard = new DashboardOptions();
+        builder.Configuration.GetSection(DashboardOptions.Section).Bind(dashboard);
+        builder.Services.AddSingleton(dashboard);
+
         builder.Services
             .AddAuthentication(StaticTokenHandler.SchemeName)
             .AddScheme<StaticTokenOptions, StaticTokenHandler>(StaticTokenHandler.SchemeName, options =>
@@ -32,7 +40,8 @@ public static class ApiHost
                 options.WorkerToken = builder.Configuration["WorkState:Auth:WorkerToken"];
                 options.OrchestratorToken = builder.Configuration["WorkState:Auth:OrchestratorToken"];
                 options.ControllerToken = builder.Configuration["WorkState:Auth:ControllerToken"];
-            });
+            })
+            .AddCookie(DashboardAuth.SchemeName, options => DashboardAuth.Configure(options, dashboard));
 
         // doc 01 §6. AddAuthorizationFilters() honours [Authorize] on a tool, and a tool the token
         // cannot satisfy is hidden from tools/list rather than refused on call (PROBE Q6) — so
@@ -52,7 +61,15 @@ public static class ApiHost
             .AddPolicy(WorkStatePolicies.Controller, policy => policy
                 .AddAuthenticationSchemes(StaticTokenHandler.SchemeName)
                 .RequireAuthenticatedUser()
-                .RequireRole(WorkStatePolicies.Controller));
+                .RequireRole(WorkStatePolicies.Controller))
+
+            // The fifth policy names the cookie scheme and nothing else, exactly as the four above
+            // name the bearer scheme and nothing else. That is what "two schemes that never cross"
+            // is made of: neither handler is ever asked to judge the other's credential.
+            .AddPolicy(DashboardAuth.Policy, policy => policy
+                .AddAuthenticationSchemes(DashboardAuth.SchemeName)
+                .RequireAuthenticatedUser()
+                .RequireRole(DashboardAuth.Role));
 
         AddWorkState(builder);
 
@@ -82,6 +99,10 @@ public static class ApiHost
         app.MapGet("/health", () => Results.Ok(new { status = "ok" })).AllowAnonymous();
 
         app.MapMcp("/mcp").RequireAuthorization(WorkStatePolicies.Any);
+
+        app.MapAppApi();
+
+        app.MapSpaFallback();
 
         return app;
     }
@@ -121,6 +142,10 @@ public static class ApiHost
         builder.Services.AddSingleton(sp => new BoardReader(
             sp.GetRequiredService<WorkStateQueries>(),
             sp.GetRequiredService<BoardQueries>()));
+
+        // One LISTEN per process, owning a connection of its own for the lifetime of the host.
+        builder.Services.AddSingleton<EventStream>();
+        builder.Services.AddHostedService(sp => sp.GetRequiredService<EventStream>());
 
         // The write side. CallerIdentity reads the bearer token's roles off the request, which is
         // where the actor and work_verify's run_by come from (doc 01 §6) — never from an argument.

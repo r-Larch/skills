@@ -58,6 +58,33 @@ public sealed class BoardQueries(NpgsqlDataSource dataSource)
     }
 
     /// <summary>
+    /// Every project in the workspace, for the dashboard's switcher (doc 09 §5). Ordered by ref so
+    /// the switcher does not reshuffle itself between polls.
+    /// </summary>
+    public async Task<IReadOnlyList<ProjectRow>> ProjectsAsync(
+        Guid workspaceId,
+        CancellationToken cancellationToken = default)
+    {
+        const string sql =
+            """
+            SELECT p.id     AS "Id",
+                   p.ref    AS "Ref",
+                   p.title  AS "Title",
+                   p.status AS "Status",
+                   coalesce(r.runs, 0)::int AS "RunCount"
+            FROM   item p
+            LEFT   JOIN LATERAL (
+                     SELECT count(*) AS runs
+                     FROM   item c
+                     WHERE  c.kind = 'run' AND c.ancestors @> ARRAY[p.id]::uuid[]) r ON true
+            WHERE  p.workspace_id = @workspace AND p.kind = 'project'
+            ORDER  BY p.ref;
+            """;
+
+        return await ListAsync<ProjectRow>(sql, new { workspace = workspaceId }, cancellationToken);
+    }
+
+    /// <summary>
     /// Resolves a ref. <c>2.3</c> looks anywhere in the workspace; <c>entity-store/2.3</c> looks
     /// inside that run only. More than one row back means the bare ref is ambiguous, which the
     /// caller reports with the qualified alternatives rather than guessing.
@@ -415,6 +442,42 @@ public sealed class BoardQueries(NpgsqlDataSource dataSource)
         return await ListAsync<ClaimRow>(sql, new { scope = scopeItemId }, cancellationToken);
     }
 
+    /// <summary>
+    /// The watch floor's WORKING NOW block (doc 09 §5): one row per claimed item, the live lease
+    /// preferred over a lapsed one. Lapsed leases stay in the result because the block's job is
+    /// "who is meant to be holding this", and a lease that ran out is the most interesting row on
+    /// the board — <see cref="ExpiredClaimsAsync"/> answers the narrower question of what to nag
+    /// about, and the two must not be collapsed.
+    /// </summary>
+    public async Task<IReadOnlyList<LiveClaimRow>> LiveClaimsAsync(
+        Guid scopeItemId,
+        CancellationToken cancellationToken = default)
+    {
+        const string sql =
+            $"""
+             SELECT "ItemRef", "QualifiedRef", "Title", "AgentName", "ExpiresAt" FROM (
+               SELECT DISTINCT ON (c.item_id)
+                      i.ref        AS "ItemRef",
+                      CASE WHEN s.ref IS NULL THEN i.ref ELSE s.ref || '/' || i.ref END
+                                   AS "QualifiedRef",
+                      i.title      AS "Title",
+                      c.agent_name AS "AgentName",
+                      c.expires_at AS "ExpiresAt",
+                      c.item_id
+               FROM   claim c
+               JOIN   item i ON i.id = c.item_id
+               LEFT   JOIN item s ON s.id = i.ref_scope_id AND s.id <> i.id
+               WHERE  (c.released_at IS NULL OR c.release_reason = 'expired')
+                 AND  i.status NOT IN ('done','cancelled','superseded')
+                 AND  {InScope}
+               ORDER  BY c.item_id, (c.released_at IS NULL) DESC, c.expires_at DESC
+             ) held
+             ORDER  BY "ExpiresAt" DESC;
+             """;
+
+        return await ListAsync<LiveClaimRow>(sql, new { scope = scopeItemId }, cancellationToken);
+    }
+
     /// <summary><c>in_progress</c> with nothing holding it, older than the threshold.</summary>
     public async Task<IReadOnlyList<StaleRow>> StaleInProgressAsync(
         Guid scopeItemId,
@@ -490,33 +553,41 @@ public sealed class BoardQueries(NpgsqlDataSource dataSource)
         return await ListAsync<string>(sql, new { scope = scopeItemId }, cancellationToken);
     }
 
+    /// <summary>
+    /// The journal after a cursor. <paramref name="oldestFirst"/> is not a formatting preference:
+    /// with <c>LIMIT</c> applied, descending returns the <em>newest</em> page after the cursor and
+    /// silently drops everything between, so a client catching up from its last seq would lose
+    /// exactly the events it reconnected to collect. Ascending makes the page contiguous from the
+    /// cursor, which is what makes the stream's monotonic seq worth having.
+    /// </summary>
     public async Task<IReadOnlyList<EventRow>> EventsAsync(
         Guid workspaceId,
         Guid? scopeItemId,
         long sinceSeq,
         int limit,
+        bool oldestFirst = false,
         CancellationToken cancellationToken = default)
     {
-        const string sql =
-            """
-            SELECT e.seq     AS "Seq",
-                   i.ref     AS "ItemRef",
-                   e.at      AS "At",
-                   e.actor   AS "Actor",
-                   e.role    AS "Role",
-                   e.kind    AS "Kind",
-                   e.summary AS "Summary"
-            FROM   event e
-            LEFT   JOIN item i ON i.id = e.item_id
-            WHERE  e.workspace_id = @workspace
-              AND  e.seq > @since
-              AND  (@scope IS NULL
-                    OR e.item_id = @scope
-                    OR EXISTS (SELECT 1 FROM item x
-                               WHERE x.id = e.item_id AND x.ancestors @> ARRAY[@scope]::uuid[]))
-            ORDER  BY e.seq DESC
-            LIMIT  @limit;
-            """;
+        var sql =
+            $"""
+             SELECT e.seq     AS "Seq",
+                    i.ref     AS "ItemRef",
+                    e.at      AS "At",
+                    e.actor   AS "Actor",
+                    e.role    AS "Role",
+                    e.kind    AS "Kind",
+                    e.summary AS "Summary"
+             FROM   event e
+             LEFT   JOIN item i ON i.id = e.item_id
+             WHERE  e.workspace_id = @workspace
+               AND  e.seq > @since
+               AND  (@scope IS NULL
+                     OR e.item_id = @scope
+                     OR EXISTS (SELECT 1 FROM item x
+                                WHERE x.id = e.item_id AND x.ancestors @> ARRAY[@scope]::uuid[]))
+             ORDER  BY e.seq {(oldestFirst ? "ASC" : "DESC")}
+             LIMIT  @limit;
+             """;
 
         return await ListAsync<EventRow>(
             sql,
