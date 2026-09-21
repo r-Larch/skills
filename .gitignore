@@ -19,3 +19,10 @@ obj/
 
 # Filled-in secrets for mcp/compose.yml. mcp/.env.example is the committed template.
 .env
+
+# Frontend. The SPA is built by an opt-in MSBuild target and by the Dockerfile's Node stage,
+# so no build output belongs in the repo. wwwroot is entirely generated: the API serves a
+# built-in placeholder when index.html is absent, so a clone without Node still runs.
+mcp/frontend/node_modules/
+mcp/frontend/dist/
+mcp/WorkState.Api/wwwroot/
