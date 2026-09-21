@@ -136,12 +136,19 @@ Answers "does anything need me?" without a click.
 │  └───────────────────────────────────────────────────────────────────────┘  │
 │                                                                             │
 │  HONESTY                                                                    │
-│   5 closed with no independent verification   ·   0 forced   ·   4 ungated  │
+│  104 closed unverified  ·  0 forced  ·  2 ungated  ·  119 follow-ups open   │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
 The honesty strip is one line and it is **the reason this product exists**. It is not a chart. It
-is a count that should be zero and usually is not.
+is a count that should be zero and usually is not. The numbers above are **the real corpus**,
+measured — `honesty` on `/api/watch` returns exactly these four fields.
+
+**The fourth is deliberately unlike the other three.** `doneUnverified`, `forced` and `ungated` are
+accusations. `followupsOpen` is not: a deferral that became a tracked follow-up is doc 07 §4 working
+as designed, and 119 of them is the system telling the truth rather than failing. It is on the strip
+because **a panel that only ever shows what went wrong is one people stop reading** — and colour
+follows that distinction, since §3 spends colour only where a decision is needed.
 
 ### The run view — the reading room
 
