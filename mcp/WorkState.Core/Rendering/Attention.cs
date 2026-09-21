@@ -30,8 +30,21 @@ public enum AttentionRank
 /// rendered text is one sentence by design (doc 06 §5), but doc 09 §5's queue gives the ref its own
 /// column, and re-extracting it from prose in the client is how the two surfaces drift apart.
 /// </para>
+/// <para>
+/// <paramref name="QualifiedRef"/> is what the queue links on. A bare ref is unique only inside its
+/// ref scope, and <c>/api/watch</c> spans every run under a project — the live corpus has one
+/// <c>phase-4</c> in each of four runs. It is <c>null</c> only where no single item is meant: the
+/// unconsumed-note line is about an addressee, not an item, so a group whose notes resolve to more
+/// than one qualified ref has none of its own. Never fall back to the bare ref there — that is the
+/// ambiguity this field exists to remove, restated as a fact.
+/// </para>
 /// </summary>
-public sealed record AttentionLine(AttentionRank Rank, string What, string Call, string? Ref = null);
+public sealed record AttentionLine(
+    AttentionRank Rank,
+    string What,
+    string Call,
+    string? Ref = null,
+    string? QualifiedRef = null);
 
 public static class Attention
 {
