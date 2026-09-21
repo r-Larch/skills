@@ -82,6 +82,38 @@ public sealed class AppReadTests(PostgresFixture fixture)
     }
 
     /// <summary>
+    /// <c>review</c> is unclosed work in flight, so it sits inside <c>totalCount</c>, and it is
+    /// broken out so the SPA can say "1 in review" rather than lumping it in with work not started.
+    /// The renderer computes the same denominator from the same view — the two agreeing is the
+    /// contract, because nothing under <c>/api</c> owns SQL.
+    /// </summary>
+    [Fact]
+    public async Task The_tree_node_carries_review_count_inside_a_total_the_renderer_agrees_with()
+    {
+        var world = await WriteSeed.CreateAsync(fixture);
+
+        // Task 1.1 is seeded open; one child in each remaining status, plus one that counts nowhere.
+        await WriteSeed.ChildAsync(world, world.PhaseId, "1.2", status: ItemStatus.InProgress);
+        await WriteSeed.ChildAsync(world, world.PhaseId, "1.3", status: ItemStatus.Blocked);
+        await WriteSeed.ChildAsync(world, world.PhaseId, "1.4", status: ItemStatus.Review);
+        await WriteSeed.ChildAsync(world, world.PhaseId, "1.5", status: ItemStatus.Done);
+        await WriteSeed.ChildAsync(world, world.PhaseId, "1.6", status: ItemStatus.Cancelled);
+
+        await using var server = await StartAsync(world.Slug);
+        var client = await server.SignInAsync(Ct);
+
+        var tree = await AppServer.ReadJsonAsync(client, "/api/runs/run-a/tree", Ct);
+        var phase = Node([.. tree.GetProperty("nodes").EnumerateArray()], "1");
+
+        Assert.Equal(1, phase.GetProperty("reviewCount").GetInt32());
+        Assert.Equal(1, phase.GetProperty("doneCount").GetInt32());
+        Assert.Equal(5, phase.GetProperty("totalCount").GetInt32());
+
+        var rendered = await world.Reader.TreeAsync(await world.ScopeAsync("run-a"), 3, [], true, Ct);
+        Assert.Contains("1/5 done", rendered, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// The watch floor: a lease with the instant it runs out, the attention queue, and the honesty
     /// counts. The lease carries <c>expiresAt</c> and never a remaining-seconds number, because that
     /// number is stale the moment it is serialised and the client is drawing a countdown with it.
