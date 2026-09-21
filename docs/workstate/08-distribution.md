@@ -59,16 +59,49 @@ So `plugins/rlarch/.mcp.json` becomes:
                    "headers": { "Authorization": "Bearer ${WORKSTATE_TOKEN}" } } } }
 ```
 
-### ⚠ Two things to settle before shipping that file
+### `${VAR}` expansion — **measured 2026-09-21, it works**
 
-- **`${WORKSTATE_TOKEN}` expansion is UNVERIFIED.** I believe Claude Code expands `${VAR}` in MCP
-  config; I have not proved it, and `claude mcp add --help` does not mention it. **Probe it before
-  committing that file** — the same rule this project has applied throughout. If it does not expand,
-  the fallback is a documented one-line `claude mcp add` in the skill, which is worse ergonomics and
-  perfectly safe.
-- **Never commit a real token.** `github.com/r-Larch/skills` is public. Today's `dev-*-token` values
-  are localhost-only throwaways, which is why they are committed — but a marketplace file is a
-  different audience, and a token in it is a token on the internet.
+Doc 08 shipped with this marked UNVERIFIED and a standing instruction to probe it. Probed, both
+directions, on the path we would actually ship:
+
+| Run | Config | `WSPROBE_TOKEN` | Result |
+|---|---|---|---|
+| 1 | `--mcp-config .mcp.json` | `dev-controller-token` | connected · **18 tools** |
+| 2 | same | **unset** | `HTTP 401` · no tools |
+| 3 | **`--plugin-dir ./plug`** (a plugin's own `.mcp.json`) | `dev-worker-token` | connected · **6 tools** |
+| 4 | same | **unset** | `AUTH_HEADER_REJECTED`, `HTTP 401` · no tools |
+
+Runs 3 and 4 are the ones that settle the packaging question: **a plugin-provided `.mcp.json`
+expands `${VAR}` inside `headers`.** Runs 2 and 4 are the red-check — without the variable the header
+goes out literally and the server rejects it, so run 1's success was the token and not anonymous
+access.
+
+Three things the probe established that the design did not know:
+
+- **Only `${VAR}` and `${VAR:-default}` expand. Bare `$VAR` does not.** The `$VAR` form documented
+  in Claude Code belongs to **HTTP hooks**, which are a different feature with their own
+  `allowedEnvVars` gate. Doc 08 guessed the right form by luck; the file must keep the braces.
+- **The variable's NAME is load-bearing.** The client carries a blank-list of credential-shaped
+  names that are deliberately read as **empty** when expanded toward a remote server, with a warning
+  rather than an error. It targets specific ecosystems — `GIT_CONFIG_*`, `CARGO_REGISTRIES_*_TOKEN`,
+  `BUNDLE_*__*`, package-registry user/token names, `OTEL_*`, and Claude's own credential variables.
+  `WSPROBE_TOKEN` is not on it and neither is `WORKSTATE_TOKEN`, but this is a **trap for anyone who
+  later renames it to something more obviously secret**: the failure is a silent 401, not a message
+  saying the name was refused. (Read from the client bundle, not measured — unlike the table above.)
+- **Plugin tools are namespaced `mcp__plugin_<plugin>_<server>__<tool>`**, not `mcp__<server>__`.
+  Any skill or profile that names a tool explicitly has to use that longer form.
+
+**A bonus the probe was not looking for:** runs 1 and 3 differ only in the token, and returned **18
+tools versus 6**. That is `AddAuthorizationFilters` and the three role profiles working end-to-end
+through a real client — previously only asserted in unit tests. Doc 01 §6's claim that a tool an
+agent may not call is simply *absent* from `tools/list` is now measured from the outside.
+
+### The one thing still to settle: **never commit a real token**
+
+`github.com/r-Larch/skills` is public. Today's `dev-*-token` values are localhost-only throwaways,
+which is why they are committed — but a marketplace file is a different audience, and a token in it
+is a token on the internet. The `${WORKSTATE_TOKEN}` indirection is what keeps the shipped file
+clean, and it is now known to work.
 
 ### And the version-skew problem, which is new
 
@@ -159,9 +192,13 @@ task at logon. Same result, more moving parts.
 
 ## Recommended order
 
-1. **Probe `${VAR}` expansion** in `.mcp.json`. One test, settles the packaging question.
+1. ~~**Probe `${VAR}` expansion** in `.mcp.json`.~~ **Done 2026-09-21 — it expands** (§2). Four runs,
+   both directions, on the plugin path.
 2. **Ship `plugins/rlarch/.mcp.json`** + a short README section: *start the stack, set the token*.
-   Minor bump — additive.
+   Minor bump — additive. **Staged, not shipped:** the exact file is committed at
+   **`mcp/plugin.mcp.json`**, verified by the §2 probe. Shipping it is `cp mcp/plugin.mcp.json
+   plugins/rlarch/.mcp.json` plus the version bump, and that is deliberately one manual step — see
+   below.
 3. **Build the dashboard** (doc 03 Phase 5; stack fixed, design deferred). The host needs
    `UseStaticFiles` + `MapFallbackToFile` — **not present yet**, confirmed by grep.
 4. **Then rewrite the three skills** against the store. Major bump. Separate undertaking.
@@ -169,3 +206,20 @@ task at logon. Same result, more moving parts.
 Order matters: the skills should be rewritten **after** the dashboard exists, because the first
 thing a human will want when a skill starts writing to a store instead of a file is somewhere to
 watch it happen.
+
+### Why the file is staged rather than committed at its live path
+
+It is written and proved, so the temptation is to drop it straight into `plugins/rlarch/`. Two
+reasons not to, and the second is the real one:
+
+- **It is not free to install.** The moment it ships, every session in every repo with the rlarch
+  plugin tries to reach `localhost:5290`. If the stack is not up or `WORKSTATE_TOKEN` is unset, the
+  result is a failed MCP connection notice — in every project, whether or not that project has
+  anything to do with WorkState. That is a cost the owner should choose, not inherit.
+- **An unbumped file in `plugins/rlarch/` is a landmine.** It reaches nobody today, which reads as
+  safe — but the next version bump for an unrelated reason ships it silently, to everyone, with
+  nobody having decided to. Distribution here is gated on one field, so anything sitting inside the
+  plugin directory is armed and waiting for a trigger someone else will pull for other reasons.
+  Keeping it at `mcp/plugin.mcp.json` means the bump cannot ship it by accident; only the `cp` can.
+
+So this is one `cp` away from shipped, and the `cp` is the decision.

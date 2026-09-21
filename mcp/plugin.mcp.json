@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "workstate": {
+      "type": "http",
+      "url": "http://localhost:5290/mcp",
+      "headers": { "Authorization": "Bearer ${WORKSTATE_TOKEN}" }
+    }
+  }
+}
