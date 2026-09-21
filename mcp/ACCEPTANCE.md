@@ -62,6 +62,45 @@ contaminants are listed can be judged; one whose contaminants are unmentioned ca
 Its one useful side effect: a tool the agent cannot call produces a `BLOCKED` naming it, instead of
 a silent park — so an allow-list gap shows up as data rather than as a hang.
 
+## 4a. The room is part of the test — learned by getting it wrong
+
+**Run A-0 was void because the agent read this file.** Call 6 of 16 was
+`Read mcp/ACCEPTANCE.md` — the purpose, both frozen prompts, the scoring buckets. It was pointed at
+the `Skills` checkout, which holds this runbook and all eight design documents.
+
+The prompt discipline was fine. **The room was not.** And the agent was *right* to read them: told
+to "use workstate", standing in a repo full of workstate documentation, reading the documentation is
+what a competent agent does.
+
+> **A frozen prompt does not protect a test whose environment leaks.**
+
+**So the acceptance runs from a neutral working tree**: `P:\Projects\LarchSys\ws-acceptance` —
+`git init`, one README, nothing else. No `mcp/`, no `docs/workstate/`, no repo that the imported
+runs describe. The agent can reach **the server and nothing else**, which is the only configuration
+in which the transcript means what it claims to mean.
+
+Two practical notes for whoever re-runs this:
+
+- **MCP registration is per-project.** Registering `workstate` in the `Skills` checkout does not
+  register it in the neutral tree; run `claude mcp add` from the neutral tree itself.
+- **Check what is reachable before launching, not after.** `find . -name "*.md"` in the tree you are
+  about to point an agent at costs one command and is the whole defence.
+
+## 4b. What the acceptance agent may do, and why it is narrow
+
+Granted: **read-only shell, `Read`/`Glob`/`Grep`, and all 18 `mcp__workstate__*` tools.**
+Nothing else. No `Edit`, no `Write`, no repo access to the projects the imported runs describe.
+
+Two reasons, and the second is the one that matters:
+
+1. **Grant all 18, not a subset.** The role is decided by the **token**, so `tools/list` already
+   narrows correctly. An allow-list gap would produce a `BLOCKED` that looks like a tool-surface
+   defect and is not — a false finding is worse than no finding.
+2. **The subject under test is whether the agent can drive WorkState**, not whether it can do the
+   underlying engineering. Run A says *"take it as far as you can"*; an agent that reaches the point
+   of needing to edit a Gaia source file and says so has **succeeded** at the thing being measured.
+   Score the WorkState calls; the code work is out of scope and its absence is not a defect.
+
 ## 5. How a call is scored
 
 Every call, in order, into one of three buckets:
