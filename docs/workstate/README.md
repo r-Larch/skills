@@ -36,20 +36,45 @@ never maintained; state that is the primary write is. Move the state, keep the j
 - **Artifacts are pointers** — paths, shas and URLs; bytes stay on disk.
 - **Goal:** a working MCP that is self-explaining to a coding agent — see doc 04 for the bar.
 
-## Status
+## Status — built, measured, and not pushed
 
-**Phase 0 closed 2026-09-18.** Source: `mcp/`. U0 landed: a five-project .NET 10 solution, compose
-files, and a probe server Claude Code connects to over HTTP.
+**Complete.** 47 commits on `feat/workstate`, 144 files, +32,486 lines. **213 tests, 0 warnings.**
+Nothing is pushed; that is the owner's call.
 
-Both premises are now **measured, not assumed**:
+### The claim, measured on the real artifact
 
-- **Task 0.1 - the SDK**, read from the 2.2.0 assemblies (doc 01 §11). No correction needed.
-- **Task 0.2 - the client**, two probe rounds against Claude Code (`mcp/PROBE.md` §5-6). It
-  **corrected the design in four places**: `structuredContent` *replaces* the text block rather than
-  accompanying it, so the output contract is now **text-only** (§2); server prompts are invisible, so
-  the doctrine moves into `work_brief(for: ...)` (§9); completions have no client mechanism at all
-  (§8); and `[Authorize]` narrows `tools/list` unaided, so `WithListToolsHandler` is dropped (§6).
+| | |
+|---|---|
+| `entity-store/LEDGER.md` | 6,011 lines · 473,988 chars · **~118,500 tokens** |
+| `work_brief` on that same run | 35 lines · **581 tokens** |
+| | **204× smaller**, and generated, so it cannot go stale |
 
-Three of those four make the build *smaller*. The fourth would have made the compact rendering - and
-the attention channel the whole forced-closure story leans on - **invisible to the model**, and it
-was found before a line of the real server existed. That is the entire argument for probing first.
+### The goal — *self-explaining to a coding agent* — tested, not asserted
+
+Three cold-start runs from a neutral tree, prompts pre-registered **before the surface existed**.
+
+- **`work_brief` was the unprompted first call in all three runs.** No skill, no tool name in the
+  prompt, no ordering hint.
+- **Zero uncorrected wrong calls** in every run.
+- **Check 2 passed:** a fresh agent hit the closure refusal, saw `force` spelled out one argument
+  away, and **went to run the verification instead.**
+- **Run B passed by refusing.** Given a prompt naming no work, it reasoned from the
+  `verify_cmd`-must-be-able-to-fail rule it had just read to the conclusion that inventing a subject
+  would make its own report a lie. **Nobody wrote that conclusion down.**
+
+### What the acceptance found that 200 tests did not
+
+Four surfaces that **lied while passing their own unit tests** — a resource reporting an empty store
+about an item that exists, a refusal naming the wrong run, a task rendered as a run, a composed URI
+404ing. All four fixed, and **shown fixed in a second transcript**, not in a test name.
+
+That is the case for the method: *defects in what a system **says** are invisible to tests of what
+it **computes**, and the only instrument that finds them is an agent reading the output with no idea
+what it was supposed to say.*
+
+### Deliberately not built
+
+`work_patch` (needs its read half — block ids rendered inline — as one slice) · the SolidJS operator
+dashboard (stack fixed in doc 03 §1) · OpenTelemetry, Sentry, Scalar · rewriting the
+`orchestrate` / `controller` / `nested-claude` skills against the store.
+
