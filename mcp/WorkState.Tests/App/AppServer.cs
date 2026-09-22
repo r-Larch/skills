@@ -36,6 +36,8 @@ internal sealed class AppServer : IAsyncDisposable
 
     public string BaseAddress { get; }
 
+    public IServiceProvider Services => _app.Services;
+
     public static async Task<AppServer> StartAsync(
         string connectionString,
         string? workspaceSlug,

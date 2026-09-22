@@ -25,6 +25,7 @@ public class WorkStateDbContext(DbContextOptions<WorkStateDbContext> options) : 
     public DbSet<Note> Notes => Set<Note>();
     public DbSet<Claim> Claims => Set<Claim>();
     public DbSet<AgentToken> AgentTokens => Set<AgentToken>();
+    public DbSet<DataProtectionKey> DataProtectionKeys => Set<DataProtectionKey>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -41,7 +42,15 @@ public class WorkStateDbContext(DbContextOptions<WorkStateDbContext> options) : 
         MapEvidence(b);
         MapJournal(b);
         MapThreads(b);
+        MapDataProtection(b);
     }
+
+    private static void MapDataProtection(ModelBuilder b) => b.Entity<DataProtectionKey>(e =>
+    {
+        e.ToTable("data_protection_key");
+        e.HasKey(x => x.Id);
+        e.Property(x => x.Id).UseIdentityAlwaysColumn();
+    });
 
     private static void MapThreads(ModelBuilder b)
     {
