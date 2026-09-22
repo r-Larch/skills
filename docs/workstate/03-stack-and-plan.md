@@ -176,7 +176,9 @@ The App API and the SSE stream landed in **U6**. Two contract defects it surface
 
 ### Phase 6 — The skills
 
-Rewrite `orchestrate`, `controller` and `nested-claude` against the store. This is the payoff and it
+Rewrite `orchestrate` and `controller` against the store. (**Corrected 2026-09-22**: this said
+all three. `nested-claude` holds no ledger, plan or conventions — it is session mechanics, and the
+store replaces none of it. See doc 08 §3.) This is the payoff and it
 is a **separate undertaking**, gated on Phase 4 being real:
 
 - `references/decompose.md` § *PLAN.md* and § *LEDGER.md* → deleted; the store owns both shapes.

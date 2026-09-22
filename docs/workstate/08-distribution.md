@@ -116,6 +116,16 @@ the rewritten skills state the minimum they need, so the failure is a sentence r
 
 ## 3. Should the skills use it? — Yes, and as a **hard** dependency
 
+> **SCOPE CORRECTED 2026-09-22 — it is two skills, not three.** This section and doc 03's Phase 6
+> both say *“rewrite `orchestrate`, `controller` and `nested-claude`”*. Measured: `nested-claude`
+> contains **zero** references to a ledger, `PLAN.md`, `CONVENTIONS.md` or the orchestration
+> directory. Its nine sections are launching a session, addressing it, the READY/BLOCKED/DONE
+> protocol, steering, watching, wrapping up, concurrency, restart recovery and writing the brief.
+> **None of that is bookkeeping a store can hold** — it is the mechanics of running a process.
+>
+> It needs at most one sentence pointing at where binding rules now live. The rewrite is
+> `orchestrate` and `controller`.
+
 The tempting answer is dual-mode: use the store if present, fall back to markdown. **Don't.** That is
 exactly the "two overlapping artifacts, you maintain both and trust neither" failure `orchestrate`
 warns about — and the file path would rot, because nobody would exercise it.
