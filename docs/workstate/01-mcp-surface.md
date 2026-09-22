@@ -119,7 +119,7 @@ or the link is a dead end. This is the same rule as §9 — the doctrine has to 
 
 ## 3. Tools
 
-20 tools. Deterministic order. `readOnlyHint` on all of §3.1; `destructiveHint` only where marked.
+19 tools. Deterministic order. `readOnlyHint` on all of §3.1; `destructiveHint` only where marked.
 Names are `work_*`-prefixed so they survive aggregation across servers.
 
 ### 3.1 Read — orient, then query
