@@ -1,17 +1,32 @@
 # syntax=docker/dockerfile:1
-# Build context is mcp/. No SPA yet, so no Node stage — the dashboard unit adds one.
+# Build context is mcp/.
+
+# The SPA is built here rather than by the API project's `-p:BuildSpa=true` target, because that
+# target would put Node inside the SDK image and make every C# layer depend on the frontend's
+# lockfile. Vite's outDir is ../WorkState.Api/wwwroot, so the assets land beside this stage's
+# frontend/ directory and the build stage copies them in.
+FROM node:24-slim AS spa
+WORKDIR /src/frontend
+
+RUN npm install --global pnpm@9.15.4
+
+COPY frontend/package.json frontend/pnpm-lock.yaml ./
+RUN pnpm install --frozen-lockfile
+
+COPY frontend/ ./
+RUN pnpm run build
 
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 
 COPY Directory.Build.props ./
-COPY WorkState.Abstractions/WorkState.Abstractions.csproj WorkState.Abstractions/
 COPY WorkState.Core/WorkState.Core.csproj WorkState.Core/
 COPY WorkState.Mcp/WorkState.Mcp.csproj WorkState.Mcp/
 COPY WorkState.Api/WorkState.Api.csproj WorkState.Api/
 RUN dotnet restore WorkState.Api/WorkState.Api.csproj
 
 COPY . .
+COPY --from=spa /src/WorkState.Api/wwwroot WorkState.Api/wwwroot
 RUN dotnet publish WorkState.Api/WorkState.Api.csproj -c Release -o /app --no-restore
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
