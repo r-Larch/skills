@@ -90,6 +90,9 @@ public class WorkStateDbContext(DbContextOptions<WorkStateDbContext> options) : 
                 .HasDatabaseName("constraint_scope_idx")
                 .HasFilter("active");
             e.HasIndex(x => x.CoversRisk).HasDatabaseName("constraint_risk_idx").HasMethod("gin");
+            e.HasIndex(x => new { x.WorkspaceId, x.Ref })
+                .HasDatabaseName("constraint_ref_unique")
+                .IsUnique();
         });
 
         b.Entity<Note>(e =>

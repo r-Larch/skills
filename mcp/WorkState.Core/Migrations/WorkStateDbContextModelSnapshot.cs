@@ -398,6 +398,11 @@ namespace WorkState.Core.Migrations
                         .HasColumnType("constraint_kind")
                         .HasColumnName("kind");
 
+                    b.Property<string>("Ref")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("ref");
+
                     b.Property<string>("Route")
                         .HasColumnType("text")
                         .HasColumnName("route");
@@ -435,6 +440,10 @@ namespace WorkState.Core.Migrations
 
                     b.HasIndex("ScopeItemId")
                         .HasDatabaseName("ix_constraint_rule_scope_item_id");
+
+                    b.HasIndex("WorkspaceId", "Ref")
+                        .IsUnique()
+                        .HasDatabaseName("constraint_ref_unique");
 
                     b.HasIndex("WorkspaceId", "ScopeItemId")
                         .HasDatabaseName("constraint_scope_idx")

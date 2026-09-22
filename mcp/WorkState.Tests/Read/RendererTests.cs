@@ -126,6 +126,21 @@ public sealed class RendererTests
         Assert.DoesNotMatch(Uuid, text);
     }
 
+    /// <summary>
+    /// U9.1. The block below BINDING prints <c>A3</c>; BINDING printed the text and nothing else, so
+    /// a rule could be read but never cited, questioned or retired.
+    /// </summary>
+    [Fact]
+    public void A_binding_line_carries_its_ref_between_the_marker_and_the_rule()
+    {
+        var line = BriefRenderer.Render(Sample([]))
+            .Split('\n')
+            .Single(l => l.Contains("never modify", StringComparison.Ordinal));
+
+        Assert.Equal("  ! C1  never modify Gaia.Web/Core/Rag/** — ask the owner", line);
+        Assert.True(line.Length <= Columns.Width, $"the line is {line.Length} columns");
+    }
+
     [Fact]
     public void The_brief_stays_inside_its_line_budget_and_names_what_it_left_out()
     {
@@ -201,7 +216,7 @@ public sealed class RendererTests
             Goal: "The voice agent answers from a curated entity store instead of page-chunked PDFs.",
             Where: "phase 2 of 9 — Ingestion. 6 of 8 tasks done.",
             Next: "work_get(ref:\"2.8\")  then  work_status(ref:\"2.8\", to:\"in_progress\")",
-            Binding: [new BindingLine("never modify Gaia.Web/Core/Rag/**", true, "ask the owner")],
+            Binding: [new BindingLine("C1", "never modify Gaia.Web/Core/Rag/**", true, "ask the owner")],
             BindingTotal: 1,
             Assumptions: [new AssumptionLine("A3", "DSS jsonexport reachable", "probed", "medium", "3.1")],
             AssumptionTotal: 1,

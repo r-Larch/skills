@@ -194,6 +194,11 @@ public sealed class ImportTests(PostgresFixture fixture)
 
         Assert.NotEmpty(rules);
         Assert.Contains(rules, r => r.Kind == ConstraintKind.RedLine);
+
+        // U9.1. The importer is where the 37 rules of the live corpus came from, so a ref it does
+        // not mint is a ref that is null for every rule anyone actually has.
+        Assert.All(rules, r => Assert.Matches("^C[0-9]+$", r.Ref));
+        Assert.Equal(rules.Count, rules.Select(r => r.Ref).Distinct(StringComparer.Ordinal).Count());
     }
 
     [Fact]

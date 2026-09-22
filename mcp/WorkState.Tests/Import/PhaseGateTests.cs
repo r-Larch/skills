@@ -146,6 +146,7 @@ public sealed class PhaseGateTests(PostgresFixture fixture)
                 Id = Guid.CreateVersion7(),
                 WorkspaceId = run.WorkspaceId,
                 ScopeItemId = run.RunItemId,
+                Ref = "C900",
                 Kind = ConstraintKind.RedLine,
                 Text = "App.Web/Core/Rag/",
             });

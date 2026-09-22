@@ -21,11 +21,11 @@ public sealed partial class ChannelTests(Store.PostgresFixture fixture)
     private static readonly string[] Orientation = ["work_next", "work_brief"];
 
     /// <summary>
-    /// The tools doc 04 §2 declares terminal: <c>work_note</c> is a side effect, and saying so is
-    /// what stops an agent hunting for a follow-up that does not exist. Listed here rather than
-    /// inferred, so adding a dead end is a deliberate edit to this array.
+    /// The tools doc 04 §2 declares terminal: <c>work_note</c> and <c>work_constrain</c> are side
+    /// effects, and saying so is what stops an agent hunting for a follow-up that does not exist.
+    /// Listed here rather than inferred, so adding a dead end is a deliberate edit to this array.
     /// </summary>
-    private static readonly string[] Terminal = ["work_note"];
+    private static readonly string[] Terminal = ["work_note", "work_constrain"];
 
     [GeneratedRegex(@"\bwork_[a-z_]+", RegexOptions.Compiled)]
     private static partial Regex ToolMention();

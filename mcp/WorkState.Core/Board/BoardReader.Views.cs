@@ -449,7 +449,8 @@ public sealed partial class BoardReader
 
         foreach (var rule in rules)
         {
-            lines.Add($"{(rule.Kind == ConstraintKind.RedLine ? "!" : "·")} {Glyph.Clip(rule.Text, 96)}");
+            lines.Add($"{(rule.Kind == ConstraintKind.RedLine ? "!" : "·")} "
+                    + $"{Glyph.Pad(Glyph.Flat(rule.Ref), 4)}{Glyph.Clip(rule.Text, 92)}");
             if (rule.Route is { Length: > 0 })
             {
                 lines.Add($"    → {Glyph.Clip(rule.Route, 92)}");

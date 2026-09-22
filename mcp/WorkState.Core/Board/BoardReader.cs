@@ -281,7 +281,7 @@ public sealed partial class BoardReader(WorkStateQueries queries, BoardQueries b
            && assumption.RevisitStatus is ItemStatus.Done or ItemStatus.Cancelled or ItemStatus.Superseded;
 
     private static BindingLine ToBinding(ConstraintRow row)
-        => new(row.Text, row.Kind == ConstraintKind.RedLine, row.Route);
+        => new(row.Ref, row.Text, row.Kind == ConstraintKind.RedLine, row.Route);
 
     private static AssumptionLine ToAssumption(AssumptionRow row)
         => new(

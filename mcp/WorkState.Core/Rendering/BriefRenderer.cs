@@ -2,7 +2,7 @@ using System.Text;
 
 namespace WorkState.Core.Rendering;
 
-public sealed record BindingLine(string Text, bool RedLine, string? Route = null);
+public sealed record BindingLine(string Ref, string Text, bool RedLine, string? Route = null);
 
 public sealed record AssumptionLine(
     string Ref,
@@ -101,8 +101,13 @@ public static class BriefRenderer
         {
             lines.Add(string.Empty);
             lines.Add($"BINDING ({model.BindingTotal})");
+
+            // The ref sits between the marker and the text, on the assumption row's four-wide
+            // handle column: a rule an agent can read but not name is one it cannot question or
+            // retire, and the marker still opens the line so the ! column stays scannable.
             lines.AddRange(model.Binding.Select(b =>
-                $"  {(b.RedLine ? "!" : "·")} {Glyph.Clip(b.Route is { Length: > 0 } ? $"{b.Text} — {b.Route}" : b.Text, 92)}"));
+                $"  {(b.RedLine ? "!" : "·")} {Glyph.Pad(Glyph.Flat(b.Ref), 4)}"
+                + Glyph.Clip(b.Route is { Length: > 0 } ? $"{b.Text} — {b.Route}" : b.Text, 88)));
             AddOverflow(lines, model.BindingTotal - model.Binding.Count, $"read {WorkUris.Conventions}");
         }
 

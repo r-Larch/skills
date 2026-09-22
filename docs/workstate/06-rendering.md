@@ -97,10 +97,10 @@ WHERE  phase 2 of 9 — Ingestion. 6 of 8 tasks done, gate not yet run.
 NEXT   work_status(ref:"2.8", to:"in_progress")   ← the literal next action
 
 BINDING (4)
-  ! never modify Gaia.Web/Core/Rag/** — 23 live chatbots depend on it
-  ! production is read-only until phase 9
-  ! run the suite with --filter; unfiltered hits a live service
-  · regenerate: dotnet ef migrations add, never edit the snapshot by hand
+  ! C1  never modify Gaia.Web/Core/Rag/** — 23 live chatbots depend on it
+  ! C2  production is read-only until phase 9
+  ! C4  run the suite with --filter; unfiltered hits a live service
+  · C9  regenerate: dotnet ef migrations add, never edit the snapshot by hand
 
 OPEN ASSUMPTIONS (2)
   A3 DSS jsonexport reachable from a dev machine   untested   medium   revisit: 3.1
@@ -119,6 +119,18 @@ LAST VERIFY  dotnet test --filter Importer → 181/181, by orchestrator, 6m ago
 
 **`NEXT` is a literal, callable line.** An agent that only ever does what `NEXT` says is running the
 system correctly — that is the tutorial channel of doc 04 §4, and it is why this line is never prose.
+
+**A BINDING line carries its ref**, between the marker and the rule, in the same four-wide handle
+column the assumption rows below it use. The marker still opens the line, so the `!` column stays
+scannable at a glance; the ref is what makes the rule addressable, which is what `work_constrain`
+needs to retire one and what a finding needs to argue against one.
+
+> **Changed 2026-09-22 (U9.1).** This section previously specified `  ! <text>`, with no ref —
+> deliberately, on the grounds that a rule asks for no decision. It was wrong: `constraint_rule` had
+> no `ref` column at all, so the omission was not restraint, it was the schema showing through. A
+> rule an agent can read but cannot name is one it cannot cite, question or retire, and directly
+> below it the assumptions print as `A3`. This is the only change to a rendered surface in the U9
+> queue, and it is why the unit that made it also edited this file.
 
 **The note header names what it is holding.** `ADDRESSED TO YOU (n)` counts only notes that name a
 target item — those are the ones a worker brief renders and consumes. Where a run carries unconsumed
