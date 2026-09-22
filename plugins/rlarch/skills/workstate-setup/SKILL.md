@@ -28,9 +28,14 @@ machine, so **do not assume the repo is here** (§2).
 
 ## 1. Which of the four states is this machine in? Say which, before running anything
 
-**First question: can you call `work_brief` right now?** If a `work_*` tool is in your tool list,
-this is the **already working** state. Say so, change nothing, and stop. Do not re-register a server
-that is answering you.
+**First question: can you call `work_brief` right now?** If `work_brief` **and** `work_constrain` are
+in your tool list, this is the **already working** state. Say so, change nothing, and stop. Do not
+re-register a server that is answering you.
+
+`work_brief` there but **no `work_constrain`** is a fifth state: **registered and running, but older
+than the skills.** Registration is fine — do §2 to find the repo, then rebuild the image with
+`docker compose -f mcp/compose.yml up -d --build` (after `git pull`, if the checkout is old too), then
+§6 and §7.
 
 Otherwise run these two — separately, and read both before deciding:
 
@@ -158,8 +163,8 @@ satisfies orchestrator and worker:
 | Token | Gives | Register this one if |
 |---|---|---|
 | `WORKSTATE_WORKER_TOKEN` | 6 tools — read, report, verify | the session only executes tasks handed to it |
-| `WORKSTATE_ORCHESTRATOR_TOKEN` | 18 tools | **the usual choice** — you plan, close and judge |
-| `WORKSTATE_CONTROLLER_TOKEN` | 18 tools | you run `/rlarch:controller` over a queue |
+| `WORKSTATE_ORCHESTRATOR_TOKEN` | 19 tools | **the usual choice** — you plan, close and judge |
+| `WORKSTATE_CONTROLLER_TOKEN` | 19 tools | you run `/rlarch:controller` over a queue |
 
 ```
 claude mcp add --scope user --transport http workstate http://localhost:5290/mcp --header "Authorization: Bearer <token>"
@@ -194,8 +199,9 @@ count is the answer. **Report the number to the user.**
 
 | You see | It means |
 |---|---|
-| **18** names | an orchestrator or controller token, working |
+| **19** names | an orchestrator or controller token, working |
 | **6** names | a worker token, working |
+| fewer, and no `work_constrain` among them | the running image is older than the skills — `orchestrate` and `controller` need `work_constrain`. Rebuild it from the repo root: `docker compose -f mcp/compose.yml up -d --build` (after `git pull`, if the checkout is old too), then count again |
 | `HTTP 401` / `AUTH_HEADER_REJECTED` | the token you sent is not the one the running container holds — you mistyped it, or `mcp/.env` was edited after the stack came up. Re-run §4's `up -d`; it recreates the container with the current values |
 | nothing, connection refused | the server is not up; back to §4 |
 

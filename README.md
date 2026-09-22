@@ -3,7 +3,7 @@
 A personal [Claude Code](https://code.claude.com) marketplace with **one plugin, `rlarch`**, carrying
 eight skills: three for code navigation (.NET and TypeScript), three for running work too big for a
 single context window, one for cleaning up comments, and one that sets up
-[WorkState](#workstate) — the optional server the orchestration skills record their work in.
+[WorkState](#workstate) — the server `orchestrate` and `controller` require and record their work in.
 
 ## Install
 
@@ -304,7 +304,7 @@ that runs out first. The skill spends it deliberately:
 | **The orchestrator never writes product code** | work reaches the repo only through worker subagents, so implementation detail never enters the context that must survive |
 | **Writers run strictly one at a time** | two agents editing one repo produce conflicts you pay for in the one resource you can't afford; parallelism is allowed only for read-only recon |
 | **Every verification command is run by the orchestrator, not trusted from a report** | "tests pass" is the claim you'd most regret taking on faith, and checking costs seconds |
-| **Disk is the memory, not context** | every decision, assumption and result lands in a run ledger the moment it happens, so a fresh session can resume from `LEDGER.md` alone |
+| **The store is the memory, not context** | every decision, assumption, verification and result lands in WorkState the moment it happens, so a fresh session can resume from one `work_brief` call alone |
 | **Red-checks** | any test defending a fix must be confirmed *failing* against the un-fixed code — the cheapest proof in the system, run in a context that's being thrown away anyway |
 | **Reviews are rare and priced** | a review agent costs more than an extra worker task; there's an explicit risk dial for when to spend one, and a phase gate that looks only at the seams between tasks |
 | **The plan is audited, not just executed** | every couple of phases a fresh agent checks the phases you *haven't* run yet — above all whether each task's verification command could actually go red, because a filter that already passes gets an unimplemented task accepted by every control in the system |
@@ -313,15 +313,17 @@ It also carries a hard ceiling on deliberation — an evidence budget per open q
 reversibility test, and explicit escalation triggers — because rigor that never terminates isn't
 rigor.
 
-### The run directory
+### The run lives in WorkState
 
-Phase 0 creates `.claude/orchestration/<slug>/`:
+`orchestrate` **requires** the [WorkState](#workstate) server; its first act is a `work_brief` call,
+and if the `work_*` tools are missing it says so and points at `/rlarch:workstate-setup`. There is no
+markdown fallback. Phase 0 writes the run into the store:
 
-| File | Contents |
+| What | Where |
 |---|---|
-| `PLAN.md` | the goal paragraph, phases, tasks, done-criteria |
-| `CONVENTIONS.md` | the repo's binding facts and safety rules, written **once**; every worker brief points at it instead of restating it |
-| `LEDGER.md` | the running record — one line per task |
+| the goal paragraph, phases, tasks, done-criteria | a `run` item and its children (`work_create`, `work_link`) |
+| the repo's binding facts and safety rules, written **once** | constraints (`work_constrain`), rendered into the BINDING block of every brief |
+| the running record | reports, verifications, findings and notes, plus a journal that writes itself |
 
 You approve the plan once, before the first writing agent runs. After that it runs to completion
 unless an escalation trigger fires.
@@ -332,14 +334,14 @@ unless an escalation trigger fires.
 
 > **Only want `dotnet-reflect`, `dotnet-source`, `ts-source` or `code-comments`? Skip this section
 > entirely.** WorkState is a **.NET service plus a Postgres, running in Docker on your own machine**,
-> and nothing installs or starts it for you. It is optional, it costs a container you have to keep
-> alive, and the four navigation/cleanup skills never touch it. The orchestration skills
-> (`orchestrate`, `controller`, `nested-claude`) are the ones that will come to require it.
+> and nothing installs or starts it for you. It costs a container you have to keep alive, and the
+> four navigation/cleanup skills never touch it. **`orchestrate` and `controller` require it** —
+> since 2.0.0 they keep their plan and record nowhere else. `nested-claude` does not need it.
 
 WorkState is an MCP server that holds **what coding agents are doing**: projects, runs, phases,
 tasks, findings, claims, assumptions, the evidence behind each verification, and an append-only
-journal of every change. It is what replaces the `PLAN.md` / `LEDGER.md` files an orchestrated run
-used to scatter across a repo — one store, queryable, with a generated recovery payload
+journal of every change. It replaced the `PLAN.md` / `LEDGER.md` files an orchestrated run used to
+scatter across a repo before 2.0.0 — one store, queryable, with a generated recovery payload
 (`work_brief`) that cannot go stale the way a hand-maintained ledger does.
 
 It is also a **live operator dashboard** on the same port, so a human can watch a run happen instead
@@ -377,10 +379,10 @@ The server's own design notes are in [`docs/workstate/`](docs/workstate/).
 1. **Retro.** At close-out, *only if the run earned it* — a rework, a re-plan, a red verification, a
    gate blocker, or one traceable ≥10k-token waste caused by the skill's own guidance — the skill
    files a GitHub issue against this repo, labelled `orchestrate-retro`, proposing **one** concrete
-   edit to **one** of its own files. It's built from the ledger it already holds, plus at most one
+   edit to **one** of its own files. It's built from the store's record of the run, plus at most one
    read — the file it proposes to edit, so the before/after is verbatim. No recon, no review agent.
    A clean run teaches nothing and is skipped. It posts unasked **only where you have push access
-   to this repo**; anyone else gets the same retro written to `.claude/orchestration/<slug>/RETRO.md`
+   to this repo**; anyone else gets the same retro written to `.claude/retro/<run ref>/RETRO.md`
    and nothing is posted. Rules and the exact issue schema live in
    `plugins/rlarch/skills/orchestrate/references/retro.md`.
 2. **Triage and apply.** The repo-local `/apply-retro` command
@@ -437,7 +439,6 @@ plugins/rlarch/                          # the plugin
   skills/orchestrate/
     SKILL.md
     references/{decompose,briefs,retro}.md
-    assets/{CONVENTIONS,LEDGER}.template.md
   skills/controller/
     SKILL.md
   skills/nested-claude/
