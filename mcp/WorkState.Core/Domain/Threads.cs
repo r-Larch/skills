@@ -43,6 +43,15 @@ public class ConstraintRule
     public Guid Id { get; set; }
     public Guid WorkspaceId { get; set; }
     public Guid? ScopeItemId { get; set; }
+
+    /// <summary>
+    /// <c>C1</c>, <c>C2</c>, … numbered within the workspace rather than within a run, because one
+    /// BINDING block mixes workspace-wide rules with rules scoped to the item's ancestors: a
+    /// per-run number would print two <c>C1</c>s in the same block, and a ref that is ambiguous
+    /// where it is read cannot be cited.
+    /// </summary>
+    public string Ref { get; set; } = "";
+
     public ConstraintKind Kind { get; set; }
     public string Text { get; set; } = "";
 

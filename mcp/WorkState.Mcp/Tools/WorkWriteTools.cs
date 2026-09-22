@@ -276,6 +276,48 @@ public sealed class WorkWriteTools(
     }
 
     [Authorize(Policy = WorkStatePolicies.Orchestrator)]
+    [McpServerTool(Name = "work_constrain", Title = "Bind: a rule every brief in scope prints")]
+    [Description("""
+        Records a rule that binds, or retires one by ref. It renders in the BINDING block of every
+        brief in scope, as C1, C2, … — the ref is how you cite, question or retire it later.
+        A red_line needs route: — what to do instead, or who to ask. A prohibition with no way out
+        is a trap, and "stop and report it" is a route.
+        Retiring leaves the row with active = false, so the audit keeps what used to bind.
+        Next: nothing. It is a side effect, not a step.
+        """)]
+    public async Task<CallToolResult> ConstrainAsync(
+        [Description("On retire, the rule's ref, e.g. \"C4\". Omit when creating.")]
+        string? @ref = null,
+        [Description("red_line | stack_fact | command | domain_rule | generated_code")]
+        string? kind = null,
+        [Description("The rule, as the brief will print it.")] string? text = null,
+        [Description("The way out. Required for a red_line.")] string? route = null,
+        [Description("An item's ref. Omitted, it binds the whole workspace.")]
+        string? scope = null,
+        [Description("risk tags this covers, matched against an item's risk_tags.")]
+        string[]? covers_risk = null,
+        [Description("binding (default) or advisory.")] string? severity = null,
+        [Description("The item that discovered it was needed.")] string? from = null,
+        [Description("Retire the rule this ref names instead of creating one.")]
+        bool retire = false,
+        [Description("Required for retire: why it no longer binds.")] string? reason = null,
+        CancellationToken cancellationToken = default)
+    {
+        var workspaceId = await board.WorkspaceAsync(workspace.Slug, cancellationToken);
+        if (workspaceId is not { } id)
+        {
+            return Result(WriteResult.No(Empty("work_constrain")));
+        }
+
+        return Result(await writer.ConstrainAsync(
+            id,
+            caller.Actor,
+            @ref,
+            new ConstrainArgs(kind, text, route, scope, covers_risk, severity, from, retire, reason),
+            cancellationToken));
+    }
+
+    [Authorize(Policy = WorkStatePolicies.Orchestrator)]
     [McpServerTool(Name = "work_finding", Title = "Judge: what a review or gate found")]
     [Description("""
         Records what a review, gate or audit found as real items against their targets. A blocker

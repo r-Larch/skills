@@ -179,7 +179,8 @@ public sealed class BoardQueries(NpgsqlDataSource dataSource)
     {
         const string sql =
             """
-            SELECT c.kind     AS "Kind",
+            SELECT c.ref      AS "Ref",
+                   c.kind     AS "Kind",
                    c.text     AS "Text",
                    c.route    AS "Route",
                    c.severity AS "Severity"

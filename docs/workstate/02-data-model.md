@@ -496,6 +496,7 @@ CREATE TABLE constraint_rule (
   id             uuid PRIMARY KEY,
   workspace_id   uuid NOT NULL REFERENCES workspace ON DELETE CASCADE,
   scope_item_id  uuid REFERENCES item ON DELETE CASCADE,   -- null = workspace-wide
+  ref            text NOT NULL,   -- 'C1', 'C2', … the handle the BINDING block prints
   kind           constraint_kind NOT NULL,
   text           text NOT NULL,
   route          text,            -- "no pipes — narrow with the tool's own --filter"
@@ -507,18 +508,33 @@ CREATE TABLE constraint_rule (
 );
 CREATE INDEX constraint_scope_idx ON constraint_rule (workspace_id, scope_item_id) WHERE active;
 CREATE INDEX constraint_risk_idx  ON constraint_rule USING gin (covers_risk);
+CREATE UNIQUE INDEX constraint_ref_unique ON constraint_rule (workspace_id, ref);
 ```
 
-Two things this enables that a file cannot:
+**The ref is numbered per WORKSPACE, not per run** — which is where it parts company with `item.ref`
+and `assumption.ref`, both of which are numbered inside their `ref_scope_id`. The reason is the
+rendering: one BINDING block shows the workspace-wide rules *together with* every rule scoped to the
+item's ancestors, so a per-run number would print two `C1`s side by side, and a ref that
+is ambiguous where it is read is not a ref. A1 is scoped to a run because two parallel orchestrators
+must each be able to open their own; C1 has no such pressure, because a rule is written once and
+read by everyone.
 
+Three things this enables that a file cannot:
+
+- **Citation.** `C7` is an address: it can be quoted in a brief, questioned in a finding, and retired
+  by `work_constrain(ref:"C7", retire:true, reason:…)`. A rule you can read but cannot name is one
+  you cannot retire, and the corpus is full of rules that outlived their reason because retiring them
+  meant editing a markdown file nobody owned.
 - **Scoped rendering.** A brief for item X gets the workspace rules plus every rule scoped to X's
   ancestors — no more *"repeating the same fifteen safety lines in twelve briefs"*, and no more
   briefs missing the rule that was added after they were written.
 - **Coverage checking** (plan-audit check #6). `covers_risk` vs the `risk_tags` of *upcoming* items
   answers *"does `CONVENTIONS.md` still forbid everything the remaining tasks can destroy?"* as a set
   difference. The `route` column is `nested-claude`'s hardest-won lesson made structural: a
-  prohibition row without a route is itself a flagged defect, because *"a rule that demands a
-  capability the agent does not have is a trap you set yourself."*
+  prohibition row without a route is itself a defect, because *"a rule that demands a capability the
+  agent does not have is a trap you set yourself."* `work_constrain` refuses a `red_line` that
+  carries no `route` — the one kind that is a prohibition, and the one case where the guard is
+  satisfiable every time, since *"stop and report it"* is a route.
 
 ---
 

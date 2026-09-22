@@ -29,7 +29,12 @@ public sealed record ScopeHeader(
     string? Head,
     string? Goal);
 
-public sealed record ConstraintRow(ConstraintKind Kind, string Text, string? Route, string Severity);
+public sealed record ConstraintRow(
+    string Ref,
+    ConstraintKind Kind,
+    string Text,
+    string? Route,
+    string Severity);
 
 public sealed record AssumptionRow(
     string Ref,
