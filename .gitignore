@@ -26,3 +26,8 @@ obj/
 mcp/frontend/node_modules/
 mcp/frontend/dist/
 mcp/WorkState.Api/wwwroot/
+
+# Python bytecode. The nested-claude watchdog is a .py script the plugin ships; running it
+# leaves a __pycache__ beside it, and a committed .pyc is both junk and interpreter-specific.
+__pycache__/
+*.pyc
