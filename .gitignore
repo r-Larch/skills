@@ -31,3 +31,7 @@ mcp/WorkState.Api/wwwroot/
 # leaves a __pycache__ beside it, and a committed .pyc is both junk and interpreter-specific.
 __pycache__/
 *.pyc
+
+# Scratch written by /rlarch:workstate-setup when it asks the server what tools a token grants.
+# It runs from this repo root, so the file lands here; it is evidence for one command, not an artifact.
+tools.json
