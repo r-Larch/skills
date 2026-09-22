@@ -72,8 +72,9 @@ first that works:
    git clone https://github.com/r-Larch/skills <the directory they named>
    ```
 
-**Never clone without asking, and never pick the directory yourself.** A clone is hundreds of
-megabytes into a location the user has to live with afterwards.
+**Never clone without asking, and never pick the directory yourself.** The repo is small — about
+3 MB — so the reason is not bandwidth: it is a directory on someone else's machine that they have
+to find, remember and live with afterwards.
 
 Every command below runs **from the repo root** — the directory holding `mcp/`.
 
