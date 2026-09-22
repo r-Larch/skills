@@ -1,5 +1,8 @@
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.DataProtection;
+using Microsoft.AspNetCore.DataProtection.KeyManagement;
+using Microsoft.AspNetCore.DataProtection.Repositories;
 using ModelContextProtocol.Protocol;
 using Npgsql;
 using WorkState.Api.App;
@@ -21,6 +24,14 @@ namespace WorkState.Api;
 public static class ApiHost
 {
     public const string ConnectionStringName = "WorkState";
+
+    /// <summary>
+    /// The DataProtection application discriminator, fixed rather than derived. Left to itself the
+    /// provider takes it from the content root, so the same key ring read from the container
+    /// (<c>/app</c>) and from a published build on the host would yield two different purpose
+    /// chains — a ring in the database that neither party could use.
+    /// </summary>
+    public const string DataProtectionApplicationName = "workstate";
 
     public static WebApplication Build(string[] args, Action<WebApplicationBuilder>? configure = null)
     {
@@ -137,6 +148,9 @@ public static class ApiHost
         }
 
         builder.Services.AddSingleton(_ => WorkStateDataSource.Create(connectionString));
+
+        AddDataProtection(builder);
+
         builder.Services.AddSingleton(sp => new WorkStateQueries(sp.GetRequiredService<NpgsqlDataSource>()));
         builder.Services.AddSingleton(sp => new BoardQueries(sp.GetRequiredService<NpgsqlDataSource>()));
         builder.Services.AddSingleton(sp => new BoardReader(
@@ -156,5 +170,21 @@ public static class ApiHost
             sp.GetRequiredService<BoardQueries>(),
             sp.GetRequiredService<Housekeeping>()));
         builder.Services.AddSingleton<CallerIdentity>();
+    }
+
+    /// <summary>
+    /// The dashboard cookie's signing keys, into Postgres rather than the container filesystem — see
+    /// <see cref="PostgresXmlRepository"/> for why. Registered here, inside the block that a missing
+    /// connection string skips, because keys in the store are only an option when there is a store.
+    /// </summary>
+    private static void AddDataProtection(WebApplicationBuilder builder)
+    {
+        builder.Services.AddDataProtection().SetApplicationName(DataProtectionApplicationName);
+
+        builder.Services.AddSingleton<IXmlRepository>(sp =>
+            new PostgresXmlRepository(sp.GetRequiredService<NpgsqlDataSource>()));
+
+        builder.Services.AddOptions<KeyManagementOptions>()
+            .Configure<IXmlRepository>((options, repository) => options.XmlRepository = repository);
     }
 }

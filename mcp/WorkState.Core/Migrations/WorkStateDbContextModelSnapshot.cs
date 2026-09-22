@@ -443,6 +443,30 @@ namespace WorkState.Core.Migrations
                     b.ToTable("constraint_rule", (string)null);
                 });
 
+            modelBuilder.Entity("WorkState.Core.Domain.DataProtectionKey", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityAlwaysColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("FriendlyName")
+                        .HasColumnType("text")
+                        .HasColumnName("friendly_name");
+
+                    b.Property<string>("Xml")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("xml");
+
+                    b.HasKey("Id")
+                        .HasName("pk_data_protection_key");
+
+                    b.ToTable("data_protection_key", (string)null);
+                });
+
             modelBuilder.Entity("WorkState.Core.Domain.Doc", b =>
                 {
                     b.Property<Guid>("Id")
