@@ -534,7 +534,9 @@ The launcher prepends the protocol; your file supplies the work. A good brief:
   Name it and say why.
 - **States the verification commands**, and demands a test that fails before the fix and passes after.
 - **Repeats the repo's binding conventions.** Agents default to narrating their own change in comments;
-  if the repo forbids that, say so — the agent does not inherit your instructions.
+  if the repo forbids that, say so — the agent does not inherit your instructions. When the work is
+  tracked in WorkState, the run's binding rules are its constraints, and `work_brief(scope: "<item
+  ref>", for: "worker")` prints them in its BINDING block — paste that rather than retyping them.
 - **Says what to do instead of guessing**: *"if you believe the finding is wrong, STOP and report that
   rather than fixing something else."*
 - **Carries the baseline you already measured**, as numbers. Not *"take a baseline"* — the exact

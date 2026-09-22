@@ -20,7 +20,9 @@ Always `run_in_background: false` for writers and reviewers — you need the res
 
 ## The worker brief
 
-Copy this shape. A brief missing done-criteria or a verification command is a defect; fix it before spawning. Point at `CONVENTIONS.md` — never inline the repo's safety rules and stack facts into every brief.
+Copy this shape. The done-criteria, the verification command and the run's binding rules come from the store — `work_brief(scope: "<task ref>", for: "worker")` — pasted verbatim, never retyped: a retyped rule drifts from the one you will judge by. The store cannot refuse a task without criteria or a command, so if that output is missing either, the task was created wrong — fix it with `work_update` before spawning.
+
+What the store does **not** hold is what stops a worker parking: which commands its session may run, the shell shapes that match no allow-list, the facts you already established, and the environment's benign noise. `work_brief` renders an item's state; it knows nothing about the session that will read it. Those sections are yours to write, every time.
 
 ```markdown
 ## Context
@@ -28,9 +30,15 @@ Copy this shape. A brief missing done-criteria or a verification command is a de
 in it. Workers who understand the destination make better local calls than
 workers following instructions. Include what previous tasks already delivered.>
 
-## Read first — binding
-`.claude/orchestration/<slug>/CONVENTIONS.md` — repo conventions, verification
-commands, and safety rules for this run. Follow it.
+## Binding — from the store
+<Paste the output of work_brief(scope: "<task ref>", for: "worker") here, verbatim:
+the task's done-criteria, its verification command, the run's BINDING rules, and
+any notes addressed to this task. Follow all of it.>
+
+## Established — do not re-verify
+<What you already know that the worker would otherwise go looking for: file paths,
+the call chain, which of two similar methods is the right one, the baseline
+counts. Every fact withheld is a chance to guess.>
 
 ## If the premise is wrong, stop and say so
 This brief may be factually wrong about the code. If you find that it is — the
@@ -57,14 +65,13 @@ Likely files: <paths, if known>
 Precedent to follow: <existing file that does the analogous thing>
 
 ## Done when
-- [ ] <criterion — specific and checkable>
-- [ ] <criterion>
-- [ ] <tests, if the test policy calls for them — say which behaviors>
+Every criterion in the Binding section holds.
+<Tests, if the test policy calls for them — say which behaviors.>
 
 ## Verify with
-`<exact command — the narrowest one that can fail for this change>` — must be
-green before you report done. Run it yourself, and read the actual result line,
-not an exit code from the end of a pipe.
+The verification command in the Binding section — must be green before you
+report done. Run it yourself, and read the actual result line, not an exit code
+from the end of a pipe. Put that line, verbatim, in VERIFY.
 
 ## Red-check — required for any test defending a fix or a "no behaviour change" claim
 Revert your change (stash it, or temporarily restore the old behaviour), run the
@@ -81,6 +88,9 @@ read broadly "to be safe".
 
 ## Do not
 - Do not commit or push. Leave changes in the working tree; the orchestrator commits.
+- Do not call `work_verify`, `work_status`, `work_report` or any other `work_*`
+  tool that writes. Report in the format below; the orchestrator records it. You
+  run on its credentials, so your write would be filed as its evidence.
 - Do not delete any file not named in scope above. If deletion looks correct,
   report it and stop — you cannot see what a later phase needs.
 - Do not paste code, diffs, or file contents into your report.
@@ -183,13 +193,13 @@ Under 25 lines. No code blocks.
 
 ## The plan audit brief
 
-Fires on the cadence in `SKILL.md` › *The plan audit*. Use the `Plan` agent, **read-only**: it audits, you edit `PLAN.md`. Reach for `general-purpose` with write access scoped to the run directory only when the re-shape is large enough that transcribing the answer costs more than making the edit — and then re-audit, because surgery on a long markdown file breaks things.
+Fires on the cadence in `SKILL.md` › *The plan audit*. Use the `Plan` agent, **read-only**: it audits, you change the plan in the store. It reads the plan with `work_tree` and `work_get`; it writes nothing.
 
 Three rules separate an audit that pays from one that returns an essay:
 
-- **Hand it the facts, marked as established.** Everything recon and the completed phases already proved goes into the brief as *take these as established, do not re-verify*. An audit that re-derives what you already hold charges full price for information you had.
-- **Give it the real controls.** It must be able to run the verification commands and probe the real system. That is how it proves a `Verify:` filter is decorative, and how it checks a claim against the data rather than against the document asserting it.
-- **Point it at the ledger and forbid reading it through.** A mature run's ledger is thousands of lines. Say: *search it for specific claims; do not read it cover to cover.*
+- **Hand it the facts, marked as established.** Everything recon and the completed phases already proved goes into the brief as *take these as established, do not re-verify* — and so does the output of the `work_audit` you ran first. An audit that re-derives what you already hold charges full price for information you had.
+- **Give it the real controls.** It must be able to run the verification commands and probe the real system. That is how it proves a verification filter is decorative, and how it checks a claim against the data rather than against the document asserting it.
+- **Point it at the history and forbid reading it through.** A mature run's journal is thousands of events. Say: *use `work_search` for specific claims and `work_history(scope: …)` for one item; do not page the whole journal.*
 
 ```markdown
 ## What this is
@@ -200,15 +210,19 @@ is <result>. You are auditing the phases **not yet executed**: <list them>.
 worse than useless. If the shape is wrong, say so before enumerating anything.
 
 ## Read these — they are the authority
-- `.claude/orchestration/<slug>/PLAN.md` — <state explicitly which section supersedes which>
-- `.claude/orchestration/<slug>/CONVENTIONS.md` — the binding safety rules
+- `work_tree(scope: "<run ref>", status: "open,ready,blocked")` — the remaining plan, and
+  `work_get(refs: [...])` for any task's criteria, verification command and links.
+- `work_brief(scope: "<run ref>")` — its BINDING block is the run's safety rules.
 - `<the spec, if one exists>`
-- `.claude/orchestration/<slug>/LEDGER.md` — **do not read cover to cover.** Search it for
-  specific claims only.
+- The journal — **do not page through it.** `work_search(q: …)` for specific claims,
+  `work_history(scope: "<ref>")` for one item.
+Read only. Do not call any `work_*` tool that writes.
 
 ## Established — take as fact, do not re-verify
 <What recon and the completed phases already proved: what exists, what doesn't, the precedent to
 copy, which decisions are settled and by whom. Be generous here; it is what keeps the audit cheap.>
+<The work_audit output, verbatim: it has already checked never-red commands, superseded pointers,
+dependency inversions, uncovered risk tags and routeless red lines.>
 
 ## Load-bearing claims — verify these specifically
 <The claims the remaining design rests on, each with the consequence of being false:
@@ -219,20 +233,21 @@ copy, which decisions are settled and by whom. Be generous here; it is what keep
 Not to praise the plan, not to restate it. Assume the reader is competent, has never seen this
 repo, and will follow these documents literally.
 
-1. **Could each remaining `Verify:` command fail?** Run them. Report any that pass today — a filter
+1. **Could each remaining verification command fail?** Run them. Report any that pass today — a filter
    matching tests that already exist verifies nothing, and the task gets accepted unimplemented. A
    filter naming a class the task will create is correct; a command that passes regardless is not.
 2. **Dependencies.** Does everything the remaining tasks name — endpoint, helper, table, fixture,
    file path — either exist now or get built by an earlier task? Name anything assumed and
    uncommissioned.
-3. **Numbering.** Is every task number defined exactly once, across every document? Does anything
-   still cite a number that resolves to superseded work?
+3. **Superseded work.** Is any open task a replacement that was never linked `supersedes` to what
+   it replaced — or a replaced task still on the frontier? Does any spec section or task intent
+   still cite work a later decision retired?
 4. **Accuracy.** Spot-check the load-bearing claims against the code and the real system. Report
    anything stated as fact that is not true.
 5. **Contradictions.** Where do two documents disagree, or one still describe a superseded state?
-6. **Red lines.** Does `CONVENTIONS.md` still forbid everything the *remaining* tasks could
-   destroy? It was written before these phases existed. Name what a worker briefed only on that
-   file could break.
+6. **Red lines.** Does the BINDING block still forbid everything the *remaining* tasks could
+   destroy? It was written before these phases existed. Name what a worker briefed only on those
+   rules could break.
 7. **Ordering.** Does anything depend on work scheduled after it — in sequence, or in contract?
 8. **The one thing most likely to be misread.** Be specific and opinionated.
 
@@ -242,7 +257,8 @@ not a finding. Verify before reporting. Max 8, ranked, each BLOCKER (real damage
 MINOR.
 
 ## Do not
-Do not modify any file — this is an audit. Do not write code. Do not fix what you find; report it.
+Do not modify any file or any item in the store — this is an audit. Do not write code. Do not fix
+what you find; report it.
 
 ## Report format
 VERDICT: ready | ready-with-minors | not-ready
@@ -256,9 +272,11 @@ Under 30 lines. No code blocks.
 
 ### Handling the result
 
-- **BLOCKER** → edit `PLAN.md` (or `CONVENTIONS.md`) before the next task runs; log it as a re-plan.
-- **MINOR** → ledger follow-ups. Don't stop the phase.
-- **Re-audit after fixing blockers** → `SendMessage` the same agent rather than spawning a new one; it still holds the documents and whatever harness it built, so confirming the fixes costs a fraction of the first pass. **Not optional when the fix was text surgery on a long file** — the round that repairs blockers is the round most likely to introduce one.
+Record every finding with `work_finding(findings: [{target: "<ref>", title, severity, source: "plan_audit"}])` — a blocker then holds its target open, so it cannot be closed past.
+
+- **BLOCKER** → change the items (`work_update`, `work_create`, `work_link`) or the rules (`work_constrain`) before the next task runs; it is a re-plan — `references/decompose.md` › *Re-planning*.
+- **MINOR** → leave it as an open minor finding. Don't stop the phase.
+- **Re-audit after fixing blockers** → `SendMessage` the same agent rather than spawning a new one; it still holds the plan and whatever harness it built, so confirming the fixes costs a fraction of the first pass. **Not optional when the fix reshaped a phase** — the round that repairs blockers is the round most likely to introduce one.
 - **not-ready twice on the same axis** → the shape is the problem, not the details. Escalate; do not audit a third time.
 
 ---
@@ -304,8 +322,10 @@ Bad recon questions return essays: *"Tell me about the auth system."* → 200 li
 
 ## Handling review output
 
-- **BLOCKER** → rework task, fresh worker, narrow brief quoting the finding.
-- **MINOR** → ledger follow-ups. Do not stop the phase for minors. Batch them into one cleanup task at the end of the phase if there are enough to be worth an agent — one brief, not one agent per fix.
+Record the findings first: `work_finding(findings: [{target: "<task ref>", title, severity, source: "review"}])`.
+
+- **BLOCKER** → rework task, fresh worker, narrow brief quoting the finding. The finding holds the task open until it is closed.
+- **MINOR** → an open minor finding. Do not stop the phase for minors. Batch them into one cleanup task at the end of the phase if there are enough to be worth an agent — one brief, not one agent per fix.
 - **Re-verifying the fix** → `SendMessage` the original reviewer, don't spawn a new one.
 - **Reviewer and worker disagree** → you decide, using the reversibility test. Log the call and why. Do not run a third agent to break the tie; that's the paralysis loop.
 - **Reviewer returns nothing** → a legitimate, common result. Accept and move on.
