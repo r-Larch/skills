@@ -40,7 +40,7 @@ public sealed class ConstrainTests(PostgresFixture fixture)
 
         var line = brief.Split('\n').Single(l => l.Contains("gaia.factory.it", StringComparison.Ordinal));
         Assert.Equal(
-            "  ! C1  never connect to gaia.factory.it — use the local compose database on 55433",
+            "  ! C1   never connect to gaia.factory.it — use the local compose database on 55433",
             line);
     }
 

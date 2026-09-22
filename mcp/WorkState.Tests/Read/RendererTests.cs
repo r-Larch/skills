@@ -137,7 +137,30 @@ public sealed class RendererTests
             .Split('\n')
             .Single(l => l.Contains("never modify", StringComparison.Ordinal));
 
-        Assert.Equal("  ! C1  never modify Gaia.Web/Core/Rag/** — ask the owner", line);
+        Assert.Equal("  ! C1   never modify Gaia.Web/Core/Rag/** — ask the owner", line);
+        Assert.True(line.Length <= Columns.Width, $"the line is {line.Length} columns");
+    }
+
+    /// <summary>
+    /// The ref column is four wide, so a ref that is already four characters consumes it entirely
+    /// and the separator has to be its own space. Without it the corpus — which runs to C258 —
+    /// rendered every line from C100 up as "C148Never connect to …". The test above uses C1 and
+    /// passes either way, which is precisely why this one exists.
+    /// </summary>
+    [Fact]
+    public void A_four_character_ref_does_not_collide_with_the_rule_it_names()
+    {
+        var model = Sample([]) with
+        {
+            Binding = [new BindingLine("C148", "never connect to production", true, "ask the owner")],
+        };
+
+        var line = BriefRenderer.Render(model)
+            .Split('\n')
+            .Single(l => l.Contains("never connect", StringComparison.Ordinal));
+
+        Assert.Equal("  ! C148 never connect to production — ask the owner", line);
+        Assert.DoesNotContain("C148never", line, StringComparison.OrdinalIgnoreCase);
         Assert.True(line.Length <= Columns.Width, $"the line is {line.Length} columns");
     }
 

@@ -105,9 +105,14 @@ public static class BriefRenderer
             // The ref sits between the marker and the text, on the assumption row's four-wide
             // handle column: a rule an agent can read but not name is one it cannot question or
             // retire, and the marker still opens the line so the ! column stays scannable.
+            //
+            // The separator after the pad is not decoration. Pad(ref, 4) leaves nothing behind a
+            // ref that is already four wide, and the corpus runs to C258 — so without it every
+            // line from C100 up reads "C148Never connect to …". AssumptionRow has always appended
+            // this space; copying the column without it is how the defect arrived.
             lines.AddRange(model.Binding.Select(b =>
-                $"  {(b.RedLine ? "!" : "·")} {Glyph.Pad(Glyph.Flat(b.Ref), 4)}"
-                + Glyph.Clip(b.Route is { Length: > 0 } ? $"{b.Text} — {b.Route}" : b.Text, 88)));
+                $"  {(b.RedLine ? "!" : "·")} {Glyph.Pad(Glyph.Flat(b.Ref), 4)} "
+                + Glyph.Clip(b.Route is { Length: > 0 } ? $"{b.Text} — {b.Route}" : b.Text, 87)));
             AddOverflow(lines, model.BindingTotal - model.Binding.Count, $"read {WorkUris.Conventions}");
         }
 
