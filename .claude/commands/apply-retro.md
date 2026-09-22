@@ -143,9 +143,13 @@ At the end of step 2 you should have four lists: **apply**, **rework-and-apply**
 
 ## 3. Apply the edits
 
-Target files live under `plugins/rlarch/skills/orchestrate/` — `SKILL.md`,
-`references/{briefs,decompose,retro}.md`, `assets/{CONVENTIONS,LEDGER}.template.md`. The issue's
-`## Target` line gives the path relative to that skill root.
+Target files live under `plugins/rlarch/skills/orchestrate/` — `SKILL.md` and
+`references/{briefs,decompose,retro}.md`. The issue's `## Target` line gives the path relative to
+that skill root.
+
+`assets/{CONVENTIONS,LEDGER}.template.md` used to be on that list and **no longer exist**: the
+store owns those two shapes now, so a retro proposing an edit to either is proposing an edit to a
+file that was deleted, and belongs in **reject** with that as the reason.
 
 **The `BEFORE:` block must match the target file character for character.** Locate it with an exact
 search, never a fuzzy one:
