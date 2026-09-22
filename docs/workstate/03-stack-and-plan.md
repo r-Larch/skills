@@ -180,11 +180,17 @@ Rewrite `orchestrate`, `controller` and `nested-claude` against the store. This 
 is a **separate undertaking**, gated on Phase 4 being real:
 
 - `references/decompose.md` § *PLAN.md* and § *LEDGER.md* → deleted; the store owns both shapes.
-- `references/briefs.md` templates → server prompts.
+- ~~`references/briefs.md` templates → server prompts.~~ **CORRECTED 2026-09-22** — prompts were
+  cancelled by measurement (task 4.3 above, in this same file). **`briefs.md` mostly stays**, and
+  not merely for want of a destination: a nested session's brief is the allow-list, the banned
+  shell shapes, the established facts and the named environment noise. Fourteen launches in the
+  WorkState run were lost to defects in those sections and **not one** would have been prevented
+  by anything the store holds. `work_brief` renders an *item's* state; it does not know which
+  verbs a session may run.
 - `assets/LEDGER.template.md`, `assets/CONVENTIONS.template.md` → deleted.
 - `SKILL.md` keeps the judgment: the role change, the cost table, the risk dial, red-checks,
   verification doctrine, the phase gate's question, escalation triggers, the critical-thinking
-  ceiling. Rough estimate: **333 lines → ~180**, and `briefs.md`'s 311 lines mostly evaporate.
+  ceiling. Rough estimate: **333 lines → ~180**.
 - `controller` §7 *"The record is a deliverable"* becomes *"the record is a query"*.
 - **Both stores run in parallel for one real undertaking before the files are removed.** The corpus
   is unambiguous that the failure mode of a migration is two artifacts that disagree.

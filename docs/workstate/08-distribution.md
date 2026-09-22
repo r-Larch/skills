@@ -128,9 +128,22 @@ warns about — and the file path would rot, because nobody would exercise it.
   route is a trap.
 - **This is a MAJOR bump** per AGENTS.md — the behaviour of an existing skill changes for everyone.
 - **What gets deleted, not adapted:** `references/decompose.md` §PLAN.md and §LEDGER.md,
-  `assets/LEDGER.template.md`, `assets/CONVENTIONS.template.md`, and most of `references/briefs.md`
-  — the store owns those shapes now. Rough estimate from doc 03 §Phase 6: `orchestrate` 333 → ~180
-  lines; `briefs.md`'s 311 mostly evaporate.
+  `assets/LEDGER.template.md`, `assets/CONVENTIONS.template.md` — the store owns those shapes now.
+  Rough estimate from doc 03 §Phase 6: `orchestrate` 333 → ~180 lines.
+
+  > **CORRECTED 2026-09-22.** This bullet used to add *“and most of `references/briefs.md` … its
+  > 311 lines mostly evaporate”*, on the strength of doc 03 §4.3's plan to move brief templates to
+  > **MCP prompts**. **Prompts were cancelled by measurement on 2026-09-18** — they are invisible
+  > to the client (doc 01 §9, `mcp/PROBE.md`) — so the destination that bullet assumed does not
+  > exist. The stale plan survived here because the correction was made in doc 01 and doc 03 and
+  > never chased into this file.
+  >
+  > And the deeper reason it was wrong: **a brief for a nested session is not bookkeeping.** Its
+  > allow-list, its banned-shell-shapes table, its “established facts, do not verify them” block and
+  > its named environment noise are the things that stop an agent parking — fourteen launches in
+  > the WorkState run were lost to defects in exactly those sections, and **not one** would have
+  > been prevented by anything the store holds. `work_brief` renders an *item's* state; it knows
+  > nothing about which verbs a session may run. **`briefs.md` mostly stays.**
 - **What stays, because the store cannot hold judgement:** the cost table, the risk dial, red-checks,
   verification doctrine, the phase gate's question, escalation triggers, the critical-thinking
   ceiling.
