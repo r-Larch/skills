@@ -18,8 +18,8 @@ plugins/rlarch/
   skills/dotnet-reflect/            # SKILL.md + scripts/*.cs
   skills/dotnet-source/             # SKILL.md + ds.ps1/ds.sh + tool/   (.NET, compiled once to cache)
   skills/ts-source/                 # SKILL.md + tss.ps1/tss.sh + tool/ (plain .mjs, no build)
-  skills/orchestrate/               # SKILL.md + references/ + assets/
-docs/workstate/                     # WorkState's spec — 00..07. The spec, not notes.
+  skills/orchestrate/               # SKILL.md + references/   (assets/ went with 2.0.0 — the store owns those shapes)
+docs/workstate/                     # WorkState's spec — 00..09. The spec, not notes.
 mcp/                                # WorkState.slnx (SLNX, not .sln)
   WorkState.Core/                   # store, queries, renderers, guards — no web host
   WorkState.Mcp/                    # the 18 tools, the work:// resources, ServerInstructions
