@@ -116,6 +116,17 @@ Each launch starts the same way: `work_next(scope: "<queue ref>")` names the uni
 - Collect on an integration branch and land once, or land each as it passes — either is fine, but
   decide up front and tell the human which.
 
+**Launch every agent in auto mode** — `-PermissionMode auto` on `Start-NestedAgent.ps1`, i.e.
+`claude --bg --permission-mode auto`. Under `acceptEdits` every shell shape the allow-list did not foresee
+parks the agent until a human attaches: in one three-unit run that was five parks — a `;` inside a build
+argument, a commit-message file under `.claude/`, `New-Item` for a folder, a PowerShell byte read, a
+build flag in an unexpected order — each one harmless, each one an hour of nothing until someone clicked
+*Yes*. Auto mode's classifier approves routine commands itself and refuses risky ones instead of asking,
+so the agent gets an answer either way and keeps moving. It is a backstop, not the contract: the brief
+still forbids `git push`, production databases and migrations in words, and still routes artifacts away
+from paths that are refused whatever the mode (§3). Keep the `-Toolset` profile too — it is what the
+agent may do without the classifier's judgement at all.
+
 **Reclaim resources between units.** Each agent building into its own output directory can leave a
 build server behind. A twelve-unit run accumulated 28 processes holding 5.4 GB and the machine began
 killing background tasks mid-verification.
@@ -361,7 +372,7 @@ If you find yourself doing this for every unit, the brief is wrong, not the agen
 |---|---|
 | Agent reports READY and has no instructions | a variadic flag ate the prompt — see `/rlarch:nested-claude` |
 | Agent reports READY from an empty folder | your setup step failed and the launch did not check |
-| Agent silent, then nothing for an hour | parked on a permission prompt; a parked agent never goes idle, so an idle subscription never fires |
+| Agent silent, then nothing for an hour | parked on a permission prompt; a parked agent never goes idle, so an idle subscription never fires — launch in auto mode (§2) |
 | Steer ignored | it is parked; your message is queued behind the prompt |
 | A fix that looks complete and changes nothing | a red-check mutation left in the tree, merged from the working tree instead of the commit |
 | Green suite, broken feature | the over-correction case had no guard; every test moved in the same direction |
