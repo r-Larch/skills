@@ -109,8 +109,9 @@ finished, send DONE saying where you stopped.* The brief already defines it.
 
 ### Permissions — the most common way a launch quietly fails
 
-A `--bg` agent has **no human at its keyboard**, and `--permission-mode acceptEdits` only covers
-*edits*. The first shell command it has not been granted parks it, and from the outside a parked
+The launcher's `-PermissionMode` defaults to `auto` (see `/rlarch:controller` §2). The rest of this
+section is what happens under any other mode. A `--bg` agent has **no human at its keyboard**, and
+`--permission-mode acceptEdits` only covers *edits*. The first shell command it has not been granted parks it, and from the outside a parked
 agent is indistinguishable from a busy one. On 2026-09-10 an agent stopped nine minutes in on
 `ls /p/packages/nuget/npgsql/` — exploration, not a dangerous act — and would have sat there forever.
 

@@ -26,7 +26,7 @@ param(
     [Parameter(Mandatory)][string] $Controller,
 
     [string]   $RepoRoot       = (Get-Location).Path,
-    [string]   $PermissionMode = "acceptEdits",
+    [string]   $PermissionMode = "auto",
 
     # A named tool profile, merged with -AllowedTools. A --bg agent has no human at its keyboard, so
     # the FIRST shell call it has not been granted parks it - see the -Toolset table in SKILL.md.
