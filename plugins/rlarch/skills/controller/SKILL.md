@@ -116,7 +116,7 @@ Each launch starts the same way: `work_next(scope: "<queue ref>")` names the uni
 - Collect on an integration branch and land once, or land each as it passes — either is fine, but
   decide up front and tell the human which.
 
-**Launch every agent in auto mode** — `-PermissionMode auto` on `Start-NestedAgent.ps1`, i.e.
+**Launch every agent in auto mode** — the default of `Start-NestedAgent.ps1`'s `-PermissionMode`, i.e.
 `claude --bg --permission-mode auto`. Under `acceptEdits` every shell shape the allow-list did not foresee
 parks the agent until a human attaches: in one three-unit run that was five parks — a `;` inside a build
 argument, a commit-message file under `.claude/`, `New-Item` for a folder, a PowerShell byte read, a
@@ -126,6 +126,14 @@ so the agent gets an answer either way and keeps moving. It is a backstop, not t
 still forbids `git push`, production databases and migrations in words, and still routes artifacts away
 from paths that are refused whatever the mode (§3). Keep the `-Toolset` profile too — it is what the
 agent may do without the classifier's judgement at all.
+
+**In auto mode the brief is the authorization.** The classifier asks whether the *user* asked for an
+act, and to a nested agent the user is you: the brief is its first user message. An act that looks
+dangerous out of context is refused unless the brief grants it in words — a red-check that disables a
+guard to see its test go red was refused as "weakening security" in one run, and three red-checks went
+unrun. Grant each such act explicitly, with its bound: *"the owner authorizes you to temporarily remove
+the naming-policy check in X to watch its test fail; restore it with `git checkout -- <file>` and never
+commit it"*. Grant only what the human approved — the red-checks of §5 are approved with the queue.
 
 **Reclaim resources between units.** Each agent building into its own output directory can leave a
 build server behind. A twelve-unit run accumulated 28 processes holding 5.4 GB and the machine began
@@ -268,6 +276,10 @@ that degrades everything to a safe default will pass every other test in the fil
 Ask for red-check variants that are *plausible wrong implementations*, not strawmen: the shape someone
 would actually write. The most valuable one is usually the variant that **makes the symptom disappear
 while causing different damage** — it is the one that would have shipped.
+
+A red-check that removes an authorization check, a validation or a refusal reads like sabotage to an auto
+mode classifier. Name each break in the brief and grant it in words (§2), or it is refused and the guard
+goes unproven.
 
 ---
 
