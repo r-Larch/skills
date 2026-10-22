@@ -491,7 +491,9 @@ already there.
 
 When you do run several: distinct `-Name` each, keep each returned object, and branch each one off the
 previous agent's branch rather than the base, so conflicts get resolved once by the agent that caused
-them instead of piling up at the end.
+them instead of piling up at the end. If the work is tracked in WorkState, claim each unit with its own
+worktree — `work_status(ref, "in_progress", tree: "<-RepoRoot>")` — or the second claim in the same run
+is refused.
 
 ---
 

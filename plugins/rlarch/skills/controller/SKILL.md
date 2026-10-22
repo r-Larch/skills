@@ -105,7 +105,9 @@ a database, a branch, a build output directory, a lock file — turns two agents
 belong to neither, and chasing those costs more than the parallelism saves.
 
 Each launch starts the same way: `work_next(scope: "<queue ref>")` names the unit, and
-`work_status(ref, "in_progress")` claims it before the brief is written.
+`work_status(ref, "in_progress", tree: "<the unit's worktree path>")` claims it before the brief is
+written. The claim is per working tree, so pass `tree:` — without it the whole run is one tree and a
+second unit of the queue is refused while the first is in progress.
 
 **Integration strategy, decided before the first launch:**
 
