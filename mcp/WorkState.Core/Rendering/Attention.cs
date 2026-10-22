@@ -33,10 +33,8 @@ public enum AttentionRank
 /// <para>
 /// <paramref name="QualifiedRef"/> is what the queue links on. A bare ref is unique only inside its
 /// ref scope, and <c>/api/watch</c> spans every run under a project — the live corpus has one
-/// <c>phase-4</c> in each of four runs. It is <c>null</c> only where no single item is meant: the
-/// unconsumed-note line is about an addressee, not an item, so a group whose notes resolve to more
-/// than one qualified ref has none of its own. Never fall back to the bare ref there — that is the
-/// ambiguity this field exists to remove, restated as a fact.
+/// <c>phase-4</c> in each of four runs. Every source names one item, the unconsumed-note line
+/// included: it is one line per addressee (ws/13), so its call can never name an ambiguous scope.
 /// </para>
 /// </summary>
 public sealed record AttentionLine(
