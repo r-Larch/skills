@@ -37,7 +37,11 @@ public sealed class EventStream(NpgsqlDataSource dataSource, ILogger<EventStream
 
     private readonly ConcurrentDictionary<Guid, Subscriber> _subscribers = new();
 
-    private sealed record Subscriber(Guid Workspace, Channel<StreamEvent> Channel);
+    /// <summary>
+    /// <see cref="Workspace"/> is null while the server is empty: the row is written by the first
+    /// write, and that write's event is the one this subscriber is waiting for.
+    /// </summary>
+    private sealed record Subscriber(Guid? Workspace, Channel<StreamEvent> Channel);
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -104,7 +108,7 @@ public sealed class EventStream(NpgsqlDataSource dataSource, ILogger<EventStream
 
         foreach (var subscriber in _subscribers.Values)
         {
-            if (subscriber.Workspace != message.Workspace)
+            if (subscriber.Workspace is { } workspace && workspace != message.Workspace)
             {
                 continue;
             }
@@ -147,11 +151,9 @@ public sealed class EventStream(NpgsqlDataSource dataSource, ILogger<EventStream
         WorkspaceOptions workspace,
         CancellationToken cancellationToken)
     {
-        if (await board.WorkspaceAsync(workspace.Slug, cancellationToken) is not { } workspaceId)
-        {
-            context.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
-            return;
-        }
+        // An empty server streams too: a 503 here is what the board shows as "stream down" before
+        // the first work_create, which is exactly when the operator is watching for it.
+        var workspaceId = await board.WorkspaceAsync(workspace.Slug, cancellationToken);
 
         context.Response.Headers.ContentType = "text/event-stream";
         context.Response.Headers.CacheControl = "no-cache";
@@ -172,9 +174,24 @@ public sealed class EventStream(NpgsqlDataSource dataSource, ILogger<EventStream
 
         stream._subscribers[id] = new Subscriber(workspaceId, channel);
 
+        // Unresolved, the channel receives every workspace's events. The first one may be the write
+        // that created ours: re-resolve on it, then narrow the subscription so the rest are filtered
+        // where they are fanned out.
+        async Task<bool> AdmitsAsync(StreamEvent message)
+        {
+            if (workspaceId is null
+                && await board.WorkspaceAsync(workspace.Slug, cancellationToken) is { } resolved)
+            {
+                workspaceId = resolved;
+                stream._subscribers[id] = new Subscriber(resolved, channel);
+            }
+
+            return message.Workspace == workspaceId;
+        }
+
         try
         {
-            await PumpAsync(context, channel, cancellationToken);
+            await PumpAsync(context, channel, AdmitsAsync, cancellationToken);
         }
         catch (OperationCanceledException)
         {
@@ -189,6 +206,7 @@ public sealed class EventStream(NpgsqlDataSource dataSource, ILogger<EventStream
     private static async Task PumpAsync(
         HttpContext context,
         Channel<StreamEvent> channel,
+        Func<StreamEvent, Task<bool>> admits,
         CancellationToken cancellationToken)
     {
         while (!cancellationToken.IsCancellationRequested)
@@ -213,6 +231,11 @@ public sealed class EventStream(NpgsqlDataSource dataSource, ILogger<EventStream
                 // the client having to distinguish it from something that happened.
                 await context.Response.WriteAsync(": heartbeat\n\n", cancellationToken);
                 await context.Response.Body.FlushAsync(cancellationToken);
+                continue;
+            }
+
+            if (!await admits(message))
+            {
                 continue;
             }
 
