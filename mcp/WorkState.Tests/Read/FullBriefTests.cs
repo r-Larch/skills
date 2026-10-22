@@ -203,6 +203,80 @@ public sealed class FullBriefTests(PostgresFixture fixture)
     }
 
     /// <summary>
+    /// ws/4. The worker brief showed three addressed notes and consumed all of them, so the fourth
+    /// and fifth were marked delivered to an agent that never saw them.
+    /// </summary>
+    [Fact]
+    public async Task The_worker_brief_renders_every_note_addressed_to_the_task_and_consumes_exactly_those()
+    {
+        var world = await WriteSeed.CreateAsync(fixture);
+
+        for (var i = 1; i <= 5; i++)
+        {
+            var noted = await world.Writer.NoteAsync(
+                world.WorkspaceId, WriteSeed.Orchestrator, "carry_forward", $"addressed note number {i} of five", "1.1", null, Ct);
+            Assert.False(noted.Refused, noted.Text);
+        }
+
+        await using var server = await ReadServer.StartAsync(fixture.ConnectionString, world.Slug, Ct);
+        await using var client = await server.ConnectAsync(ReadServer.WorkerToken, Ct);
+
+        var brief = await ReadServer.CallAsync(
+            client,
+            "work_brief",
+            new Dictionary<string, object?> { ["scope"] = "1.1", ["for"] = "worker" },
+            Ct);
+
+        Assert.Contains("ADDRESSED TO YOU (5)", brief, StringComparison.Ordinal);
+        Assert.DoesNotContain("more unconsumed in scope", brief, StringComparison.Ordinal);
+
+        for (var i = 1; i <= 5; i++)
+        {
+            Assert.Contains($"  addressed note number {i} of five", brief.Split('\n'));
+        }
+
+        await using var db = fixture.NewContext();
+        var unconsumed = await db.Notes.CountAsync(n => n.ToItemId == world.TaskId && n.ConsumedAt == null, Ct);
+        Assert.Equal(0, unconsumed);
+    }
+
+    /// <summary>
+    /// ws/4. Consumption is by the ids the brief rendered, not by "everything addressed to the item
+    /// right now": a note written after the render was never shown, so it must survive the update.
+    /// </summary>
+    [Fact]
+    public async Task A_note_written_after_the_brief_rendered_stays_unconsumed()
+    {
+        var world = await WriteSeed.CreateAsync(fixture);
+
+        var first = await world.Writer.NoteAsync(
+            world.WorkspaceId, WriteSeed.Orchestrator, "carry_forward", "the note the brief rendered", "1.1", null, Ct);
+        Assert.False(first.Refused, first.Text);
+
+        Guid rendered;
+        await using (var db = fixture.NewContext())
+        {
+            rendered = (await db.Notes.SingleAsync(n => n.ToItemId == world.TaskId, Ct)).Id;
+        }
+
+        var late = await world.Writer.NoteAsync(
+            world.WorkspaceId, WriteSeed.Orchestrator, "carry_forward", "a note written after the render", "1.1", null, Ct);
+        Assert.False(late.Refused, late.Text);
+
+        var consumed = await WriteSeed.Keeper(fixture).ConsumeNotesAsync(world.TaskId, [rendered], Ct);
+
+        Assert.Equal(1, consumed);
+
+        await using var after = fixture.NewContext();
+        var left = await after.Notes
+            .Where(n => n.ToItemId == world.TaskId && n.ConsumedAt == null)
+            .Select(n => n.Body)
+            .ToListAsync(Ct);
+
+        Assert.Equal(["a note written after the render"], left);
+    }
+
+    /// <summary>
     /// The text is wrapped, so it is found with its line breaks folded back into spaces; the lines
     /// that carry it must still fit the width budget and hold no ellipsis.
     /// </summary>

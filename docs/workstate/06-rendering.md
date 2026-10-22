@@ -181,6 +181,12 @@ The resume brief's `NEXT` is unchanged, and it keeps clipping notes to one line.
 > worker to make a call it does not own. Its criteria were clipped at 80 columns and its notes at 94,
 > so a worker read `p95 f…` for the criterion it is judged against.
 
+> **Changed 2026-10-22 (ws/4).** The worker brief rendered three addressed notes and then consumed
+> every note addressed to the task, so the fourth and later were marked delivered unseen. It now
+> renders every note addressed to its own item (notes it merely carries keep the cap of three), and
+> consumption marks exactly the rendered notes by id — a note written between render and consume
+> stays for the next brief.
+
 **The note header names what it is holding.** `ADDRESSED TO YOU (n)` counts only notes that name a
 target item — those are the ones a worker brief renders and consumes. Where a run carries unconsumed
 notes that name nobody, the section is instead:

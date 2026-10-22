@@ -83,6 +83,16 @@ public sealed partial class BoardReader(WorkStateQueries queries, BoardQueries b
         ScopeResult.Found scope,
         string variant,
         CancellationToken cancellationToken = default)
+        => (await RenderBriefAsync(scope, variant, cancellationToken)).Text;
+
+    /// <summary>
+    /// The brief and the ids of the notes it rendered — what <see cref="BriefSessionAsync"/> may
+    /// consume, and nothing else.
+    /// </summary>
+    private async Task<(string Text, IReadOnlyList<Guid> RenderedNoteIds)> RenderBriefAsync(
+        ScopeResult.Found scope,
+        string variant,
+        CancellationToken cancellationToken)
     {
         var item = scope.Item;
         var header = await board.HeaderAsync(item.Id, cancellationToken);
@@ -93,6 +103,7 @@ public sealed partial class BoardReader(WorkStateQueries queries, BoardQueries b
         var notes = await board.UnconsumedNotesAsync(scope.WorkspaceId, item.Id, cancellationToken);
         var verify = await board.LastVerificationAsync(item.Id, cancellationToken);
         var attention = await AttentionAsync(scope, cancellationToken);
+        var shown = ShownNotes(notes, item.Id, IsWorkerVariant(variant));
 
         var model = new BriefModel(
             ScopeKind: item.Kind,
@@ -108,7 +119,7 @@ public sealed partial class BoardReader(WorkStateQueries queries, BoardQueries b
             BindingTotal: constraints.Count,
             Assumptions: [.. assumptions.Take(BriefAssumptionCap).Select(ToAssumption)],
             AssumptionTotal: assumptions.Count,
-            Notes: [.. notes.Take(BriefNoteCap).Select(n => Glyph.Flat(n.Body))],
+            Notes: [.. shown.Select(n => Glyph.Flat(n.Body))],
             NoteTotal: notes.Count,
             AddressedTotal: notes.Count(n => n.ToRef is { Length: > 0 }),
             AddressedTo: notes.FirstOrDefault(n => n.ToRef is { Length: > 0 })?.ToRef,
@@ -124,9 +135,29 @@ public sealed partial class BoardReader(WorkStateQueries queries, BoardQueries b
 
         var text = BriefRenderer.Render(model, IsWorkerVariant(variant));
 
-        return IsWorkerVariant(variant)
-            ? text + "\n\n" + await WorkerSectionAsync(item, cancellationToken)
-            : text;
+        if (IsWorkerVariant(variant))
+        {
+            text += "\n\n" + await WorkerSectionAsync(item, cancellationToken);
+        }
+
+        return (text, [.. shown.Select(n => n.Id)]);
+    }
+
+    /// <summary>
+    /// The resume brief caps notes at <see cref="BriefNoteCap"/>. The worker brief renders every note
+    /// addressed to its own item, because rendering is what consumes them: a note past the cap would
+    /// never be shown, and a pasted brief has no pointer a worker can follow. Notes the item merely
+    /// carries keep the cap — they are not consumed, so the pointer to the rest stays true.
+    /// </summary>
+    private static IReadOnlyList<NoteRow> ShownNotes(IReadOnlyList<NoteRow> notes, Guid itemId, bool worker)
+    {
+        if (!worker)
+        {
+            return [.. notes.Take(BriefNoteCap)];
+        }
+
+        var carried = 0;
+        return [.. notes.Where(n => n.ToItemId == itemId || carried++ < BriefNoteCap)];
     }
 
     /// <summary>
@@ -148,11 +179,11 @@ public sealed partial class BoardReader(WorkStateQueries queries, BoardQueries b
     {
         await housekeeping.SweepAsync(scope.WorkspaceId, cancellationToken);
 
-        var brief = await BriefAsync(scope, variant, cancellationToken);
+        var (brief, rendered) = await RenderBriefAsync(scope, variant, cancellationToken);
 
         if (IsWorkerVariant(variant))
         {
-            await housekeeping.ConsumeNotesAsync(scope.Item.Id, cancellationToken);
+            await housekeeping.ConsumeNotesAsync(scope.Item.Id, rendered, cancellationToken);
         }
 
         return brief;

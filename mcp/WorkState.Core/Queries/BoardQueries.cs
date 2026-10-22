@@ -256,7 +256,9 @@ public sealed class BoardQueries(NpgsqlDataSource dataSource)
                    t.ref   AS "ToRef",
                    CASE WHEN ts.ref IS NULL THEN t.ref ELSE ts.ref || '/' || t.ref END
                           AS "ToQualifiedRef",
-                   f.ref   AS "FromRef"
+                   f.ref   AS "FromRef",
+                   n.id    AS "Id",
+                   n.to_item_id AS "ToItemId"
             FROM   note n
             LEFT   JOIN item t  ON t.id  = n.to_item_id
             LEFT   JOIN item ts ON ts.id = t.ref_scope_id AND ts.id <> t.id
