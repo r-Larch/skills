@@ -73,6 +73,75 @@ public sealed class AppStreamTests(PostgresFixture fixture)
     }
 
     /// <summary>
+    /// The workspace row is written by the first write, so a fresh server has none. The board must
+    /// still connect: a 503 here is what the dashboard renders as "stream down" on day one.
+    /// </summary>
+    [Fact]
+    public async Task On_a_server_with_nothing_in_it_the_stream_opens()
+    {
+        await using var server = await StartAsync($"cold-{Guid.CreateVersion7():n}");
+        var client = await server.SignInAsync(Ct);
+
+        using var session = CancellationTokenSource.CreateLinkedTokenSource(Ct);
+        session.CancelAfter(TimeSpan.FromMinutes(1));
+
+        var response = await client.GetAsync(
+            "/api/stream", HttpCompletionOption.ResponseHeadersRead, session.Token);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("text/event-stream", response.Content.Headers.ContentType?.MediaType);
+    }
+
+    /// <summary>
+    /// A stream opened before the workspace existed has to come alive when the first write creates
+    /// it — on the same connection, without the operator reloading the page.
+    /// </summary>
+    [Fact]
+    public async Task A_stream_opened_on_an_empty_server_delivers_the_first_write()
+    {
+        var slug = $"cold-{Guid.CreateVersion7():n}";
+        await using var server = await StartAsync(slug);
+        var client = await server.SignInAsync(Ct);
+
+        using var session = CancellationTokenSource.CreateLinkedTokenSource(Ct);
+        session.CancelAfter(TimeSpan.FromMinutes(1));
+
+        var response = await client.GetAsync(
+            "/api/stream", HttpCompletionOption.ResponseHeadersRead, session.Token);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        await using var body = await response.Content.ReadAsStreamAsync(session.Token);
+        using var reader = new StreamReader(body);
+
+        var frames = Channel.CreateUnbounded<string>();
+        _ = PumpAsync(reader, frames, session.Token);
+
+        var writer = WriteSeed.Writer(fixture);
+        var workspaceId = await writer.EnsureWorkspaceAsync(slug, Ct);
+
+        // Retried for the same reason as above; the first attempt is the write that created the
+        // workspace, and every later one is still a write the stream predates.
+        string? frame = null;
+
+        for (var attempt = 0; attempt < 5 && frame is null; attempt++)
+        {
+            var written = await writer.CreateAsync(
+                workspaceId, WriteSeed.Orchestrator, [new NewItemArg("project", $"Repo {attempt}", Ref: $"p{attempt}")], Ct);
+            Assert.False(written.Refused, written.Text);
+
+            frame = await NextAsync(frames, TimeSpan.FromSeconds(4), session.Token);
+        }
+
+        Assert.NotNull(frame);
+
+        var seq = JsonDocument.Parse(frame!).RootElement.GetProperty("seq").GetInt64();
+
+        await using var db = fixture.NewContext();
+        Assert.True(await db.Events.AnyAsync(e => e.WorkspaceId == workspaceId && e.Seq == seq, Ct));
+    }
+
+    /// <summary>
     /// The claim that makes the stream worth having: a client that was away does not lose what
     /// happened while it was. The two pages are compared against every event the store holds for the
     /// scope, so a cursor that repeated a row or skipped one fails here rather than in the UI.
