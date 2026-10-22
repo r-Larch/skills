@@ -59,7 +59,8 @@ public sealed partial class BoardReader(WorkStateQueries queries, BoardQueries b
         var home = await board.DefaultScopeAsync(workspace, cancellationToken);
         return new ScopeResult.Ambiguous(
             asked,
-            [.. Prefer(matches, home).Select(m => m.QualifiedRef ?? m.Ref)]);
+            await board.UniqueRefsAsync(workspace, Prefer(matches, home), cancellationToken),
+            matches.Count);
     }
 
     /// <summary>
@@ -262,19 +263,27 @@ public sealed partial class BoardReader(WorkStateQueries queries, BoardQueries b
                 assumption.QualifiedRef));
         }
 
+        // ws/13: one line per addressee. Grouped on the bare ref, two runs' 4.1 merged into a line
+        // whose work_brief(scope:"4.1") is refused as ambiguous — and each brief consumes only its
+        // own notes anyway. A shared bare ref is printed qualified, as every other call is (ws/10).
         var notes = await board.UnconsumedNotesAsync(scope.WorkspaceId, item.Id, cancellationToken);
-        foreach (var addressed in notes.Where(n => n.ToRef is { Length: > 0 }).GroupBy(n => n.ToRef!))
+        var addressees = notes.Where(n => n.ToItemId is not null).GroupBy(n => n.ToItemId!.Value).ToList();
+        var shared = (await board.FactsAsync([.. addressees.Select(a => a.Key)], cancellationToken))
+            .Where(f => f.RefShared)
+            .Select(f => f.Id)
+            .ToHashSet();
+
+        foreach (var addressed in addressees)
         {
-            // The line is about the addressee, and the addressee is a bare ref: grouping on the
-            // qualified one instead would split this line in two, which doc 06 §5 fixes as text.
-            var qualified = addressed.Select(n => n.ToQualifiedRef).Distinct().ToList();
+            var first = addressed.First();
+            var named = shared.Contains(addressed.Key) ? first.ToQualifiedRef ?? first.ToRef! : first.ToRef!;
 
             lines.Add(new AttentionLine(
                 AttentionRank.UnconsumedNote,
-                $"{addressed.Count()} note(s) addressed to {addressed.Key} unconsumed",
-                $"work_brief(scope:\"{addressed.Key}\", for:\"worker\")",
-                addressed.Key,
-                qualified.Count == 1 ? qualified[0] : null));
+                $"{addressed.Count()} note(s) addressed to {named} unconsumed",
+                $"work_brief(scope:\"{named}\", for:\"worker\")",
+                first.ToRef,
+                first.ToQualifiedRef));
         }
 
         foreach (var stale in await board.StaleInProgressAsync(item.Id, StaleHours, cancellationToken))

@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
 using WorkState.Core.Domain;
 using WorkState.Core.Writing;
@@ -59,7 +60,12 @@ public sealed class DeferralTests(PostgresFixture fixture)
 
         Assert.Equal(1, await db.ItemCriteria.CountAsync(c => c.ItemId == carried.Id, Ct));
 
-        var frontier = await world.Reader.NextAsync(await world.ScopeAsync("run-a"), 20, null, Ct);
+        // ws/12: "backlog" is a project-level run, so the follow-up is on that run's frontier — the
+        // one the OK line names — and no longer under run-a.
+        var named = Regex.Match(moved.Text, @"work_next\(scope:""([^""]+)""\)");
+        Assert.True(named.Success, moved.Text);
+
+        var frontier = await world.Reader.NextAsync(await world.ScopeAsync(named.Groups[1].Value), 20, null, Ct);
         Assert.Contains("1.1-d", frontier, StringComparison.Ordinal);
     }
 

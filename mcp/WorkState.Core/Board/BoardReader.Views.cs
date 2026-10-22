@@ -140,11 +140,14 @@ public sealed partial class BoardReader
                     // ACCEPTANCE A-1. Every candidate, the caller's own run first — a single
                     // confidently-named wrong run is worse than naming none, because a careful
                     // agent acts on a callable line and this one is callable.
-                    var candidates = Prefer(matches, home.Item)
-                        .Take(5)
-                        .Select(m => $"\"{m.QualifiedRef ?? m.Ref}\"");
-                    problems.Add($"✗ \"{reference}\" exists in {matches.Count} runs — qualify it "
-                               + $"→ work_get(refs:[{string.Join(", ", candidates)}])");
+                    // ws/13: only forms that each resolve to one match alone.
+                    var candidates = await board.UniqueRefsAsync(
+                        workspaceId, Prefer(matches, home.Item).Take(5), cancellationToken);
+                    problems.Add(candidates.Count == 0
+                        ? $"✗ \"{reference}\" exists in {matches.Count} runs and no ref names only one "
+                          + "→ work_tree() to see where each sits"
+                        : $"✗ \"{reference}\" exists in {matches.Count} runs — qualify it "
+                          + $"→ work_get(refs:[{string.Join(", ", candidates.Select(c => $"\"{c}\""))}])");
                     break;
                 default:
                     problems.Add($"✗ no item has ref \"{reference}\" "
@@ -295,11 +298,13 @@ public sealed partial class BoardReader
 
         if (wanted.Contains("notes"))
         {
+            // Only the worker brief of its addressee consumes a note (Housekeeping.ConsumeNotesAsync),
+            // so a note with no addressee is a record that never closes — not a thread.
             var notes = await board.UnconsumedNotesAsync(scope.WorkspaceId, scope.Item.Id, cancellationToken);
-            lines.AddRange(notes.Take(20).Select(n =>
-                $"{Glyph.Pad(n.ToRef ?? n.FromRef ?? Glyph.None, 6)}  {Glyph.Pad("note", 6)}  "
+            lines.AddRange(notes.Where(n => n.ToItemId is not null).Take(20).Select(n =>
+                $"{Glyph.Pad(n.ToRef!, 6)}  {Glyph.Pad("note", 6)}  "
                 + $"{Glyph.Pad(Glyph.Clip(n.Body, 46), 46)}  "
-                + $"— work_brief(scope:\"{n.ToRef ?? scope.Item.Ref}\", for:\"worker\") consumes it"));
+                + $"— work_brief(scope:\"{n.ToQualifiedRef ?? n.ToRef}\", for:\"worker\") consumes it"));
         }
 
         if (wanted.Contains("deps"))

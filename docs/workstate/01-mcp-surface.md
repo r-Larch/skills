@@ -131,9 +131,16 @@ Names are `work_*`-prefixed so they survive aggregation across servers.
 | **`work_tree`** | `scope`, `depth`, `status in[]`, `include_counts` | Indented tree with per-node rollups (`open/doing/blocked/review/done`). | `PLAN.md` § Phases, and the checkbox list that never gets checked |
 | **`work_get`** | `ref[]` (batch), `include` = `body\|criteria\|deps\|attempts\|findings\|notes` | Full item(s). Body returned as `resource_link` unless `include: body` is asked for. | reading a section of the ledger |
 | **`work_search`** | `q`, `scope?`, `in` = `items\|blocks\|events\|notes\|reports`, `limit` | FTS + trigram hits with `ref` + snippet. | `Grep` over the run directory — which is what agents do today |
-| **`work_threads`** | `scope`, `include` = `assumptions\|findings\|followups\|notes\|stale\|deps` | **Everything unclosed that is not a task.** The single query the user asked for. | `grep -c '⚠'` |
+| **`work_threads`** | `scope`, `include` = `assumptions\|findings\|followups\|notes\|stale\|deps` | **Everything unclosed that is not a task.** The single query the user asked for. A note is a thread only while it is addressed to an item and unconsumed; a note with no `to:` is a record (doc 06 §4) and is not listed. | `grep -c '⚠'` |
 | **`work_audit`** | `scope`, `checks[]` | Mechanical integrity report (§5). | the cheap 60% of a 60–150k-token plan audit |
 | **`work_history`** | `ref?`, `since_seq?`, `limit` | Append-only event stream, cursor-paged. | ledger § Exceptions, and "what happened while I was compacted" |
+
+> **Changed 2026-10-22 (ws/11).** `work_threads` listed every unconsumed note, so notes written with
+> `from:` and no `to:` showed as unclosed with `— work_brief(scope:…, for:"worker") consumes it`. Only
+> the worker brief of a note's addressee consumes it (ws/4), so that call could never close them. A
+> note with no addressee is now a record: it stays in briefs' `NOTES IN SCOPE` and in history, and
+> `work_threads` omits it. An addressed note keeps its line, and its call names the addressee by a ref
+> that resolves to it.
 
 ### 3.2 Write — structure
 
@@ -162,6 +169,20 @@ Names are `work_*`-prefixed so they survive aggregation across servers.
 | **`work_constrain`** | Create or retire a `constraint_rule` — the writer the BINDING block never had, without which the block is import-only and a project started in the store has an empty one forever. Create: `kind` (`red_line\|stack_fact\|command\|domain_rule\|generated_code`), `text`, `route`, `scope` (an item ref; omitted, it binds the workspace), `covers_risk[]`, `severity`, `from`. A `red_line` with no `route` is refused — doc 02 §8. Retire: `ref` + `reason`, which sets `active = false` and leaves the row, because the record is the point. |
 | **`work_finding`** | Batch. From a review, gate or audit. Each becomes an item of kind `finding` with `severity` (`blocker\|minor`), a `target` item, and a `source` (`review\|gate\|plan_audit\|self`). A `blocker` linked to a phase **blocks that phase's `done` transition**. |
 
+**Addressing a ref, and refusing an ambiguous one.** A ref is numbered inside its run, so `m0/2` names
+the `2` in run `m0`. A run (or project) numbers its own refs, so it is qualified by its parent or by
+itself: `autowork/backlog` and `backlog/backlog` both name the run `backlog` under project
+`autowork`. When a ref names more than one item or open assumption, every tool refuses it, and every
+form the refusal suggests has been resolved and names exactly one of the matches. A match that no
+form singles out (a workspace-level assumption sharing its ref with a run's, for instance) is not
+suggested; the refusal routes to `work_tree` or `work_threads` instead.
+
+> **Changed 2026-10-22 (ws/13).** With run `backlog` and phase `m0/backlog` both present, the refusal
+> suggested `ref:"backlog"`, which was the very string it had just refused, because a run's
+> qualified ref is its bare ref. `autowork/backlog` was refused as unknown, and `backlog/backlog`, the
+> form that worked, was printed nowhere. The suggestions are now checked forms, and parent-qualified
+> run refs resolve.
+
 ### 3.5 Admin
 
 | Tool | Notes |
@@ -181,13 +202,21 @@ open → ready → in_progress → review → done
        cancelled | superseded | deferred(→ creates an item elsewhere)
 ```
 
+`deferred` takes `target:` — an item ref, or `"backlog"`, which is the **project-level** backlog run,
+never a phase inside the item's own run (doc 07 §4).
+
+> **Changed 2026-10-22 (ws/12).** `"backlog"` used to create a `backlog` phase inside the item's run,
+> and that phase then refused the run's close. It now resolves to a run under the project, which is
+> created on first use under a ref no item in the project uses yet.
+
 `done` is refused unless **all** hold:
 
 1. every `done_criterion` is `checked`;
 2. ≥1 `verification` row with `passed = true` whose `command` matches the item's `verify_cmd`
    **and `run_by = orchestrator`** — the skill's *"always, no exceptions: run the command yourself"*,
    as a constraint;
-3. no child item is open;
+3. no child item is open (a run's in-run `backlog` phase, left from before ws/12, is carried out
+   instead — doc 07 §4);
 4. no open `finding` with `severity = blocker` targets it;
 5. for a task: ≥1 artifact of kind `commit` — *"every accepted task ends in a commit"*.
 

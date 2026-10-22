@@ -129,14 +129,14 @@ public sealed class SchemaGuardTests(PostgresFixture fixture)
 
     /// <summary>
     /// The guards a write tool can be driven into on purpose, each through the writer: a duplicate
-    /// ref, a cyclic reparent, a self-link, and a deferral to "backlog" when a closed phase already
-    /// holds that ref in the run (the target lookup skips closed items, the unique index does not).
+    /// ref, a cyclic reparent and a self-link. (A deferral to "backlog" past a cancelled in-run
+    /// backlog phase was a fourth until ws/12 made "backlog" a project-level run; it now succeeds —
+    /// BacklogCarryTests.)
     /// </summary>
     [Fact]
     public async Task Every_schema_guard_a_write_tool_can_reach_on_purpose_is_a_routed_refusal()
     {
         var world = await WriteSeed.CreateAsync(fixture);
-        await WriteSeed.ChildAsync(world, world.RunId, "backlog", kind: "phase", status: ItemStatus.Cancelled);
         var writer = world.Writer;
         var id = world.WorkspaceId;
 
@@ -147,9 +147,6 @@ public sealed class SchemaGuardTests(PostgresFixture fixture)
                 [new NewItemArg("phase", "a second phase 1", Ref: "1", Parent: "run-a")], Ct),
             await writer.MoveAsync(id, WriteSeed.Orchestrator, "1", "1.1", null, null, Ct),
             await writer.LinkAsync(id, WriteSeed.Orchestrator, "1.1", "1.1", "blocks", false, Ct),
-            await writer.StatusAsync(
-                id, "1.1", "deferred", WriteSeed.Orchestrator,
-                new StatusArgs(Reason: "later", Target: "backlog"), Ct),
         ];
 
         foreach (var refusal in refusals)

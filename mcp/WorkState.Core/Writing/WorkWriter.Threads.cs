@@ -351,14 +351,34 @@ public sealed partial class WorkWriter
 
         if (matches.Count > 1)
         {
+            // ws/13: a form is offered only if it resolves to that assumption alone — a
+            // workspace-level A1 has no qualified form, and its bare ref is the ambiguous one.
+            var forms = new List<string>();
+            foreach (var match in matches.Take(4))
+            {
+                var resolved = await OpenAssumptionsAsync(
+                    connection, transaction, workspaceId, match.QualifiedRef, cancellationToken);
+
+                if (resolved is [var only] && only.Id == match.Id)
+                {
+                    forms.Add(match.QualifiedRef);
+                }
+            }
+
+            var routes = forms
+                .Select(f => $"work_assume(ref:\"{f}\", resolve:\"{Pg.Label(state)}\", evidence:\"…\")")
+                .ToList();
+
+            if (forms.Count < matches.Count)
+            {
+                routes.Add("work_threads(include:\"assumptions\") to see the rest — no ref names only them");
+            }
+
             return WriteResult.No(Refusal.Blocked(
                 $"work_assume(ref:\"{reference}\", resolve:\"{resolve}\") — \"{reference}\" matches "
                 + $"{matches.Count} open assumptions across runs.",
                 "an assumption ref is numbered within its run; this one exists in more than one",
-                [
-                    .. matches.Take(4).Select(m =>
-                        $"work_assume(ref:\"{m.QualifiedRef}\", resolve:\"{Pg.Label(state)}\", evidence:\"…\")"),
-                ]));
+                [.. routes]));
         }
 
         const string sql =

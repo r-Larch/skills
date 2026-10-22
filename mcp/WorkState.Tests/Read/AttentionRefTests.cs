@@ -112,22 +112,31 @@ public sealed class AttentionRefTests(PostgresFixture fixture)
     }
 
     /// <summary>
-    /// The one line whose subject is not an item: it is addressed to a ref, and at project scope
-    /// that ref names two items. Null says so; falling back to the bare ref would restate exactly
-    /// the ambiguity the field was added to remove.
+    /// ws/13. At project scope, notes addressed to run-one/4.1 and run-two/4.1 were one line whose
+    /// call, work_brief(scope:"4.1"), was refused as ambiguous: a hint that could not fire. One line
+    /// per addressee, each naming its qualified ref — and each call's scope resolves to one item.
     /// </summary>
     [Fact]
-    public async Task An_unconsumed_note_group_spanning_two_runs_has_no_qualified_ref_of_its_own()
+    public async Task Unconsumed_notes_to_two_runs_same_ref_give_one_line_per_addressee_with_a_call_that_resolves()
     {
         var world = await TwoRunsAsync();
         var reader = Reader();
         var lines = await reader.AttentionAsync(await ScopeAsync(reader, world.Slug, "proj-q"), Ct);
 
-        var note = Assert.Single(lines, l => l.Rank == AttentionRank.UnconsumedNote);
+        var notes = lines.Where(l => l.Rank == AttentionRank.UnconsumedNote).OrderBy(l => l.QualifiedRef).ToList();
 
-        Assert.Equal("4.1", note.Ref);
-        Assert.Null(note.QualifiedRef);
-        Assert.Equal("2 note(s) addressed to 4.1 unconsumed", note.What);
+        Assert.Equal(2, notes.Count);
+
+        foreach (var (note, run) in notes.Zip(["run-one", "run-two"]))
+        {
+            Assert.Equal($"{run}/4.1", note.QualifiedRef);
+            Assert.Equal($"1 note(s) addressed to {run}/4.1 unconsumed", note.What);
+            Assert.Equal($"work_brief(scope:\"{run}/4.1\", for:\"worker\")", note.Call);
+
+            var called = System.Text.RegularExpressions.Regex.Match(note.Call, @"scope:""([^""]+)""").Groups[1].Value;
+            var resolved = Assert.IsType<ScopeResult.Found>(await reader.ResolveAsync(world.Slug, called, Ct));
+            Assert.Equal($"{run}/4.1", resolved.Item.QualifiedRef);
+        }
     }
 
     /// <summary>

@@ -232,6 +232,14 @@ run** → items done-but-unverified → assumptions past revisit → unconsumed 
 > because what goes unexamined is the composition across every task in the phase, not one task's
 > missing evidence.
 
+**The unconsumed-note line is one line per addressee**: `N note(s) addressed to <ref> unconsumed —
+work_brief(scope:"<ref>", for:"worker")`, where `<ref>` is bare unless another item in the workspace
+shares it, in which case it is qualified (`run-one/4.1`), the same rule as ws/10's calls and URIs.
+
+> **Changed 2026-10-22 (ws/13).** The line grouped on the bare ref, so at project scope the notes to
+> `run-one/4.1` and `run-two/4.1` were one line whose `work_brief(scope:"4.1")` is refused as
+> ambiguous: a hint that could not fire, over two briefs that each consume only their own notes.
+
 ---
 
 ## 6. Refusals

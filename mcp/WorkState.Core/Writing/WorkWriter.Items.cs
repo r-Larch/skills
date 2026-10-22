@@ -69,15 +69,15 @@ public sealed partial class WorkWriter
         var carried = new NewRow(
             Guid.CreateVersion7(),
             item.WorkspaceId,
-            parent,
+            parent.Id,
             "followup",
             await FreeRefAsync(
                 connection,
                 transaction,
-                await ScopeUnderAsync(connection, transaction, parent.Value, "followup", cancellationToken),
+                await ScopeUnderAsync(connection, transaction, parent.Id, "followup", cancellationToken),
                 n => n == 1 ? $"{item.Ref}-d" : $"{item.Ref}-d{n}",
                 cancellationToken),
-            await NextSeqAsync(connection, transaction, parent, cancellationToken),
+            await NextSeqAsync(connection, transaction, parent.Id, cancellationToken),
             Glyph.Clip(item.Title, 180),
             item.Intent,
             item.VerifyCmd);
@@ -98,71 +98,70 @@ public sealed partial class WorkWriter
             item.Id,
             actor,
             "deferred",
-            $"{item.Ref} deferred to {carried.Ref} under {args.Target}: {Glyph.Clip(args.Reason, 40)}",
-            new { moved_to = carried.Ref, target = args.Target, reason = args.Reason },
+            $"{item.Ref} deferred to {carried.Ref} under {parent.Ref}: {Glyph.Clip(args.Reason, 40)}",
+            new { moved_to = carried.Ref, under = parent.Ref, target = args.Target, reason = args.Reason },
             cancellationToken);
 
         await transaction.CommitAsync(cancellationToken);
 
+        var scope = await ScopeFormAsync(item.WorkspaceId, parent, cancellationToken);
+
         return WriteResult.Ok(string.Join(
             "\n",
             $"OK  {item.Ref}  {Transitions.Name(item.Status)} → done (obsolete) — deferred, not dropped",
-            $"    moved to  {carried.Ref} (followup, open) under {args.Target}, carrying its criteria",
+            $"    moved to  {carried.Ref} (followup, open) under {parent.Ref}, carrying its criteria",
             $"    link      {carried.Ref} derived_from {item.Ref}",
             $"    reason    {Glyph.Clip(args.Reason, 84)}",
             string.Empty,
-            $"Next: work_next() — {carried.Ref} is open and on the frontier under {args.Target}."));
+            $"Next: work_next(scope:\"{scope}\") — {carried.Ref} is open and on the frontier there."));
     }
 
     /// <summary>
-    /// Resolves <c>target:</c>. <c>"backlog"</c> is materialised rather than special-cased, because
-    /// every route this server prints has to be callable (doc 04 §3) and the refusal for a blocker
-    /// finding prints exactly that word.
+    /// A ref that resolves to <paramref name="holder"/> alone — a project backlog run named
+    /// "backlog" shares its bare ref with any in-run backlog phase left from before ws/12.
     /// </summary>
-    private static async Task<Guid?> TargetAsync(
+    private async Task<string> ScopeFormAsync(Guid workspaceId, Carried holder, CancellationToken cancellationToken)
+    {
+        var self = (await board.ResolveAsync(workspaceId, holder.Ref, cancellationToken))
+            .FirstOrDefault(m => m.Id == holder.Id);
+
+        return self is null
+            ? holder.Ref
+            : await board.UniqueRefAsync(workspaceId, self, cancellationToken) ?? holder.Ref;
+    }
+
+    /// <summary>
+    /// Resolves <c>target:</c>. The literal <c>"backlog"</c> is the project-level backlog run,
+    /// materialised on first use, because every route this server prints has to be callable
+    /// (doc 04 §3) and the refusal for a blocker finding prints exactly that word. It is never an
+    /// in-run phase: ws/12 found that one holds the run open, which is deferring to nowhere again.
+    /// </summary>
+    private static async Task<Carried?> TargetAsync(
         NpgsqlConnection connection,
         NpgsqlTransaction transaction,
         ItemRow item,
         string target,
         CancellationToken cancellationToken)
     {
+        if (target.Trim().Equals("backlog", StringComparison.OrdinalIgnoreCase))
+        {
+            return await BacklogRunAsync(connection, transaction, item.WorkspaceId, item.Id, cancellationToken);
+        }
+
         const string byRef =
             """
-            SELECT id FROM item
+            SELECT id AS "Id", ref AS "Ref" FROM item
             WHERE  workspace_id = @workspace AND lower(ref) = lower(@ref)
               AND  status NOT IN ('cancelled','superseded')
             ORDER  BY (ref_scope_id = @scope) DESC, seq
             LIMIT  1;
             """;
 
-        var found = await connection.ExecuteScalarAsync<Guid?>(new CommandDefinition(
+        return await connection.QueryFirstOrDefaultAsync<Carried>(new CommandDefinition(
             byRef,
             new { workspace = item.WorkspaceId, @ref = target.Trim(), scope = item.RefScopeId },
             transaction,
             cancellationToken: cancellationToken));
-
-        if (found is not null)
-        {
-            return found;
-        }
-
-        if (!target.Trim().Equals("backlog", StringComparison.OrdinalIgnoreCase))
-        {
-            return null;
-        }
-
-        var holder = item.RefScopeId is { } scope && scope != item.Id ? scope : item.ParentId;
-        var backlog = new NewRow(
-            Guid.CreateVersion7(),
-            item.WorkspaceId,
-            holder,
-            "phase",
-            "backlog",
-            await NextSeqAsync(connection, transaction, holder, cancellationToken),
-            "Backlog — work deferred out of this run");
-
-        await InsertItemAsync(connection, transaction, backlog, cancellationToken);
-        return backlog.Id;
     }
 
     /// <summary>

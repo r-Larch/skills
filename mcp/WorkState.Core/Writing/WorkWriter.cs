@@ -164,6 +164,10 @@ public sealed partial class WorkWriter(NpgsqlDataSource dataSource, BoardQueries
             return await DeferAsync(connection, transaction, item, actor, args, cancellationToken);
         }
 
+        var carried = move == Move.Done && item.Kind == "run"
+            ? await CarryBacklogAsync(connection, transaction, item, actor, cancellationToken)
+            : null;
+
         var refusal = await GuardAsync(connection, transaction, item, move, actor, args, cancellationToken);
         if (refusal is not null)
         {
@@ -205,7 +209,7 @@ public sealed partial class WorkWriter(NpgsqlDataSource dataSource, BoardQueries
 
         await transaction.CommitAsync(cancellationToken);
 
-        return WriteResult.Ok(Wrote(item, status, args, forced, claimLine));
+        return WriteResult.Ok(Wrote(item, status, args, forced, claimLine, carried));
     }
 
     private static string Wrote(
@@ -213,12 +217,18 @@ public sealed partial class WorkWriter(NpgsqlDataSource dataSource, BoardQueries
         ItemStatus status,
         StatusArgs args,
         string[]? forced,
-        string? claimLine)
+        string? claimLine,
+        string? carried)
     {
         var lines = new List<string>
         {
             $"OK  {item.Ref}  {Transitions.Name(item.Status)} → {Transitions.Name(status)}",
         };
+
+        if (carried is { Length: > 0 })
+        {
+            lines.Add($"    backlog {Glyph.Clip(carried, 86)}");
+        }
 
         if (args.Reason is { Length: > 0 })
         {
@@ -587,16 +597,35 @@ public sealed partial class WorkWriter(NpgsqlDataSource dataSource, BoardQueries
         return matches.Count switch
         {
             1 => (matches[0], null),
-            > 1 => (null, Refusal.Blocked(
-                $"ref \"{reference}\" matches {matches.Count} items across runs.",
-                "a bare ref is scoped to one run; this one exists in more than one",
-                [.. matches.Take(4).Select(m => $"retry with ref:\"{m.QualifiedRef ?? m.Ref}\"")])),
+            > 1 => (null, Ambiguous(
+                reference,
+                matches.Count,
+                await board.UniqueRefsAsync(workspaceId, matches.Take(4), cancellationToken))),
             _ => (null, Refusal.Blocked(
                 $"no item has ref \"{reference}\".",
                 "refs come from the server, never from invention",
                 $"work_search(q:\"{reference}\") to find it",
                 "work_tree() to see every ref that exists")),
         };
+    }
+
+    /// <summary>
+    /// ws/13. Each retry is a form <see cref="BoardQueries.UniqueRefsAsync"/> checked resolves to one
+    /// match alone; the work_get line shows which is which, and work_tree is the way to a match that
+    /// no form singles out.
+    /// </summary>
+    private static string Ambiguous(string reference, int count, IReadOnlyList<string> forms)
+    {
+        var routes = forms.Select(f => $"retry with ref:\"{f}\"").ToList();
+
+        routes.Add(forms.Count > 0
+            ? $"work_get(refs:[{string.Join(", ", forms.Select(f => $"\"{f}\""))}]) to see which is which"
+            : "work_tree() to see where each one sits");
+
+        return Refusal.Blocked(
+            $"ref \"{reference}\" matches {count} items.",
+            "a ref is numbered within its run, and a run within its project; this one names more than one item",
+            [.. routes]);
     }
 
     private static async Task EventAsync(
