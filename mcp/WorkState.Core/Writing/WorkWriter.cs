@@ -164,6 +164,10 @@ public sealed partial class WorkWriter(NpgsqlDataSource dataSource, BoardQueries
             return await DeferAsync(connection, transaction, item, actor, args, cancellationToken);
         }
 
+        var carried = move == Move.Done && item.Kind == "run"
+            ? await CarryBacklogAsync(connection, transaction, item, actor, cancellationToken)
+            : null;
+
         var refusal = await GuardAsync(connection, transaction, item, move, actor, args, cancellationToken);
         if (refusal is not null)
         {
@@ -205,7 +209,7 @@ public sealed partial class WorkWriter(NpgsqlDataSource dataSource, BoardQueries
 
         await transaction.CommitAsync(cancellationToken);
 
-        return WriteResult.Ok(Wrote(item, status, args, forced, claimLine));
+        return WriteResult.Ok(Wrote(item, status, args, forced, claimLine, carried));
     }
 
     private static string Wrote(
@@ -213,12 +217,18 @@ public sealed partial class WorkWriter(NpgsqlDataSource dataSource, BoardQueries
         ItemStatus status,
         StatusArgs args,
         string[]? forced,
-        string? claimLine)
+        string? claimLine,
+        string? carried)
     {
         var lines = new List<string>
         {
             $"OK  {item.Ref}  {Transitions.Name(item.Status)} → {Transitions.Name(status)}",
         };
+
+        if (carried is { Length: > 0 })
+        {
+            lines.Add($"    backlog {Glyph.Clip(carried, 86)}");
+        }
 
         if (args.Reason is { Length: > 0 })
         {

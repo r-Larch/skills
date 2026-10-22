@@ -732,7 +732,7 @@ CREATE VIEW open_thread AS
 | A superseded task still greppable and still collidable | `status = 'superseded'` + the unique ref |
 | A correction 500 lines from what it corrects | `note.corrects_note_id` |
 | An assumption closed by strikethrough, or never revisited | `assumption.state` + `revisit_item_id` |
-| A deferred follow-up that evaporates | deferral **creates an item**; nothing is a status |
+| A deferred follow-up that evaporates | deferral **creates an item**; nothing is a status. `"backlog"` is a run under the project (a plain `item` of kind `run` with a `run_config`), so the run the work left can still close (doc 07 §4, changed 2026-10-22 ws/12) |
 | Two writing agents in one repo | the claim's partial unique index over the run subtree |
 | A verify command that can never go red | `verification (workspace_id, command, passed)` |
 | "The record disagrees with the code" | the record *is* what the transitions produced, and every transition required evidence |

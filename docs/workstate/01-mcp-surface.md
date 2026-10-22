@@ -188,13 +188,21 @@ open → ready → in_progress → review → done
        cancelled | superseded | deferred(→ creates an item elsewhere)
 ```
 
+`deferred` takes `target:` — an item ref, or `"backlog"`, which is the **project-level** backlog run,
+never a phase inside the item's own run (doc 07 §4).
+
+> **Changed 2026-10-22 (ws/12).** `"backlog"` used to create a `backlog` phase inside the item's run,
+> and that phase then refused the run's close. It now resolves to a run under the project, which is
+> created on first use under a ref no item in the project uses yet.
+
 `done` is refused unless **all** hold:
 
 1. every `done_criterion` is `checked`;
 2. ≥1 `verification` row with `passed = true` whose `command` matches the item's `verify_cmd`
    **and `run_by = orchestrator`** — the skill's *"always, no exceptions: run the command yourself"*,
    as a constraint;
-3. no child item is open;
+3. no child item is open (a run's in-run `backlog` phase, left from before ws/12, is carried out
+   instead — doc 07 §4);
 4. no open `finding` with `severity = blocker` targets it;
 5. for a task: ≥1 artifact of kind `commit` — *"every accepted task ends in a commit"*.
 

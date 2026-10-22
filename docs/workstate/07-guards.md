@@ -79,7 +79,7 @@ Refused unless **all** hold. Each maps to a rule the corpus shows being broken:
 |---|---|---|
 | 1 | every `item_criterion` is `checked` | 424 unchecked boxes in "finished" runs |
 | 2 | ≥1 `verification` with `passed = true` and **`run_by = 'orchestrator'`**. If **both** the item's `verify_cmd` and the verification's `command` are present they must match; a null `command` does **not** fail the guard | *"worker self-reports of 'tests pass' are the claim you would most regret trusting"* |
-| 3 | no child item is open | a phase closed over unfinished tasks |
+| 3 | no child item is open — except a run's own `backlog` phase, which the close carries out (§4) | a phase closed over unfinished tasks |
 | 4 | no open `finding` with `severity = 'blocker'` targets it | gate blockers dissolved into prose |
 | 5 | for kinds with `requires_commit` **set**: ≥1 `artifact` of kind `commit`. **No seeded kind sets it, `task` included** — see below | *"every accepted task ends in a commit"* — a rule the corpus itself does not keep |
 
@@ -161,6 +161,34 @@ In one transaction:
 
 **`target` is required.** Deferring to nowhere is the failure this whole mechanism exists to prevent,
 so it is not expressible.
+
+**`target: "backlog"` is the project-level backlog run** of the deferred item's project — never a
+phase inside the item's run, which would hold that run open. It is, in order: an open run under the
+project whose ref is `backlog`; else the one the server made before (title `Backlog — work deferred
+out of the project's runs`); else a new run, created on first use with a `run_config` (empty
+`serialization_key`, so a follow-up claims the tree it is worked in — §5), and a ref no item in the
+project uses yet: `backlog`, else `<project>-backlog`, `<project>-backlog2`, …. The `OK` line's `Next`
+names `work_next(scope:…)` with a ref that resolves to that run alone.
+
+**A run that still holds an in-run `backlog` phase** (written before this change) stays closable. When
+`work_status(<run>, "done")` finds that the run's only open child is that phase, the same
+transaction, before the §3 conditions are read:
+
+1. moves every open item of the phase to the project-level backlog run above. Each item keeps its ref
+   if it is free there, else it is numbered `<ref>2`, `<ref>3`, …. Items move by id, so links and
+   addressed notes follow them;
+2. closes the emptied phase as `done` with `resolution = 'obsolete'`;
+3. writes a `carried` event on the run, and the `OK` line names where each item went:
+   `backlog carried 1 open item(s) to <run>/: 1.1-d`.
+
+Any other open child still fails condition 3 as before, and the refusal rolls back the carry.
+
+> **Changed 2026-10-22 (ws/12).** `target:"backlog"` created a `backlog` phase inside the item's run,
+> and that phase then refused the run's close (`1 child item(s) still open: backlog`). The controller
+> had to make a project-level run and move items by hand, and named it `backlog`, which then collided
+> with `m0/backlog`. "backlog" now means the project-level run, and a run left holding an in-run
+> backlog is carried out on close. A cancelled in-run `backlog` phase no longer makes the deferral
+> collide (ws/5's edge): the deferral does not go into the run at all.
 
 ---
 
