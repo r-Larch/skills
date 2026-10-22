@@ -337,6 +337,30 @@ public sealed partial class WorkWriter
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
 
+        var matches = await OpenAssumptionsAsync(
+            connection, transaction, workspaceId, reference!.Trim(), cancellationToken);
+
+        if (matches.Count == 0)
+        {
+            return WriteResult.No(Refusal.Blocked(
+                $"work_assume(ref:\"{reference}\", resolve:\"{resolve}\") — no open assumption has that ref.",
+                "it is already resolved, or the ref is from another run — qualify it with the run, "
+                + "e.g. \"entity-store/A1\"",
+                "work_threads(include:\"assumptions\") lists every open one with its ref"));
+        }
+
+        if (matches.Count > 1)
+        {
+            return WriteResult.No(Refusal.Blocked(
+                $"work_assume(ref:\"{reference}\", resolve:\"{resolve}\") — \"{reference}\" matches "
+                + $"{matches.Count} open assumptions across runs.",
+                "an assumption ref is numbered within its run; this one exists in more than one",
+                [
+                    .. matches.Take(4).Select(m =>
+                        $"work_assume(ref:\"{m.QualifiedRef}\", resolve:\"{Pg.Label(state)}\", evidence:\"…\")"),
+                ]));
+        }
+
         const string sql =
             """
             UPDATE assumption
@@ -344,31 +368,21 @@ public sealed partial class WorkWriter
                    resolution_note = @note,
                    resolved_at     = now(),
                    reversal        = NULL
-             WHERE workspace_id = @workspace
-               AND lower(ref) = lower(@ref)
-               AND state = 'open'
-            RETURNING ref;
+             WHERE id = @id AND state = 'open';
             """;
 
-        var closed = await connection.ExecuteScalarAsync<string?>(new CommandDefinition(
+        var closed = matches[0].QualifiedRef;
+
+        await connection.ExecuteAsync(new CommandDefinition(
             sql,
             new
             {
-                workspace = workspaceId,
-                @ref = reference!.Trim(),
+                id = matches[0].Id,
                 state = Pg.Label(state),
                 note = Blank(evidence) ? null : evidence!.Trim(),
             },
             transaction,
             cancellationToken: cancellationToken));
-
-        if (closed is null)
-        {
-            return WriteResult.No(Refusal.Blocked(
-                $"work_assume(ref:\"{reference}\", resolve:\"{resolve}\") — no open assumption has that ref.",
-                "it is already resolved, or the ref is from another run",
-                "work_threads(include:\"assumptions\") lists every open one with its ref"));
-        }
 
         await EventAsync(
             connection,
@@ -389,6 +403,46 @@ public sealed partial class WorkWriter
             Blank(evidence) ? string.Empty : $"    {Glyph.Clip(evidence, 92)}",
             string.Empty,
             "Next: nothing, unless resolving it unblocks an item — then work_next().").TrimEnd());
+    }
+
+    private sealed record OpenAssumption(Guid Id, string Ref, string QualifiedRef);
+
+    /// <summary>
+    /// The assumption twin of <c>BoardQueries.ResolveAsync</c>: <c>A1</c> looks anywhere in the
+    /// workspace, <c>entity-store/A1</c> inside that run only. More than one row back means the bare
+    /// ref is ambiguous, and the caller refuses with the qualified forms rather than resolving both.
+    /// </summary>
+    private static async Task<IReadOnlyList<OpenAssumption>> OpenAssumptionsAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        Guid workspaceId,
+        string reference,
+        CancellationToken cancellationToken)
+    {
+        var slash = reference.LastIndexOf('/');
+        var qualifier = slash > 0 ? reference[..slash] : null;
+        var leaf = slash > 0 ? reference[(slash + 1)..] : reference;
+
+        const string sql =
+            """
+            SELECT a.id AS "Id",
+                   a.ref AS "Ref",
+                   CASE WHEN s.ref IS NULL THEN a.ref ELSE s.ref || '/' || a.ref END AS "QualifiedRef"
+            FROM   assumption a
+            LEFT   JOIN item s ON s.id = a.ref_scope_id
+            WHERE  a.workspace_id = @workspace
+              AND  a.state = 'open'
+              AND  lower(a.ref) = lower(@leaf)
+              AND  (@qualifier IS NULL OR lower(s.ref) = lower(@qualifier))
+            ORDER  BY s.ref
+            FOR    NO KEY UPDATE OF a;
+            """;
+
+        return (await connection.QueryAsync<OpenAssumption>(new CommandDefinition(
+            sql,
+            new { workspace = workspaceId, leaf, qualifier },
+            transaction,
+            cancellationToken: cancellationToken))).AsList();
     }
 
     /// <summary>Shared by <c>work_assume</c> and by <c>work_report</c>'s <c>assumptions[]</c>.</summary>
