@@ -122,9 +122,9 @@ public sealed partial class BoardReader(WorkStateQueries queries, BoardQueries b
                     verify.Passed),
             Attention: attention);
 
-        var text = BriefRenderer.Render(model);
+        var text = BriefRenderer.Render(model, IsWorkerVariant(variant));
 
-        return variant.Equals("worker", StringComparison.OrdinalIgnoreCase)
+        return IsWorkerVariant(variant)
             ? text + "\n\n" + await WorkerSectionAsync(item, cancellationToken)
             : text;
     }
@@ -261,7 +261,7 @@ public sealed partial class BoardReader(WorkStateQueries queries, BoardQueries b
 
         if (item.Intent is { Length: > 0 })
         {
-            lines.Add($"  intent    {Glyph.Clip(item.Intent, 84)}");
+            lines.AddRange(BriefRenderer.Wrap("  intent    ", item.Intent, 12));
         }
 
         lines.Add(criteria.Count == 0

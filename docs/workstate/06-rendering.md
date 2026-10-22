@@ -23,6 +23,8 @@
 5. **Every result ends with the attention block, or nothing.** Never an empty header.
 
 **Width budget: 100 columns.** Long titles truncate with `…`; refs, status and evidence never do.
+Neither do a rule, its route or a task's intent in the worker brief: they wrap at 100 columns with
+an indented continuation (§4).
 
 ---
 
@@ -131,6 +133,25 @@ needs to retire one and what a finding needs to argue against one.
 > rule an agent can read but cannot name is one it cannot cite, question or retire, and directly
 > below it the assumptions print as `A3`. This is the only change to a rendered surface in the U9
 > queue, and it is why the unit that made it also edited this file.
+
+**In the worker brief, rules and intent are never cut.** `work_brief(for:"worker")` and
+`work://item/<ref>/brief` render each BINDING rule with its route, the GOAL and the task's `intent`
+in full, wrapped at 100 columns under an indented continuation:
+
+```
+  ! C1   Never stop, rm, respawn, attach to, message, or read the key file of any Claude session
+         this controller did not start itself — report it to the controller and leave it as it is
+```
+
+The resume brief (`for` omitted) still clips each rule to one line and GOAL to three: it is paid on
+every session start against the ≤ 35-line target, and the full conventions are one read away at
+`work://workspace/conventions`.
+
+> **Changed 2026-10-22 (ws/2).** Both briefs previously clipped a rule to one ~95-column line, GOAL to
+> three, and the worker brief's `intent` to one. A controller pastes the worker brief into a worker's
+> prompt, so the worker received red lines with their ends missing — and the end is the route, the
+> "what to do instead". Wrapping rules in the resume brief too was measured and rejected: on the
+> committed sample-run fixture it renders 41 lines against the 35-line target.
 
 **The note header names what it is holding.** `ADDRESSED TO YOU (n)` counts only notes that name a
 target item — those are the ones a worker brief renders and consumes. Where a run carries unconsumed
