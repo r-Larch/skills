@@ -296,7 +296,8 @@ public sealed class BoardQueries(NpgsqlDataSource dataSource)
     {
         const string sql =
             $"""
-             SELECT i.ref         AS "ItemRef",
+             SELECT i.id          AS "ItemId",
+                    i.ref         AS "ItemRef",
                     v.command     AS "Command",
                     v.result_line AS "ResultLine",
                     v.passed      AS "Passed",
@@ -318,7 +319,8 @@ public sealed class BoardQueries(NpgsqlDataSource dataSource)
     {
         const string sql =
             """
-            SELECT i.ref         AS "ItemRef",
+            SELECT i.id          AS "ItemId",
+                   i.ref         AS "ItemRef",
                    v.command     AS "Command",
                    v.result_line AS "ResultLine",
                    v.passed      AS "Passed",
@@ -340,7 +342,14 @@ public sealed class BoardQueries(NpgsqlDataSource dataSource)
     {
         const string sql =
             """
-            SELECT i.ref                        AS "Ref",
+            SELECT i.id                         AS "Id",
+                   i.ref                        AS "Ref",
+                   CASE WHEN s.ref IS NULL THEN i.ref ELSE s.ref || '/' || i.ref END
+                                                AS "QualifiedRef",
+                   EXISTS (SELECT 1 FROM item o
+                           WHERE  o.workspace_id = i.workspace_id
+                             AND  lower(o.ref) = lower(i.ref)
+                             AND  o.id <> i.id) AS "RefShared",
                    coalesce(c.total, 0)::int    AS "CriteriaTotal",
                    coalesce(c.ok, 0)::int       AS "CriteriaChecked",
                    coalesce(v.passed, 0)::int   AS "VerificationsPassed",
@@ -356,6 +365,7 @@ public sealed class BoardQueries(NpgsqlDataSource dataSource)
                    i.started_at                 AS "StartedAt"
             FROM   item i
             JOIN   item_kind k ON k.key = i.kind
+            LEFT   JOIN item s ON s.id = i.ref_scope_id AND s.id <> i.id
             LEFT   JOIN item p ON p.id = i.parent_id
             LEFT   JOIN LATERAL (
                      SELECT count(*) AS total, count(*) FILTER (WHERE ic.checked) AS ok
@@ -399,25 +409,29 @@ public sealed class BoardQueries(NpgsqlDataSource dataSource)
         return await ListAsync<BlockerRow>(sql, new { scope = scopeItemId }, cancellationToken);
     }
 
-    /// <summary>The <c>← 2.4</c> flag: open blockers, per blocked item.</summary>
+    /// <summary>
+    /// The <c>← 2.4</c> flag: open blockers, per blocked item, under any of the scopes. Several
+    /// scopes because <c>work_get</c> renders items from unrelated subtrees in one call.
+    /// </summary>
     public async Task<IReadOnlyList<BlockedRow>> BlockedByAsync(
-        Guid scopeItemId,
+        IReadOnlyCollection<Guid> scopeItemIds,
         CancellationToken cancellationToken = default)
     {
         const string sql =
             """
-            SELECT i.ref AS "Ref",
+            SELECT i.id  AS "ItemId",
+                   i.ref AS "Ref",
                    b.ref AS "BlockedByRef"
             FROM   item_link l
             JOIN   item i ON i.id = l.to_item_id
             JOIN   item b ON b.id = l.from_item_id
             WHERE  l.type = 'blocks'
               AND  b.status NOT IN ('done','cancelled','superseded')
-              AND  (i.id = @scope OR i.ancestors @> ARRAY[@scope]::uuid[])
+              AND  (i.id = ANY(@scopes) OR i.ancestors && @scopes)
             ORDER  BY i.ref, b.ref;
             """;
 
-        return await ListAsync<BlockedRow>(sql, new { scope = scopeItemId }, cancellationToken);
+        return await ListAsync<BlockedRow>(sql, new { scopes = scopeItemIds.ToArray() }, cancellationToken);
     }
 
     /// <summary>
@@ -628,7 +642,8 @@ public sealed class BoardQueries(NpgsqlDataSource dataSource)
     {
         const string sql =
             """
-            SELECT i.ref      AS "ItemRef",
+            SELECT i.id       AS "ItemId",
+                   i.ref      AS "ItemRef",
                    c.seq      AS "Seq",
                    c.text     AS "Text",
                    c.checked  AS "Checked",
@@ -636,7 +651,7 @@ public sealed class BoardQueries(NpgsqlDataSource dataSource)
             FROM   item_criterion c
             JOIN   item i ON i.id = c.item_id
             WHERE  c.item_id = ANY(@ids)
-            ORDER  BY i.ref, c.seq;
+            ORDER  BY i.id, c.seq;
             """;
 
         return await ListAsync<CriterionRow>(sql, new { ids = itemIds.ToArray() }, cancellationToken);
@@ -648,7 +663,9 @@ public sealed class BoardQueries(NpgsqlDataSource dataSource)
     {
         const string sql =
             """
-            SELECT f.ref    AS "FromRef",
+            SELECT f.id     AS "FromId",
+                   t.id     AS "ToId",
+                   f.ref    AS "FromRef",
                    t.ref    AS "ToRef",
                    l.type   AS "Type",
                    f.status AS "FromStatus"

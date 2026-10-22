@@ -39,7 +39,7 @@ public sealed partial class BoardReader
 
         foreach (var row in shown)
         {
-            facts.TryGetValue(row.Ref, out var fact);
+            facts.TryGetValue(row.Id, out var fact);
             lines.Add(BoardRenderer.Row(new BoardItem(
                 row.Ref,
                 row.Kind,
@@ -76,8 +76,8 @@ public sealed partial class BoardReader
 
         var root = subtree.First(n => n.Id == scope.Item.Id);
         var facts = await FactsAsync(subtree.Select(n => n.Id), cancellationToken);
-        var blocked = (await board.BlockedByAsync(scope.Item.Id, cancellationToken))
-            .ToLookup(b => b.Ref, b => b.BlockedByRef);
+        var blocked = (await board.BlockedByAsync([scope.Item.Id], cancellationToken))
+            .ToLookup(b => b.ItemId, b => b.BlockedByRef);
 
         var nodes = subtree
             .Where(n => n.Depth - root.Depth <= depth)
@@ -89,7 +89,7 @@ public sealed partial class BoardReader
         var lines = new List<string>();
         foreach (var node in nodes)
         {
-            facts.TryGetValue(node.Ref, out var fact);
+            facts.TryGetValue(node.Id, out var fact);
             var total = node.OpenCount + node.DoingCount + node.BlockedCount
                       + node.ReviewCount + node.DoneCount;
             var rollup = includeCounts && total > 0 ? $"{node.DoneCount}/{total} done" : null;
@@ -102,7 +102,7 @@ public sealed partial class BoardReader
                     node.Title,
                     DoingFor: node.Status == ItemStatus.InProgress ? Ago(fact?.StartedAt) : null,
                     Evidence: EvidenceOf(fact),
-                    Flags: FlagsFor(node.Ref, node.Status, fact, blocked)),
+                    Flags: FlagsFor(node.Id, node.Status, fact, blocked)),
                 node.Depth - root.Depth,
                 rollup)));
         }
@@ -160,20 +160,23 @@ public sealed partial class BoardReader
                 : string.Join("\n", problems);
         }
 
-        var ids = resolved.Select(r => r.Id).ToList();
+        // ws/10: everything below is keyed by item id. Two runs each hold a "2", and keying these
+        // on the bare ref rendered both items' criteria and evidence under each of them.
+        var ids = resolved.Select(r => r.Id).Distinct().ToList();
         var facts = await FactsAsync(ids, cancellationToken);
-        var criteria = (await board.CriteriaAsync(ids, cancellationToken)).ToLookup(c => c.ItemRef);
+        var criteria = (await board.CriteriaAsync(ids, cancellationToken)).ToLookup(c => c.ItemId);
         var links = include.Contains("deps")
             ? await board.LinksAsync(ids, cancellationToken)
             : [];
-        var verifications = (await board.VerificationsAsync(ids, cancellationToken)).ToLookup(v => v.ItemRef);
-        var blocked = (await board.BlockedByAsync(resolved[0].Id, cancellationToken)).ToLookup(b => b.Ref, b => b.BlockedByRef);
+        var verifications = (await board.VerificationsAsync(ids, cancellationToken)).ToLookup(v => v.ItemId);
+        var blocked = (await board.BlockedByAsync(ids, cancellationToken)).ToLookup(b => b.ItemId, b => b.BlockedByRef);
 
         var lines = new List<string>(problems);
 
         foreach (var item in resolved)
         {
-            facts.TryGetValue(item.Ref, out var fact);
+            facts.TryGetValue(item.Id, out var fact);
+            var callable = Callable(item.Ref, fact);
 
             lines.Add(BoardRenderer.Row(new BoardItem(
                 item.Ref,
@@ -182,20 +185,20 @@ public sealed partial class BoardReader
                 item.Title,
                 DoingFor: item.Status == ItemStatus.InProgress ? Ago(fact?.StartedAt) : null,
                 Evidence: EvidenceOf(fact),
-                Flags: FlagsFor(item.Ref, item.Status, fact, blocked))));
+                Flags: FlagsFor(item.Id, item.Status, fact, blocked))));
 
             if (item.Intent is { Length: > 0 })
             {
                 lines.Add($"  intent    {Glyph.Clip(item.Intent, 86)}");
             }
 
-            foreach (var criterion in criteria[item.Ref])
+            foreach (var criterion in criteria[item.Id])
             {
                 lines.Add($"  {(criterion.Checked ? "✓" : "✗")} c{criterion.Seq}     "
                         + Glyph.Clip(criterion.Text, 80));
             }
 
-            foreach (var verification in verifications[item.Ref].Take(2))
+            foreach (var verification in verifications[item.Id].Take(2))
             {
                 lines.Add($"  evidence  {(verification.Passed ? "✓" : "✗")} "
                         + $"{Glyph.Clip(verification.ResultLine, 44)} "
@@ -203,9 +206,9 @@ public sealed partial class BoardReader
                         + $"{Glyph.Age(Since(verification.At))} ago");
             }
 
-            foreach (var link in links.Where(l => l.FromRef == item.Ref || l.ToRef == item.Ref))
+            foreach (var link in links.Where(l => l.FromId == item.Id || l.ToId == item.Id))
             {
-                var arrow = link.FromRef == item.Ref
+                var arrow = link.FromId == item.Id
                     ? $"{link.Type.ToString().ToLowerInvariant()} → {link.ToRef}"
                     : $"← {link.FromRef} {link.Type.ToString().ToLowerInvariant()} this ({link.FromStatus.ToString().ToLowerInvariant()})";
                 lines.Add($"  link      {arrow}");
@@ -213,13 +216,16 @@ public sealed partial class BoardReader
 
             // doc 01 §8: templates are undiscoverable, so a tool that names an item prints the whole
             // URI for both projections rather than leaving the model to compose the second one.
-            lines.Add($"  uri       {WorkUris.Item(item.Ref)}");
-            lines.Add($"  brief     {WorkUris.ItemBrief(item.Ref)} — read it with ReadMcpResourceTool");
+            lines.Add($"  uri       {WorkUris.Item(callable)}");
+            lines.Add($"  brief     {WorkUris.ItemBrief(callable)} — read it with ReadMcpResourceTool");
         }
 
+        facts.TryGetValue(resolved[0].Id, out var head);
+        var next = Callable(resolved[0].Ref, head);
+
         lines.Add(string.Empty);
-        lines.Add($"Next: work_status(ref:\"{resolved[0].Ref}\", to:\"in_progress\") to start it, "
-                + $"or work_brief(scope:\"{resolved[0].Ref}\", for:\"worker\") to hand it over.");
+        lines.Add($"Next: work_status(ref:\"{next}\", to:\"in_progress\") to start it, "
+                + $"or work_brief(scope:\"{next}\", for:\"worker\") to hand it over.");
 
         return string.Join("\n", lines);
     }
@@ -460,19 +466,21 @@ public sealed partial class BoardReader
         return string.Join("\n", lines);
     }
 
-    private async Task<Dictionary<string, ItemFacts>> FactsAsync(
+    private async Task<Dictionary<Guid, ItemFacts>> FactsAsync(
         IEnumerable<Guid> ids,
         CancellationToken cancellationToken)
     {
         var rows = await board.FactsAsync([.. ids], cancellationToken);
-        var map = new Dictionary<string, ItemFacts>(StringComparer.Ordinal);
-        foreach (var row in rows)
-        {
-            map[row.Ref] = row;
-        }
-
-        return map;
+        return rows.ToDictionary(r => r.Id);
     }
+
+    /// <summary>
+    /// The ref to print where a model will call or read it back: bare while it is unique in the
+    /// workspace, qualified once another run holds the same one — a bare <c>work://item/2</c> over
+    /// two runs is a refusal waiting to happen (ws/10).
+    /// </summary>
+    private static string Callable(string reference, ItemFacts? facts)
+        => facts is { RefShared: true } ? facts.QualifiedRef : reference;
 
     private static string EvidenceOf(ItemFacts? facts) => facts switch
     {
@@ -484,14 +492,14 @@ public sealed partial class BoardReader
 
     /// <summary>doc 06 §2 — absent means normal, so only an exception earns a marker.</summary>
     private static IReadOnlyList<string>? FlagsFor(
-        string reference,
+        Guid itemId,
         ItemStatus status,
         ItemFacts? facts,
-        ILookup<string, string> blockedBy)
+        ILookup<Guid, string> blockedBy)
     {
         var flags = new List<string>();
 
-        var blockers = blockedBy[reference].ToList();
+        var blockers = blockedBy[itemId].ToList();
         if (blockers.Count > 0)
         {
             flags.Add(Flag.BlockedBy(string.Join(" ", blockers.Take(2))));
