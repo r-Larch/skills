@@ -104,6 +104,7 @@ public sealed partial class BoardReader(WorkStateQueries queries, BoardQueries b
         var verify = await board.LastVerificationAsync(item.Id, cancellationToken);
         var attention = await AttentionAsync(scope, cancellationToken);
         var shown = ShownNotes(notes, item.Id, IsWorkerVariant(variant));
+        var callable = IsWorkerVariant(variant) ? await CallableAsync(item, cancellationToken) : item.Ref;
 
         var model = new BriefModel(
             ScopeKind: item.Kind,
@@ -114,7 +115,7 @@ public sealed partial class BoardReader(WorkStateQueries queries, BoardQueries b
             Head: Short(header?.Head),
             Goal: header?.Goal ?? item.Intent,
             Where: Where(item, subtree),
-            Next: IsWorkerVariant(variant) ? WorkerNext(item) : Next(item, frontier, subtree),
+            Next: IsWorkerVariant(variant) ? WorkerNext(callable) : Next(item, frontier, subtree),
             Binding: [.. constraints.Take(IsWorkerVariant(variant) ? constraints.Count : BriefBindingCap).Select(ToBinding)],
             BindingTotal: constraints.Count,
             Assumptions: [.. assumptions.Take(BriefAssumptionCap).Select(ToAssumption)],
@@ -137,7 +138,7 @@ public sealed partial class BoardReader(WorkStateQueries queries, BoardQueries b
 
         if (IsWorkerVariant(variant))
         {
-            text += "\n\n" + await WorkerSectionAsync(item, cancellationToken);
+            text += "\n\n" + await WorkerSectionAsync(item, callable, cancellationToken);
         }
 
         return (text, [.. shown.Select(n => n.Id)]);
@@ -289,7 +290,20 @@ public sealed partial class BoardReader(WorkStateQueries queries, BoardQueries b
         return lines;
     }
 
-    private async Task<string> WorkerSectionAsync(ScopeRef item, CancellationToken cancellationToken)
+    /// <summary>
+    /// The ref a worker brief prints for calls and its URI: qualified once another run holds the same
+    /// bare ref, since a pasted brief that names an ambiguous ref sends its worker into a refusal.
+    /// </summary>
+    private async Task<string> CallableAsync(ScopeRef item, CancellationToken cancellationToken)
+    {
+        var facts = await board.FactsAsync([item.Id], cancellationToken);
+        return facts is [{ RefShared: true } own] ? own.QualifiedRef : item.Ref;
+    }
+
+    private async Task<string> WorkerSectionAsync(
+        ScopeRef item,
+        string callable,
+        CancellationToken cancellationToken)
     {
         var criteria = await board.CriteriaAsync([item.Id], cancellationToken);
         var lines = new List<string> { $"YOUR TASK  {item.Ref} — {Glyph.Flat(item.Title)}" };
@@ -300,7 +314,7 @@ public sealed partial class BoardReader(WorkStateQueries queries, BoardQueries b
         }
 
         lines.Add(criteria.Count == 0
-            ? "  criteria  none recorded — work_update(ref:\"" + item.Ref + "\", criteria:[…]) before starting"
+            ? "  criteria  none recorded — work_update(ref:\"" + callable + "\", criteria:[…]) before starting"
             : "  criteria");
         // A done-criterion is what the work is judged against, so it wraps and never clips.
         foreach (var c in criteria)
@@ -310,9 +324,9 @@ public sealed partial class BoardReader(WorkStateQueries queries, BoardQueries b
         }
 
         lines.Add("  report    status / files / verify / red_check / deviations / assumptions / risks / not_done");
-        lines.Add($"  brief     {WorkUris.ItemBrief(item.Ref)}");
-        lines.Add($"  Next: work_report(ref:\"{item.Ref}\", …) with the fields above; closing is the orchestrator's call.");
-        lines.Add($"        work_verify(ref:\"{item.Ref}\", …, run_by:\"worker\") records a claim, not evidence.");
+        lines.Add($"  brief     {WorkUris.ItemBrief(callable)}");
+        lines.Add($"  Next: work_report(ref:\"{callable}\", …) with the fields above; closing is the orchestrator's call.");
+        lines.Add($"        work_verify(ref:\"{callable}\", …, run_by:\"worker\") records a claim, not evidence.");
 
         return string.Join("\n", lines);
     }
@@ -394,8 +408,8 @@ public sealed partial class BoardReader(WorkStateQueries queries, BoardQueries b
     /// claims, verifies and closes, and a worker token cannot call <c>work_status</c> — so the line
     /// names the hand-back, never a transition.
     /// </summary>
-    private static string WorkerNext(ScopeRef item)
-        => $"do the task, then work_report(ref:\"{item.Ref}\", status:\"done\", files:[…], verify:\"…\", …)";
+    private static string WorkerNext(string callable)
+        => $"do the task, then work_report(ref:\"{callable}\", status:\"done\", files:[…], verify:\"…\", …)";
 
     private async Task<IReadOnlyList<string>> NearbyAsync(
         Guid workspaceId,

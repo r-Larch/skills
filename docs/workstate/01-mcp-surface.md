@@ -333,6 +333,13 @@ URI scheme `work://`. Read-only projections, `cacheScope: "private"`, short `ttl
   templated URI is only reachable if the model was **handed the exact URI** — which a tool result or
   `ServerInstructions` can do, and a picker cannot. Every tool that references an item must emit its
   full `work://item/{ref}` URI rather than assume it can be composed.
+  When the bare ref is not unique in the workspace, the printed URI — and the calls printed beside
+  it in `work_get` and the worker brief — carry the qualified ref (`work://item/m0/2`,
+  `work://item/m0/2/brief`); a unique ref stays bare. Both forms resolve.
+  > **Changed 2026-10-22 (ws/10).** Item detail was fetched by id and then keyed by bare ref, so
+  > `work_get(refs:["m0/2","ws/2"])` printed one merged block twice and `work_tree` gave every `m0`
+  > task the commit and criteria rollup of its `ws` twin. Reads are keyed by item id; the URIs it
+  > printed were bare and therefore ambiguous too.
 - **`completions/complete` has no client mechanism at all.** ⛔ **The completion plan is dropped**, and
   `WithCompleteHandler` is not wired. The "live item picker for free" was wishful; there is no picker.
 - **Exact URIs win over templates.** Reading `work://probe/fixed` returned the *fixed* resource, not

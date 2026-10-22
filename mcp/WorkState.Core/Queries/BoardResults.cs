@@ -58,6 +58,7 @@ public sealed record NoteRow(
     Guid? ToItemId);
 
 public sealed record VerificationRow(
+    Guid ItemId,
     string ItemRef,
     string? Command,
     string ResultLine,
@@ -65,9 +66,17 @@ public sealed record VerificationRow(
     VerifyRunner RunBy,
     DateTimeOffset At);
 
-/// <summary>Per-item evidence and shape, keyed by ref, for the flag vocabulary of doc 06 §2.</summary>
+/// <summary>
+/// Per-item evidence and shape for the flag vocabulary of doc 06 §2, keyed by <see cref="Id"/>: a
+/// bare ref names one item per run, and keying on it merged twins across runs (ws/10).
+/// <see cref="RefShared"/> says the bare ref is not unique in the workspace, so a printed URI or
+/// call must carry <see cref="QualifiedRef"/>.
+/// </summary>
 public sealed record ItemFacts(
+    Guid Id,
     string Ref,
+    string QualifiedRef,
+    bool RefShared,
     int CriteriaTotal,
     int CriteriaChecked,
     int VerificationsPassed,
@@ -86,7 +95,7 @@ public sealed record BlockerRow(
     string FindingTitle,
     string? TargetRef);
 
-public sealed record BlockedRow(string Ref, string BlockedByRef);
+public sealed record BlockedRow(Guid ItemId, string Ref, string BlockedByRef);
 
 public sealed record ClaimRow(
     string ItemRef,
@@ -132,8 +141,8 @@ public sealed record EventRow(
     string Kind,
     string? Summary);
 
-public sealed record CriterionRow(string ItemRef, int Seq, string Text, bool Checked, string? Evidence);
+public sealed record CriterionRow(Guid ItemId, string ItemRef, int Seq, string Text, bool Checked, string? Evidence);
 
-public sealed record LinkRow(string FromRef, string ToRef, LinkType Type, ItemStatus FromStatus);
+public sealed record LinkRow(Guid FromId, Guid ToId, string FromRef, string ToRef, LinkType Type, ItemStatus FromStatus);
 
 public sealed record AuditRow(string Check, string Ref, string Problem, string Route);
