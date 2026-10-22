@@ -149,7 +149,11 @@ public static class BriefRenderer
                 : $"NOTES IN SCOPE ({model.NoteTotal})   — carried forward by this run; "
                   + "none names an item, so none is consumed");
 
-            lines.AddRange(model.Notes.Select(n => $"  {Glyph.Clip(n, 94)}"));
+            // In the worker variant these are notes addressed to the worker's own task, consumed as
+            // they render: a clipped note is one whose end nobody will ever read.
+            lines.AddRange(full
+                ? model.Notes.SelectMany(n => Wrap("  ", n, 2))
+                : model.Notes.Select(n => $"  {Glyph.Clip(n, 94)}"));
 
             var hidden = model.NoteTotal - model.Notes.Count;
             if (hidden > 0)
