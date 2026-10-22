@@ -131,9 +131,16 @@ Names are `work_*`-prefixed so they survive aggregation across servers.
 | **`work_tree`** | `scope`, `depth`, `status in[]`, `include_counts` | Indented tree with per-node rollups (`open/doing/blocked/review/done`). | `PLAN.md` § Phases, and the checkbox list that never gets checked |
 | **`work_get`** | `ref[]` (batch), `include` = `body\|criteria\|deps\|attempts\|findings\|notes` | Full item(s). Body returned as `resource_link` unless `include: body` is asked for. | reading a section of the ledger |
 | **`work_search`** | `q`, `scope?`, `in` = `items\|blocks\|events\|notes\|reports`, `limit` | FTS + trigram hits with `ref` + snippet. | `Grep` over the run directory — which is what agents do today |
-| **`work_threads`** | `scope`, `include` = `assumptions\|findings\|followups\|notes\|stale\|deps` | **Everything unclosed that is not a task.** The single query the user asked for. | `grep -c '⚠'` |
+| **`work_threads`** | `scope`, `include` = `assumptions\|findings\|followups\|notes\|stale\|deps` | **Everything unclosed that is not a task.** The single query the user asked for. A note is a thread only while it is addressed to an item and unconsumed; a note with no `to:` is a record (doc 06 §4) and is not listed. | `grep -c '⚠'` |
 | **`work_audit`** | `scope`, `checks[]` | Mechanical integrity report (§5). | the cheap 60% of a 60–150k-token plan audit |
 | **`work_history`** | `ref?`, `since_seq?`, `limit` | Append-only event stream, cursor-paged. | ledger § Exceptions, and "what happened while I was compacted" |
+
+> **Changed 2026-10-22 (ws/11).** `work_threads` listed every unconsumed note, so notes written with
+> `from:` and no `to:` showed as unclosed with `— work_brief(scope:…, for:"worker") consumes it`. Only
+> the worker brief of a note's addressee consumes it (ws/4), so that call could never close them. A
+> note with no addressee is now a record: it stays in briefs' `NOTES IN SCOPE` and in history, and
+> `work_threads` omits it. An addressed note keeps its line, and its call names the addressee by a ref
+> that resolves to it.
 
 ### 3.2 Write — structure
 

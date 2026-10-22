@@ -295,11 +295,13 @@ public sealed partial class BoardReader
 
         if (wanted.Contains("notes"))
         {
+            // Only the worker brief of its addressee consumes a note (Housekeeping.ConsumeNotesAsync),
+            // so a note with no addressee is a record that never closes — not a thread.
             var notes = await board.UnconsumedNotesAsync(scope.WorkspaceId, scope.Item.Id, cancellationToken);
-            lines.AddRange(notes.Take(20).Select(n =>
-                $"{Glyph.Pad(n.ToRef ?? n.FromRef ?? Glyph.None, 6)}  {Glyph.Pad("note", 6)}  "
+            lines.AddRange(notes.Where(n => n.ToItemId is not null).Take(20).Select(n =>
+                $"{Glyph.Pad(n.ToRef!, 6)}  {Glyph.Pad("note", 6)}  "
                 + $"{Glyph.Pad(Glyph.Clip(n.Body, 46), 46)}  "
-                + $"— work_brief(scope:\"{n.ToRef ?? scope.Item.Ref}\", for:\"worker\") consumes it"));
+                + $"— work_brief(scope:\"{n.ToQualifiedRef ?? n.ToRef}\", for:\"worker\") consumes it"));
         }
 
         if (wanted.Contains("deps"))

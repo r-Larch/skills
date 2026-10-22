@@ -702,7 +702,8 @@ SELECT p.id,
 FROM   item p LEFT JOIN item c ON c.ancestors @> ARRAY[p.id]
 GROUP  BY p.id;
 
--- everything unclosed that is not a task: the work_threads backbone
+-- everything unclosed that is not a task: the work_threads backbone. work_threads lists only the
+-- notes that name a to_item_id: no call consumes the others (doc 01 §3.1, ws/11).
 CREATE VIEW open_thread AS
   SELECT 'assumption' AS t, a.ref, a.statement AS text, a.scope_item_id AS scope, a.workspace_id
     FROM assumption a WHERE a.state = 'open'
