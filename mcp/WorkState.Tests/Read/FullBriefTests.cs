@@ -60,6 +60,54 @@ public sealed class FullBriefTests(PostgresFixture fixture)
     }
 
     /// <summary>
+    /// The resume brief caps BINDING at five and points at the conventions for the rest; a worker
+    /// brief pasted into a prompt has no such pointer to follow, so rule six would simply be gone.
+    /// </summary>
+    [Fact]
+    public async Task The_worker_brief_and_its_resource_carry_every_rule_in_scope_past_the_resume_cap()
+    {
+        var world = await WriteSeed.CreateAsync(fixture);
+
+        for (var i = 1; i <= 7; i++)
+        {
+            var wrote = await world.Writer.ConstrainAsync(
+                world.WorkspaceId,
+                WriteSeed.Orchestrator,
+                null,
+                new ConstrainArgs(Kind: "command", Text: $"binding rule number {i} of seven"),
+                Ct);
+
+            Assert.False(wrote.Refused, wrote.Text);
+        }
+
+        await using var server = await ReadServer.StartAsync(fixture.ConnectionString, world.Slug, Ct);
+        await using var client = await server.ConnectAsync(ReadServer.WorkerToken, Ct);
+
+        var tool = await ReadServer.CallAsync(
+            client,
+            "work_brief",
+            new Dictionary<string, object?> { ["scope"] = "1.1", ["for"] = "worker" },
+            Ct);
+
+        var read = await client.ReadResourceAsync(WorkUris.ItemBrief("1.1"), cancellationToken: Ct);
+        var resource = string.Join("\n", read.Contents.OfType<TextResourceContents>().Select(c => c.Text));
+
+        foreach (var brief in new[] { tool, resource })
+        {
+            Assert.Contains("BINDING (7)", brief, StringComparison.Ordinal);
+            Assert.DoesNotContain(WorkUris.Conventions, brief, StringComparison.Ordinal);
+
+            for (var i = 1; i <= 7; i++)
+            {
+                Assert.Contains(
+                    $"  · {Glyph.Pad($"C{i}", 4)} binding rule number {i} of seven",
+                    brief,
+                    StringComparison.Ordinal);
+            }
+        }
+    }
+
+    /// <summary>
     /// The text is wrapped, so it is found with its line breaks folded back into spaces; the lines
     /// that carry it must still fit the width budget and hold no ellipsis.
     /// </summary>

@@ -151,7 +151,9 @@ every session start against the ≤ 35-line target, and the full conventions are
 > three, and the worker brief's `intent` to one. A controller pastes the worker brief into a worker's
 > prompt, so the worker received red lines with their ends missing — and the end is the route, the
 > "what to do instead". Wrapping rules in the resume brief too was measured and rejected: on the
-> committed sample-run fixture it renders 41 lines against the 35-line target.
+> committed sample-run fixture it renders 41 lines against the 35-line target. The worker brief also
+> lists every rule in scope, with no count cap and no `+n more` pointer: a pasted brief has no
+> pointer a worker can follow, so the resume brief's cap of five silently dropped rule six and up.
 
 **The note header names what it is holding.** `ADDRESSED TO YOU (n)` counts only notes that name a
 target item — those are the ones a worker brief renders and consumes. Where a run carries unconsumed

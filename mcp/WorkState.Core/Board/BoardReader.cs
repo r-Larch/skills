@@ -104,7 +104,7 @@ public sealed partial class BoardReader(WorkStateQueries queries, BoardQueries b
             Goal: header?.Goal ?? item.Intent,
             Where: Where(item, subtree),
             Next: Next(item, frontier, subtree),
-            Binding: [.. constraints.Take(BriefBindingCap).Select(ToBinding)],
+            Binding: [.. constraints.Take(IsWorkerVariant(variant) ? constraints.Count : BriefBindingCap).Select(ToBinding)],
             BindingTotal: constraints.Count,
             Assumptions: [.. assumptions.Take(BriefAssumptionCap).Select(ToAssumption)],
             AssumptionTotal: assumptions.Count,
