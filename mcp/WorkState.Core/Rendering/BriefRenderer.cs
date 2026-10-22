@@ -51,8 +51,11 @@ public static class BriefRenderer
     /// <summary>
     /// doc 06 §4. Target ≤35 lines, paid on every session start, and the reason every section is
     /// capped rather than complete: an unbounded brief is a brief nobody can afford to call.
+    /// <paramref name="full"/> is the worker variant, which a controller pastes into a prompt
+    /// whole: its GOAL and its rules wrap in full. The resume variant keeps both capped, because
+    /// wrapped rules cost the sample fixture six lines over the 35-line target.
     /// </summary>
-    public static string Render(BriefModel model)
+    public static string Render(BriefModel model, bool full = false)
     {
         var lines = new List<string>();
         var handle = model.ScopeRef is { Length: > 0 } scope ? scope : model.RunRef;
@@ -90,7 +93,7 @@ public static class BriefRenderer
 
         if (model.Goal is { Length: > 0 })
         {
-            lines.AddRange(Wrap("GOAL ", model.Goal, GoalIndent, 3));
+            lines.AddRange(Wrap("GOAL ", model.Goal, GoalIndent, full ? null : 3));
         }
 
         lines.Add(string.Empty);
@@ -110,9 +113,16 @@ public static class BriefRenderer
             // ref that is already four wide, and the corpus runs to C258 — so without it every
             // line from C100 up reads "C148Never connect to …". AssumptionRow has always appended
             // this space; copying the column without it is how the defect arrived.
-            lines.AddRange(model.Binding.Select(b =>
-                $"  {(b.RedLine ? "!" : "·")} {Glyph.Pad(Glyph.Flat(b.Ref), 4)} "
-                + Glyph.Clip(b.Route is { Length: > 0 } ? $"{b.Text} — {b.Route}" : b.Text, 87)));
+            //
+            // In the worker variant a rule wraps and never clips: the route is the end of the line,
+            // and a red line with its route cut off forbids without saying what to do instead.
+            foreach (var b in model.Binding)
+            {
+                var label = $"  {(b.RedLine ? "!" : "·")} {Glyph.Pad(Glyph.Flat(b.Ref), 4)} ";
+                var text = b.Route is { Length: > 0 } ? $"{b.Text} — {b.Route}" : b.Text;
+                lines.AddRange(full ? Wrap(label, text, label.Length) : [label + Glyph.Clip(text, 87)]);
+            }
+
             AddOverflow(lines, model.BindingTotal - model.Binding.Count, $"read {WorkUris.Conventions}");
         }
 
@@ -211,7 +221,7 @@ public static class BriefRenderer
         }
     }
 
-    private static IEnumerable<string> Wrap(string label, string text, int indent, int maxLines)
+    internal static IEnumerable<string> Wrap(string label, string text, int indent, int? maxLines = null)
     {
         var words = Glyph.Flat(text).Split(' ', StringSplitOptions.RemoveEmptyEntries);
         var pad = new string(' ', indent);
