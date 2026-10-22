@@ -19,6 +19,13 @@ public sealed partial class WorkWriter
     /// Refuses a second claim, and says who holds the first. Two runs in different worktrees proceed
     /// concurrently; two sharing a working tree do not — that is the whole parallel-orchestrator
     /// rule, and the refusal names the call that gets on with something else instead.
+    /// <para>
+    /// Every unreleased claim that <c>claim_one_live_per_item</c> or <c>claim_one_writer_per_tree</c>
+    /// would collide with is read here — the holder's own name included, since one agent holding
+    /// two items of one tree is exactly what the index refuses, and lapsed-but-unswept ones too,
+    /// since the index does not know about leases. Only the holder re-taking its own item passes:
+    /// that extends the lease.
+    /// </para>
     /// </summary>
     private async Task<string?> ClaimRefusalAsync(
         NpgsqlConnection connection,
@@ -31,47 +38,79 @@ public sealed partial class WorkWriter
 
         const string sql =
             """
-            SELECT c.agent_name        AS "AgentName",
+            SELECT c.item_id           AS "ItemId",
+                   c.agent_name        AS "AgentName",
                    c.serialization_key AS "SerializationKey",
                    c.expires_at        AS "ExpiresAt",
                    c.heartbeat_at      AS "HeartbeatAt",
-                   i.ref               AS "ItemRef"
+                   i.ref               AS "ItemRef",
+                   CASE WHEN s.ref IS NULL THEN i.ref ELSE s.ref || '/' || i.ref END
+                                       AS "QualifiedRef",
+                   i.workspace_id = @workspace AS "SameWorkspace"
             FROM   claim c
             JOIN   item i ON i.id = c.item_id
+            LEFT   JOIN item s ON s.id = i.ref_scope_id AND s.id <> i.id
             WHERE  c.released_at IS NULL
-              AND  c.expires_at >= now()
               AND  (c.item_id = @id OR (c.writes AND c.serialization_key = @key))
             ORDER  BY (c.item_id = @id) DESC, c.acquired_at;
             """;
 
         var held = (await connection.QueryAsync<ClaimHolder>(new CommandDefinition(
             sql,
-            new { id = item.Id, key },
+            new { id = item.Id, key, workspace = item.WorkspaceId },
             transaction,
             cancellationToken: cancellationToken))).AsList();
 
-        var live = held.FirstOrDefault(h => h.AgentName != actor.Name);
+        var live = held.FirstOrDefault(h => h.ItemId != item.Id || h.AgentName != actor.Name);
         if (live is null)
         {
             return null;
         }
 
-        var lapses = Glyph.Age(Remaining(live.ExpiresAt));
+        var you = live.AgentName == actor.Name ? " — that is you" : string.Empty;
 
-        return live.ItemRef == item.Ref
-            ? Refusal.Blocked(
+        if (live.ItemId == item.Id)
+        {
+            return Refusal.Blocked(
                 $"work_status({item.Ref} → in_progress). {item.Ref} is already claimed.",
-                $"{live.AgentName} holds a live claim on {item.Ref}; it lapses in {lapses}",
+                $"{live.AgentName} holds a live claim on {item.Ref}; {Lease(live)}",
                 "work_next() for something else that is ready",
                 $"work_status(ref:\"{item.Ref}\", to:\"in_progress\") once that lease lapses — "
-                + "the sweep releases it and returns the item to ready")
-            : Refusal.Blocked(
-                $"work_status({item.Ref} → in_progress). Another writer holds this working tree.",
-                $"{live.ItemRef} holds the write claim on \"{Glyph.Clip(live.SerializationKey, 40)}\" "
-                + $"(agent {live.AgentName}); it lapses in {lapses}",
-                $"work_status(ref:\"{live.ItemRef}\", to:\"review\") to release it",
+                + "the sweep releases it and returns the item to ready");
+        }
+
+        if (!live.SameWorkspace)
+        {
+            return Refusal.Blocked(
+                $"work_status({item.Ref} → in_progress). Another workspace's writer holds this working tree.",
+                $"{live.QualifiedRef} in another workspace holds the write claim on "
+                + $"\"{Glyph.Clip(live.SerializationKey, 40)}\" (agent {live.AgentName}{you}); {Lease(live)}",
+                $"work_status(ref:\"{item.Ref}\", to:\"in_progress\") once that lease lapses and that "
+                + "workspace's next work_brief, work_next or work_status sweeps it",
                 "work_next(scope:\"<another run>\") — two runs in different worktrees proceed in "
                 + "parallel, two sharing one working tree do not");
+        }
+
+        return Refusal.Blocked(
+            $"work_status({item.Ref} → in_progress). Another writer holds this working tree.",
+            $"{live.QualifiedRef} holds the write claim on \"{Glyph.Clip(live.SerializationKey, 40)}\" "
+            + $"(agent {live.AgentName}{you}); {Lease(live)}",
+            $"work_status(ref:\"{live.QualifiedRef}\", to:\"review\") to release it — any move out of "
+            + "in_progress (review, blocked, done) releases the claim",
+            $"work_status(ref:\"{item.Ref}\", to:\"in_progress\") once that lease lapses — the sweep "
+            + "releases it",
+            "work_next(scope:\"<another run>\") — two runs in different worktrees proceed in "
+            + "parallel, two sharing one working tree do not");
+    }
+
+    private static string Lease(ClaimHolder holder)
+    {
+        var at = $"{holder.ExpiresAt.UtcDateTime:HH:mm} UTC";
+        var left = holder.ExpiresAt - DateTimeOffset.UtcNow;
+
+        return left > TimeSpan.Zero
+            ? $"the lease lapses in {Glyph.Age(left)} ({at})"
+            : $"the lease lapsed {Glyph.Age(-left)} ago ({at}) and is not swept yet";
     }
 
     private async Task<string> AcquireAsync(
@@ -251,11 +290,5 @@ public sealed partial class WorkWriter
             new { item = itemId },
             transaction,
             cancellationToken: cancellationToken)) ?? itemId.ToString();
-    }
-
-    private static TimeSpan Remaining(DateTimeOffset at)
-    {
-        var span = at - DateTimeOffset.UtcNow;
-        return span < TimeSpan.Zero ? TimeSpan.Zero : span;
     }
 }

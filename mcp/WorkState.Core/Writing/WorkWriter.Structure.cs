@@ -729,4 +729,30 @@ public sealed partial class WorkWriter
             Glyph.Clip(refused.MessageText, 140),
             [.. routes]);
     }
+
+    /// <summary>
+    /// The transport's last line (doc 04 §3). A guard no writer path catches itself — in practice a
+    /// concurrent write taking a ref, seq or claim between this call's check and its insert — still
+    /// comes back as a refusal with a route, never as "An error occurred".
+    /// </summary>
+    public static string Uncaught(PostgresException refused, string call)
+    {
+        var routes = new List<string>
+        {
+            $"{call} again — a concurrent write can take a ref, a seq or a claim between this call's "
+            + "check and its insert, and the retry reads the new state",
+        };
+
+        if (!Blank(refused.Hint))
+        {
+            routes.Add(refused.Hint!);
+        }
+
+        routes.Add("work_brief() to see the state as it stands now");
+
+        return Refusal.Blocked(
+            $"{call} — the schema refused it.",
+            Glyph.Clip(refused.MessageText, 140),
+            [.. routes]);
+    }
 }

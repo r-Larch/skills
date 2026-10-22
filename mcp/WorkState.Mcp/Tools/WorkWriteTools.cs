@@ -2,6 +2,7 @@ using System.ComponentModel;
 using Microsoft.AspNetCore.Authorization;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
+using Npgsql;
 using WorkState.Core.Board;
 using WorkState.Core.Queries;
 using WorkState.Core.Rendering;
@@ -53,6 +54,7 @@ public sealed class WorkWriteTools(
         bool force = false,
         CancellationToken cancellationToken = default)
         => await WriteAsync(
+            "work_status",
             @ref,
             id => writer.StatusAsync(
                 id, @ref, to, caller.Actor,
@@ -85,6 +87,7 @@ public sealed class WorkWriteTools(
         string? red_check = null,
         CancellationToken cancellationToken = default)
         => await WriteAsync(
+            "work_verify",
             @ref,
             id => writer.VerifyAsync(
                 id, @ref, caller.Actor, command, result_line, passed, run_by, counts, red_check,
@@ -119,6 +122,7 @@ public sealed class WorkWriteTools(
         string? not_done = null,
         CancellationToken cancellationToken = default)
         => await WriteAsync(
+            "work_report",
             @ref,
             id => writer.ReportAsync(
                 id, @ref, caller.Actor,
@@ -140,9 +144,11 @@ public sealed class WorkWriteTools(
         NewItemArg[] items,
         CancellationToken cancellationToken = default)
     {
-        var workspaceId = await writer.EnsureWorkspaceAsync(workspace.Slug, cancellationToken);
-        var result = await writer.CreateAsync(workspaceId, caller.Actor, items ?? [], cancellationToken);
-        return Result(result);
+        return Result(await Guarded("work_create(items:[…])", async () =>
+        {
+            var workspaceId = await writer.EnsureWorkspaceAsync(workspace.Slug, cancellationToken);
+            return await writer.CreateAsync(workspaceId, caller.Actor, items ?? [], cancellationToken);
+        }));
     }
 
     [Authorize(Policy = WorkStatePolicies.Orchestrator)]
@@ -168,6 +174,7 @@ public sealed class WorkWriteTools(
         int? expected_revision = null,
         CancellationToken cancellationToken = default)
         => await WriteAsync(
+            "work_update",
             @ref,
             id => writer.UpdateAsync(
                 id, caller.Actor, @ref,
@@ -189,6 +196,7 @@ public sealed class WorkWriteTools(
         [Description("Sit immediately after this sibling.")] string? after = null,
         CancellationToken cancellationToken = default)
         => await WriteAsync(
+            "work_move",
             @ref,
             id => writer.MoveAsync(id, caller.Actor, @ref, parent, before, after, cancellationToken),
             cancellationToken);
@@ -215,7 +223,9 @@ public sealed class WorkWriteTools(
             return Result(WriteResult.No(Empty("work_link")));
         }
 
-        var result = await writer.LinkAsync(id, caller.Actor, from, to, type, remove, cancellationToken);
+        var result = await Guarded(
+            $"work_link(from:\"{from}\", to:\"{to}\", type:\"{type}\")",
+            () => writer.LinkAsync(id, caller.Actor, from, to, type, remove, cancellationToken));
         return await AttendAsync(result, to, cancellationToken);
     }
 
@@ -242,7 +252,9 @@ public sealed class WorkWriteTools(
             return Result(WriteResult.No(Empty("work_note")));
         }
 
-        return Result(await writer.NoteAsync(id, caller.Actor, kind, body, to, from, cancellationToken));
+        return Result(await Guarded(
+            $"work_note(kind:\"{kind}\", …)",
+            () => writer.NoteAsync(id, caller.Actor, kind, body, to, from, cancellationToken)));
     }
 
     [Authorize(Policy = WorkStatePolicies.Orchestrator)]
@@ -270,9 +282,11 @@ public sealed class WorkWriteTools(
             return Result(WriteResult.No(Empty("work_assume")));
         }
 
-        return Result(await writer.AssumeAsync(
-            id, caller.Actor, @ref, statement, evidence, reversal, revisit_when, resolve, evidence,
-            cancellationToken));
+        return Result(await Guarded(
+            $"work_assume(ref:\"{@ref}\", …)",
+            () => writer.AssumeAsync(
+                id, caller.Actor, @ref, statement, evidence, reversal, revisit_when, resolve, evidence,
+                cancellationToken)));
     }
 
     [Authorize(Policy = WorkStatePolicies.Orchestrator)]
@@ -309,12 +323,14 @@ public sealed class WorkWriteTools(
             return Result(WriteResult.No(Empty("work_constrain")));
         }
 
-        return Result(await writer.ConstrainAsync(
-            id,
-            caller.Actor,
-            @ref,
-            new ConstrainArgs(kind, text, route, scope, covers_risk, severity, from, retire, reason),
-            cancellationToken));
+        return Result(await Guarded(
+            $"work_constrain(kind:\"{kind}\", …)",
+            () => writer.ConstrainAsync(
+                id,
+                caller.Actor,
+                @ref,
+                new ConstrainArgs(kind, text, route, scope, covers_risk, severity, from, retire, reason),
+                cancellationToken)));
     }
 
     [Authorize(Policy = WorkStatePolicies.Orchestrator)]
@@ -336,10 +352,13 @@ public sealed class WorkWriteTools(
             return Result(WriteResult.No(Empty("work_finding")));
         }
 
-        return Result(await writer.FindingAsync(id, caller.Actor, findings ?? [], cancellationToken));
+        return Result(await Guarded(
+            "work_finding(findings:[…])",
+            () => writer.FindingAsync(id, caller.Actor, findings ?? [], cancellationToken)));
     }
 
     private async Task<CallToolResult> WriteAsync(
+        string tool,
         string reference,
         Func<Guid, Task<WriteResult>> write,
         CancellationToken cancellationToken)
@@ -350,7 +369,26 @@ public sealed class WorkWriteTools(
             return Result(WriteResult.No(Empty("this call")));
         }
 
-        return await AttendAsync(await write(id), reference, cancellationToken);
+        return await AttendAsync(
+            await Guarded($"{tool}(ref:\"{reference}\", …)", () => write(id)),
+            reference,
+            cancellationToken);
+    }
+
+    /// <summary>
+    /// doc 04 §3 at the transport: no write tool answers "An error occurred". The writer catches the
+    /// guards it can provoke on purpose; this catches the ones only a concurrent writer can.
+    /// </summary>
+    private static async Task<WriteResult> Guarded(string call, Func<Task<WriteResult>> write)
+    {
+        try
+        {
+            return await write();
+        }
+        catch (PostgresException refused)
+        {
+            return WriteResult.No(WorkWriter.Uncaught(refused, call));
+        }
     }
 
     /// <summary>
