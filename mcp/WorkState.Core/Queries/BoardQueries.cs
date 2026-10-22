@@ -87,8 +87,10 @@ public sealed class BoardQueries(NpgsqlDataSource dataSource)
 
     /// <summary>
     /// Resolves a ref. <c>2.3</c> looks anywhere in the workspace; <c>entity-store/2.3</c> looks
-    /// inside that run only. More than one row back means the bare ref is ambiguous, which the
-    /// caller reports with the qualified alternatives rather than guessing.
+    /// inside that run only. A run (or project) numbers its own refs, so it is qualified by its
+    /// parent — <c>autowork/backlog</c> — or by itself, <c>backlog/backlog</c>. More than one row
+    /// back means the ref is ambiguous, which the caller reports with <see cref="UniqueRefsAsync"/>
+    /// rather than guessing.
     /// </summary>
     public async Task<IReadOnlyList<ScopeRef>> ResolveAsync(
         Guid workspaceId,
@@ -104,10 +106,13 @@ public sealed class BoardQueries(NpgsqlDataSource dataSource)
              SELECT {ScopeColumns}
              FROM   item i
              LEFT JOIN item s ON s.id = i.ref_scope_id AND s.id <> i.id
+             LEFT JOIN item p ON p.id = i.parent_id
              JOIN   item_kind k ON k.key = i.kind
              WHERE  i.workspace_id = @workspace
                AND  lower(i.ref) = lower(@leaf)
-               AND  (@qualifier IS NULL OR lower(coalesce(s.ref, i.ref)) = lower(@qualifier))
+               AND  (@qualifier IS NULL
+                     OR lower(coalesce(s.ref, i.ref)) = lower(@qualifier)
+                     OR (i.ref_scope_id = i.id AND lower(p.ref) = lower(@qualifier)))
              ORDER BY k.rank, i.seq;
              """;
 
@@ -115,6 +120,66 @@ public sealed class BoardQueries(NpgsqlDataSource dataSource)
             sql,
             new { workspace = workspaceId, leaf, qualifier },
             cancellationToken);
+    }
+
+    /// <summary>
+    /// ws/13. For each match of an ambiguous ref, a string that resolves to that item and nothing
+    /// else — checked by resolving it, because a run's <c>QualifiedRef</c> is its bare ref and was
+    /// printed back as the very string that had just been refused. A match no form can single out is
+    /// left out; the caller routes to <c>work_tree</c> for it.
+    /// </summary>
+    public async Task<IReadOnlyList<string>> UniqueRefsAsync(
+        Guid workspaceId,
+        IEnumerable<ScopeRef> matches,
+        CancellationToken cancellationToken = default)
+    {
+        var forms = new List<string>();
+        foreach (var match in matches)
+        {
+            if (await UniqueRefAsync(workspaceId, match, cancellationToken) is { } form)
+            {
+                forms.Add(form);
+            }
+        }
+
+        return forms;
+    }
+
+    /// <summary>The first of the bare ref, the run-qualified ref, and for a run its parent- and
+    /// self-qualified forms, that resolves to <paramref name="match"/> alone.</summary>
+    public async Task<string?> UniqueRefAsync(
+        Guid workspaceId,
+        ScopeRef match,
+        CancellationToken cancellationToken = default)
+    {
+        var forms = new List<string> { match.Ref };
+
+        if (match.QualifiedRef is { Length: > 0 } qualified)
+        {
+            forms.Add(qualified);
+        }
+
+        if (match.RefScopeId == match.Id)
+        {
+            if (match.ParentId is { } parentId
+                && await SingleAsync<string>("SELECT ref FROM item WHERE id = @id;", new { id = parentId }, cancellationToken)
+                    is { Length: > 0 } parent)
+            {
+                forms.Add($"{parent}/{match.Ref}");
+            }
+
+            forms.Add($"{match.Ref}/{match.Ref}");
+        }
+
+        foreach (var form in forms.Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            if (await ResolveAsync(workspaceId, form, cancellationToken) is [var only] && only.Id == match.Id)
+            {
+                return form;
+            }
+        }
+
+        return null;
     }
 
     /// <summary>

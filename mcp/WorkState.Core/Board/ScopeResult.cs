@@ -16,5 +16,9 @@ public abstract record ScopeResult
 
     public sealed record Missing(string Asked, IReadOnlyList<string> Nearby) : ScopeResult;
 
-    public sealed record Ambiguous(string Asked, IReadOnlyList<string> Candidates) : ScopeResult;
+    /// <summary>
+    /// <paramref name="Candidates"/> are forms that each resolve to one match alone (ws/13), so a
+    /// match no form singles out is counted in <paramref name="Matches"/> but has no candidate.
+    /// </summary>
+    public sealed record Ambiguous(string Asked, IReadOnlyList<string> Candidates, int Matches) : ScopeResult;
 }

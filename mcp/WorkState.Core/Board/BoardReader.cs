@@ -59,7 +59,8 @@ public sealed partial class BoardReader(WorkStateQueries queries, BoardQueries b
         var home = await board.DefaultScopeAsync(workspace, cancellationToken);
         return new ScopeResult.Ambiguous(
             asked,
-            [.. Prefer(matches, home).Select(m => m.QualifiedRef ?? m.Ref)]);
+            await board.UniqueRefsAsync(workspace, Prefer(matches, home), cancellationToken),
+            matches.Count);
     }
 
     /// <summary>

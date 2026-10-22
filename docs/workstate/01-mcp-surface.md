@@ -169,6 +169,20 @@ Names are `work_*`-prefixed so they survive aggregation across servers.
 | **`work_constrain`** | Create or retire a `constraint_rule` — the writer the BINDING block never had, without which the block is import-only and a project started in the store has an empty one forever. Create: `kind` (`red_line\|stack_fact\|command\|domain_rule\|generated_code`), `text`, `route`, `scope` (an item ref; omitted, it binds the workspace), `covers_risk[]`, `severity`, `from`. A `red_line` with no `route` is refused — doc 02 §8. Retire: `ref` + `reason`, which sets `active = false` and leaves the row, because the record is the point. |
 | **`work_finding`** | Batch. From a review, gate or audit. Each becomes an item of kind `finding` with `severity` (`blocker\|minor`), a `target` item, and a `source` (`review\|gate\|plan_audit\|self`). A `blocker` linked to a phase **blocks that phase's `done` transition**. |
 
+**Addressing a ref, and refusing an ambiguous one.** A ref is numbered inside its run, so `m0/2` names
+the `2` in run `m0`. A run (or project) numbers its own refs, so it is qualified by its parent or by
+itself: `autowork/backlog` and `backlog/backlog` both name the run `backlog` under project
+`autowork`. When a ref names more than one item or open assumption, every tool refuses it, and every
+form the refusal suggests has been resolved and names exactly one of the matches. A match that no
+form singles out (a workspace-level assumption sharing its ref with a run's, for instance) is not
+suggested; the refusal routes to `work_tree` or `work_threads` instead.
+
+> **Changed 2026-10-22 (ws/13).** With run `backlog` and phase `m0/backlog` both present, the refusal
+> suggested `ref:"backlog"`, which was the very string it had just refused, because a run's
+> qualified ref is its bare ref. `autowork/backlog` was refused as unknown, and `backlog/backlog`, the
+> form that worked, was printed nowhere. The suggestions are now checked forms, and parent-qualified
+> run refs resolve.
+
 ### 3.5 Admin
 
 | Tool | Notes |

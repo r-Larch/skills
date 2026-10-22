@@ -117,22 +117,17 @@ public sealed partial class WorkWriter
     }
 
     /// <summary>
-    /// A ref that resolves to <paramref name="holder"/> alone: the bare ref, else its qualified
-    /// form, else run-qualified-by-itself — a project backlog run named "backlog" shares its bare ref
-    /// with any in-run backlog phase left from before ws/12.
+    /// A ref that resolves to <paramref name="holder"/> alone — a project backlog run named
+    /// "backlog" shares its bare ref with any in-run backlog phase left from before ws/12.
     /// </summary>
     private async Task<string> ScopeFormAsync(Guid workspaceId, Carried holder, CancellationToken cancellationToken)
     {
-        var matches = await board.ResolveAsync(workspaceId, holder.Ref, cancellationToken);
-        if (matches is [var only] && only.Id == holder.Id)
-        {
-            return holder.Ref;
-        }
+        var self = (await board.ResolveAsync(workspaceId, holder.Ref, cancellationToken))
+            .FirstOrDefault(m => m.Id == holder.Id);
 
-        var self = matches.FirstOrDefault(m => m.Id == holder.Id);
-        return self?.QualifiedRef is { } qualified && qualified != holder.Ref
-            ? qualified
-            : $"{holder.Ref}/{holder.Ref}";
+        return self is null
+            ? holder.Ref
+            : await board.UniqueRefAsync(workspaceId, self, cancellationToken) ?? holder.Ref;
     }
 
     /// <summary>
