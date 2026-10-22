@@ -51,7 +51,7 @@ open ──▶ ready ──▶ in_progress ──▶ review ──▶ done
 | From | To | Guard |
 |---|---|---|
 | `open` | `ready` | every `blocks` predecessor is `done`/`cancelled`/`superseded`. Otherwise refused, naming them. |
-| `ready`/`open` | `in_progress` | **acquires a claim** (§5). Refused if another live claim holds this item, or a write-claim holds this `serialization_key` — **including one the same agent holds on another item**, and a lapsed one another workspace has not swept yet. The refusal names the holding item (qualified ref), its agent and when its lease lapses, and the moves: release it (`work_status(holder, review)`), retake once the lease lapses, or work another tree. Only the holder re-taking its own item passes: that extends the lease. |
+| `ready`/`open` | `in_progress` | **acquires a claim** (§5) on the working tree: `tree:` if given (a worktree path or branch, normalised — doc 02 §10), else the run's key. Refused if another live claim holds this item, or a write-claim holds this tree — **including one the same agent holds on another item**, and a lapsed one another workspace has not swept yet (paths only: a name locks per workspace). The refusal names the holding item (qualified ref), its agent and when its lease lapses, and the moves: release it (`work_status(holder, review)`), retake once the lease lapses (with the same `tree:`), claim your own worktree with `tree:` if none was given, or work another tree. Only the holder re-taking its own item passes: that extends the lease. |
 | `in_progress` | `blocked` | requires `reason`. Records a `blocked` event. |
 | `in_progress` | `review` | free. |
 | `review`/`in_progress` | `done` | **the five conditions, §3.** |
@@ -61,6 +61,13 @@ open ──▶ ready ──▶ in_progress ──▶ review ──▶ done
 | any non-terminal | `deferred` | **a move, §4.** |
 
 **Releasing the claim** happens automatically on leaving `in_progress` by any route.
+
+> **Changed 2026-10-22 (ws/8).** The `in_progress` row locked the run: every unit fell back to the
+> run's key, so two units of one run in separate git worktrees could not both be in progress — the
+> shape `/rlarch:controller` runs. `work_status` now takes `tree:`; one writer per worktree, many per
+> run. Without it the behaviour is unchanged, except that a ref-scope fallback key no longer collides
+> with a same-named run in another workspace. An expired claim's attention line names its tree and
+> retakes with it.
 
 ---
 
@@ -172,10 +179,12 @@ so it is not expressible.
 Two Postgres guarantees from U1 carry this, and both are tested in **both directions**:
 
 - `claim_one_live_per_item` — one live claim per item;
-- `claim_one_writer_per_tree` — one live **write** claim per `serialization_key`.
+- `claim_one_writer_per_tree` — one live **write** claim per working tree (`serialization_key`,
+  scoped to its workspace when the key is a name rather than a path).
 
-That second is the parallel-orchestrator rule: **two runs in different worktrees proceed
-concurrently; two sharing a working tree do not.** Read-only claims (recon) do not take the lock.
+That second is the parallel-orchestrator rule: **two units in different worktrees proceed
+concurrently, even in one run; two sharing a working tree do not.** Read-only claims (recon) do not
+take the lock.
 
 > This is the machine answer to `nested-claude`'s *"a parked agent is indistinguishable from a busy
 > one"*. A parked agent stops writing, its lease lapses, and the store says so.
@@ -193,7 +202,7 @@ every one of them, so each needs its permissive twin:
 | `done` on worker-only verification | `done` on an orchestrator verification |
 | `done` with an open child | `done` once the child closes |
 | `done` with an open blocker finding | `done` once the finding is closed **or deferred** |
-| `in_progress` while another writer holds the tree | `in_progress` on a different `serialization_key` |
+| `in_progress` while another writer holds the tree | `in_progress` on a different tree — another run's key, or another `tree:` in the same run |
 | `ready` while a blocker is open | `ready` the moment the blocker closes |
 | deferral without a `target` | deferral **with** one, which creates a real open item |
 

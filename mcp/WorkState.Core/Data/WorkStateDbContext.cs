@@ -134,11 +134,13 @@ public class WorkStateDbContext(DbContextOptions<WorkStateDbContext> options) : 
                 .IsUnique()
                 .HasFilter("released_at IS NULL");
 
-            // One writer per working tree. Two runs in separate worktrees proceed in parallel; two
-            // runs sharing a tree do not. The parallel-orchestrator rule, as an index.
-            e.HasIndex(x => x.SerializationKey)
+            // One writer per working tree. Two units in separate worktrees proceed in parallel; two
+            // sharing a tree do not. The parallel-orchestrator rule, as an index. A null
+            // key_workspace_id is a path and collides across workspaces — NULLS NOT DISTINCT.
+            e.HasIndex(x => new { x.SerializationKey, x.KeyWorkspaceId })
                 .HasDatabaseName("claim_one_writer_per_tree")
                 .IsUnique()
+                .AreNullsDistinct(false)
                 .HasFilter("released_at IS NULL AND writes");
         });
 

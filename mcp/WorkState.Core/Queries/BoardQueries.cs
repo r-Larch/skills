@@ -432,13 +432,14 @@ public sealed class BoardQueries(NpgsqlDataSource dataSource)
     {
         const string sql =
             $"""
-             SELECT "ItemRef", "QualifiedRef", "AgentName", "ExpiresAt" FROM (
+             SELECT "ItemRef", "QualifiedRef", "AgentName", "ExpiresAt", "Tree" FROM (
                SELECT DISTINCT ON (c.item_id)
                       i.ref        AS "ItemRef",
                       CASE WHEN s.ref IS NULL THEN i.ref ELSE s.ref || '/' || i.ref END
                                    AS "QualifiedRef",
                       c.agent_name AS "AgentName",
                       c.expires_at AS "ExpiresAt",
+                      c.tree       AS "Tree",
                       c.item_id
                FROM   claim c
                JOIN   item i ON i.id = c.item_id

@@ -52,13 +52,15 @@ public sealed class WorkWriteTools(
         string? commit = null,
         [Description("Close over unmet conditions. Needs reason; leaves a permanent forced_transition.")]
         bool force = false,
+        [Description("For in_progress: your worktree path or branch; one writer per tree.")]
+        string? tree = null,
         CancellationToken cancellationToken = default)
         => await WriteAsync(
             "work_status",
             @ref,
             id => writer.StatusAsync(
                 id, @ref, to, caller.Actor,
-                new StatusArgs(reason, target, resolution, commit, force),
+                new StatusArgs(reason, target, resolution, commit, force, tree),
                 cancellationToken),
             cancellationToken);
 

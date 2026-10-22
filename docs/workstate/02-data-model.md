@@ -579,7 +579,9 @@ Today they are two sections 500 lines apart and only one of them is ever found.
 CREATE TABLE claim (
   id           uuid PRIMARY KEY,
   item_id      uuid NOT NULL REFERENCES item ON DELETE CASCADE,
-  serialization_key text NOT NULL,   -- copied from the owning run_config at claim time
+  serialization_key text NOT NULL,   -- the tree: work_status's tree:, else run_config, else repo_root, else ref scope
+  key_workspace_id uuid,             -- set when the key is a name (branch, ref scope): lock is per workspace
+  tree         text,                 -- the normalised tree: the caller passed, if any
   writes       boolean NOT NULL DEFAULT true,   -- read-only recon claims do not serialize
   agent_name   text NOT NULL,
   agent_token_id uuid,
@@ -592,15 +594,34 @@ CREATE TABLE claim (
 );
 CREATE UNIQUE INDEX claim_one_live_per_item ON claim (item_id) WHERE released_at IS NULL;
 
--- One writer per working tree. Two runs in separate worktrees proceed in parallel;
--- two runs sharing a tree do not. This is the parallel-orchestrator rule, as an index.
+-- One writer per working tree. Two units in separate worktrees proceed in parallel, even
+-- in one run; two sharing a tree do not. The parallel-orchestrator rule, as an index.
+-- A null key_workspace_id is a path, and a path collides across workspaces.
 CREATE UNIQUE INDEX claim_one_writer_per_tree
-  ON claim (serialization_key) WHERE released_at IS NULL AND writes;
+  ON claim (serialization_key, key_workspace_id) NULLS NOT DISTINCT
+  WHERE released_at IS NULL AND writes;
 ```
 
 That second index is *"writing agents run one at a time, never two in parallel"* as a database
-constraint rather than a paragraph — and, correctly, it does **not** block the parallel runs you
-asked for, because they carry different `serialization_key`s.
+constraint rather than a paragraph — and, correctly, it does **not** block the parallel units you
+asked for, because they carry different working trees.
+
+**The key.** `work_status(ref, to:"in_progress", tree:"<worktree path or branch>")` makes the
+caller's tree the key. A path is normalised — trimmed; on Windows (`X:\…`, `\\server\…`) slashes
+become `/`, case is folded and a trailing slash dropped; a POSIX path keeps its case and loses a
+trailing slash — and locks **server-wide**, because it is a place on disk. A branch (`refs/heads/`
+stripped) is a name and locks **within its workspace**. Without `tree` the key is today's: the run's
+`serialization_key`, else the project's `repo_root` (both server-wide), else the ref scope — a name,
+so per workspace.
+
+> **Changed 2026-10-22 (ws/8).** Claims were per run: with no `tree` parameter, every unit of a run
+> fell back to the run's key (`30m lease on "m0"`), so a controller running parallel units in
+> separate git worktrees was refused the second one. And the index was on `serialization_key` alone,
+> server-wide, while the sweep is per workspace — two workspaces with same-named runs shared a lock.
+> Migration `ClaimPerTree` adds `key_workspace_id` and `tree`, rebuilds the index over
+> `(serialization_key, key_workspace_id) NULLS NOT DISTINCT`, and leaves every existing key as it
+> is; a live claim whose key came from the ref-scope fallback gets its workspace, so it keeps binding
+> its run across the upgrade.
 
 An expired lease is not silently reaped — it surfaces in `attention` and, on the next
 `work_status`/`work_brief`, is released with a `claim_expired` event. `nested-claude`'s
