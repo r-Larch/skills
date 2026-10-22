@@ -59,11 +59,14 @@ public sealed partial class WorkWriter(NpgsqlDataSource dataSource, BoardQueries
         bool RequiresCriteria);
 
     private sealed record ClaimHolder(
+        Guid ItemId,
         string AgentName,
         string SerializationKey,
         DateTimeOffset ExpiresAt,
         DateTimeOffset HeartbeatAt,
-        string ItemRef);
+        string ItemRef,
+        string QualifiedRef,
+        bool SameWorkspace);
 
     /// <summary>
     /// doc 07 §2 and §3. The transition table decides what is reachable, the five conditions decide
@@ -101,6 +104,54 @@ public sealed partial class WorkWriter(NpgsqlDataSource dataSource, BoardQueries
 
         var item = await LoadAsync(connection, transaction, scope.Id, cancellationToken);
 
+        try
+        {
+            return await TransitionAsync(connection, transaction, item, move, actor, args, cancellationToken);
+        }
+        catch (PostgresException refused)
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            return WriteResult.No(
+                await SchemaRefusalAsync(connection, item, to!, actor, refused, cancellationToken));
+        }
+    }
+
+    /// <summary>
+    /// The guards read before anything is written, but a concurrent writer can still take the slot
+    /// between the read and the insert — and then the index says no. That answer is re-read as the
+    /// same refusal the guard would have given, holder and all, because a schema message naming an
+    /// index is a problem without a route (doc 04 §3).
+    /// </summary>
+    private async Task<string> SchemaRefusalAsync(
+        NpgsqlConnection connection,
+        ItemRow item,
+        string to,
+        Actor actor,
+        PostgresException refused,
+        CancellationToken cancellationToken)
+    {
+        if (refused.ConstraintName is "claim_one_live_per_item" or "claim_one_writer_per_tree")
+        {
+            await using var reread = await connection.BeginTransactionAsync(cancellationToken);
+            var held = await ClaimRefusalAsync(connection, reread, item, actor, cancellationToken);
+            if (held is not null)
+            {
+                return held;
+            }
+        }
+
+        return FromPostgres(refused, $"work_status(ref:\"{item.Ref}\", to:\"{to.Trim()}\")");
+    }
+
+    private async Task<WriteResult> TransitionAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        ItemRow item,
+        Move move,
+        Actor actor,
+        StatusArgs args,
+        CancellationToken cancellationToken)
+    {
         if (!Transitions.Legal(item.Status, move, item.Kind))
         {
             return WriteResult.No(Transitions.Refuse(item.Ref, item.Status, move, item.Kind));

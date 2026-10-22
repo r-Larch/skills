@@ -23,6 +23,14 @@ default and U4 must not re-implement them in C#.
 **The test of where a rule belongs:** if violating it should be impossible, it is a constraint. If
 violating it should be possible but recorded, it is a guard.
 
+**A constraint firing is a refusal, never an exception** (doc 04 §3). Every write path that can reach
+one catches the `PostgresException` and answers `REFUSED` with a callable route. Where the tool layer
+can name more than the schema message — a claim index firing names the item holding the claim, its
+agent and when its lease lapses — it re-reads and says so. And because a concurrent writer can take a
+ref, seq or claim between any check and its insert, the MCP write tools carry a last net: an uncaught
+`PostgresException` comes back as `REFUSED … — the schema refused it.` with *retry the call* as its
+first route, not as *"An error occurred invoking …"*.
+
 ---
 
 ## 2. The transition table
@@ -43,7 +51,7 @@ open ──▶ ready ──▶ in_progress ──▶ review ──▶ done
 | From | To | Guard |
 |---|---|---|
 | `open` | `ready` | every `blocks` predecessor is `done`/`cancelled`/`superseded`. Otherwise refused, naming them. |
-| `ready`/`open` | `in_progress` | **acquires a claim** (§5). Refused if another live claim holds this item, or a write-claim holds this `serialization_key`. |
+| `ready`/`open` | `in_progress` | **acquires a claim** (§5). Refused if another live claim holds this item, or a write-claim holds this `serialization_key` — **including one the same agent holds on another item**, and a lapsed one another workspace has not swept yet. The refusal names the holding item (qualified ref), its agent and when its lease lapses, and the moves: release it (`work_status(holder, review)`), retake once the lease lapses, or work another tree. Only the holder re-taking its own item passes: that extends the lease. |
 | `in_progress` | `blocked` | requires `reason`. Records a `blocked` event. |
 | `in_progress` | `review` | free. |
 | `review`/`in_progress` | `done` | **the five conditions, §3.** |
@@ -137,7 +145,8 @@ work_status(ref: "4.7", to: "deferred", target: <item ref | "backlog">, reason: 
 In one transaction:
 
 1. creates a **new open item** (`kind: followup`) under `target`, titled from the deferred item,
-   carrying its `intent` and criteria;
+   carrying its `intent` and criteria, and numbered `<ref>-d`, `<ref>-d2`, … in the **target's** run
+   (a target in another run numbers it there);
 2. links `new --derived_from--> 4.7`;
 3. closes `4.7` as `done` with `resolution = 'obsolete'`, **bypassing the §3 conditions** — which is
    sound, because the work did not vanish, it moved;

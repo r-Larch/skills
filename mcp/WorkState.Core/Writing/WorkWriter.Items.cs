@@ -74,7 +74,7 @@ public sealed partial class WorkWriter
             await FreeRefAsync(
                 connection,
                 transaction,
-                item.RefScopeId,
+                await ScopeUnderAsync(connection, transaction, parent.Value, "followup", cancellationToken),
                 n => n == 1 ? $"{item.Ref}-d" : $"{item.Ref}-d{n}",
                 cancellationToken),
             await NextSeqAsync(connection, transaction, parent, cancellationToken),
@@ -163,6 +163,27 @@ public sealed partial class WorkWriter
 
         await InsertItemAsync(connection, transaction, backlog, cancellationToken);
         return backlog.Id;
+    }
+
+    /// <summary>
+    /// The ref scope a new <paramref name="kind"/> under <paramref name="parentId"/> will land in,
+    /// computed by the same function the tree trigger uses — a deferral target in another run puts
+    /// the follow-up in that run's numbering, not the source's.
+    /// </summary>
+    private static async Task<Guid?> ScopeUnderAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        Guid parentId,
+        string kind,
+        CancellationToken cancellationToken)
+    {
+        const string sql = "SELECT item_scope_of(@kind, ancestors || id, NULL) FROM item WHERE id = @parent;";
+
+        return await connection.ExecuteScalarAsync<Guid?>(new CommandDefinition(
+            sql,
+            new { kind, parent = parentId },
+            transaction,
+            cancellationToken: cancellationToken));
     }
 
     /// <summary>

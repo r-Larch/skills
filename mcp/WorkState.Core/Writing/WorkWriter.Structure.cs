@@ -235,6 +235,13 @@ public sealed partial class WorkWriter
                 + $"expected_revision:{item.Revision}"));
         }
 
+        var unwritable = await CriteriaRefusalAsync(
+            connection, transaction, item, args.Criteria ?? [], cancellationToken);
+        if (unwritable is not null)
+        {
+            return WriteResult.No(unwritable);
+        }
+
         const string sql =
             """
             UPDATE item
@@ -585,6 +592,81 @@ public sealed partial class WorkWriter
         }
     }
 
+    /// <summary>
+    /// doc 01 §3.2 — an id addresses a criterion that exists; a text with no id appends. A row that
+    /// fits neither would write nothing, and an <c>OK</c> over a write that did not happen is the
+    /// silent drop this whole server exists to prevent — so the whole patch is refused before
+    /// anything is written, naming the ids that exist and the form that appends.
+    /// </summary>
+    private static async Task<string?> CriteriaRefusalAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        ItemRow item,
+        IReadOnlyList<CriterionArg> criteria,
+        CancellationToken cancellationToken)
+    {
+        if (criteria.Count == 0)
+        {
+            return null;
+        }
+
+        const string sql = "SELECT seq FROM item_criterion WHERE item_id = @id ORDER BY seq;";
+
+        var existing = (await connection.QueryAsync<int>(new CommandDefinition(
+            sql, new { id = item.Id }, transaction, cancellationToken: cancellationToken))).AsList();
+
+        var known = existing.Count == 0
+            ? "it has no criteria yet"
+            : $"it has {string.Join(", ", existing.Select(s => $"c{s}"))}";
+
+        var unmet = new List<Unmet>();
+
+        foreach (var criterion in criteria)
+        {
+            var text = Blank(criterion.Text) ? "…" : Glyph.Clip(criterion.Text, 40);
+            var append = $"work_update(ref:\"{item.Ref}\", criteria:[{{text:\"{text}\"}}]) appends it as "
+                         + $"c{(existing.Count == 0 ? 1 : existing.Max() + 1)} — the server numbers it";
+
+            if (Blank(criterion.Id))
+            {
+                if (Blank(criterion.Text))
+                {
+                    unmet.Add(new Unmet(
+                        "a criterion with neither an id nor a text addresses nothing",
+                        [append, $"work_update(ref:\"{item.Ref}\", criteria:[{{id:\"c1\", checked:true, "
+                                 + "evidence:\"…\"}]) to change one that exists"]));
+                }
+
+                continue;
+            }
+
+            if (Seq(criterion.Id) is not { } seq || !existing.Contains(seq))
+            {
+                unmet.Add(new Unmet(
+                    $"criterion \"{Glyph.Clip(criterion.Id, 12)}\" does not exist on {item.Ref} — {known}; "
+                    + "an id addresses an existing criterion, it never creates one",
+                    [
+                        append,
+                        $"work_get(refs:[\"{item.Ref}\"]) to see the criteria that exist and their ids",
+                    ]));
+                continue;
+            }
+
+            if (criterion.Checked is null && Blank(criterion.Text) && Blank(criterion.Evidence))
+            {
+                unmet.Add(new Unmet(
+                    $"criterion c{seq} is addressed but given nothing to write",
+                    $"work_update(ref:\"{item.Ref}\", criteria:[{{id:\"c{seq}\", checked:true, evidence:\"…\"}}])"));
+            }
+        }
+
+        return unmet.Count == 0
+            ? null
+            : Refusal.Blocked(
+                $"work_update({item.Ref}) — {unmet.Count} criterion row(s) would write nothing. Nothing was written.",
+                unmet);
+    }
+
     private static async Task<int> PatchCriteriaAsync(
         NpgsqlConnection connection,
         NpgsqlTransaction transaction,
@@ -723,6 +805,32 @@ public sealed partial class WorkWriter
         }
 
         routes.Add("work_tree() to see the shape this has to fit");
+
+        return Refusal.Blocked(
+            $"{call} — the schema refused it.",
+            Glyph.Clip(refused.MessageText, 140),
+            [.. routes]);
+    }
+
+    /// <summary>
+    /// The transport's last line (doc 04 §3). A guard no writer path catches itself — in practice a
+    /// concurrent write taking a ref, seq or claim between this call's check and its insert — still
+    /// comes back as a refusal with a route, never as "An error occurred".
+    /// </summary>
+    public static string Uncaught(PostgresException refused, string call)
+    {
+        var routes = new List<string>
+        {
+            $"{call} again — a concurrent write can take a ref, a seq or a claim between this call's "
+            + "check and its insert, and the retry reads the new state",
+        };
+
+        if (!Blank(refused.Hint))
+        {
+            routes.Add(refused.Hint!);
+        }
+
+        routes.Add("work_brief() to see the state as it stands now");
 
         return Refusal.Blocked(
             $"{call} — the schema refused it.",
