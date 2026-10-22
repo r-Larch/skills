@@ -25,7 +25,8 @@ public sealed record StatusArgs(
     string? Target = null,
     string? Resolution = null,
     string? Commit = null,
-    bool Force = false);
+    bool Force = false,
+    string? Tree = null);
 
 /// <summary>
 /// The write side. It lives in <c>WorkState.Core</c> beside the renderers for the same reason they
@@ -112,7 +113,7 @@ public sealed partial class WorkWriter(NpgsqlDataSource dataSource, BoardQueries
         {
             await transaction.RollbackAsync(cancellationToken);
             return WriteResult.No(
-                await SchemaRefusalAsync(connection, item, to!, actor, refused, cancellationToken));
+                await SchemaRefusalAsync(connection, item, to!, actor, args, refused, cancellationToken));
         }
     }
 
@@ -127,13 +128,14 @@ public sealed partial class WorkWriter(NpgsqlDataSource dataSource, BoardQueries
         ItemRow item,
         string to,
         Actor actor,
+        StatusArgs args,
         PostgresException refused,
         CancellationToken cancellationToken)
     {
         if (refused.ConstraintName is "claim_one_live_per_item" or "claim_one_writer_per_tree")
         {
             await using var reread = await connection.BeginTransactionAsync(cancellationToken);
-            var held = await ClaimRefusalAsync(connection, reread, item, actor, cancellationToken);
+            var held = await ClaimRefusalAsync(connection, reread, item, actor, args.Tree, cancellationToken);
             if (held is not null)
             {
                 return held;
@@ -180,7 +182,7 @@ public sealed partial class WorkWriter(NpgsqlDataSource dataSource, BoardQueries
         await ApplyAsync(connection, transaction, item.Id, status, resolution, actor, cancellationToken);
 
         var claimLine = status == ItemStatus.InProgress
-            ? await AcquireAsync(connection, transaction, item, actor, cancellationToken)
+            ? await AcquireAsync(connection, transaction, item, actor, args.Tree, cancellationToken)
             : await ReleaseAsync(connection, transaction, item, status, cancellationToken);
 
         await EventAsync(
@@ -276,7 +278,7 @@ public sealed partial class WorkWriter(NpgsqlDataSource dataSource, BoardQueries
                 return await ReadyRefusalAsync(connection, transaction, item, cancellationToken);
 
             case Move.InProgress:
-                return await ClaimRefusalAsync(connection, transaction, item, actor, cancellationToken);
+                return await ClaimRefusalAsync(connection, transaction, item, actor, args.Tree, cancellationToken);
 
             case Move.Blocked when string.IsNullOrWhiteSpace(args.Reason):
                 return Refusal.Blocked(

@@ -92,7 +92,8 @@ public sealed record ClaimRow(
     string ItemRef,
     string QualifiedRef,
     string AgentName,
-    DateTimeOffset ExpiresAt);
+    DateTimeOffset ExpiresAt,
+    string? Tree);
 
 /// <summary>
 /// A lease the watch floor shows (doc 09 §5): the claim itself, plus the title and qualified ref a

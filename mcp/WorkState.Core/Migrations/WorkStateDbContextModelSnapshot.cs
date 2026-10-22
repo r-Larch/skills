@@ -323,6 +323,10 @@ namespace WorkState.Core.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("item_id");
 
+                    b.Property<Guid?>("KeyWorkspaceId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("key_workspace_id");
+
                     b.Property<string>("ReleaseReason")
                         .HasColumnType("text")
                         .HasColumnName("release_reason");
@@ -339,6 +343,10 @@ namespace WorkState.Core.Migrations
                         .IsRequired()
                         .HasColumnType("text")
                         .HasColumnName("serialization_key");
+
+                    b.Property<string>("Tree")
+                        .HasColumnType("text")
+                        .HasColumnName("tree");
 
                     b.Property<bool>("Writes")
                         .ValueGeneratedOnAdd()
@@ -357,10 +365,12 @@ namespace WorkState.Core.Migrations
                         .HasDatabaseName("claim_one_live_per_item")
                         .HasFilter("released_at IS NULL");
 
-                    b.HasIndex("SerializationKey")
+                    b.HasIndex("SerializationKey", "KeyWorkspaceId")
                         .IsUnique()
                         .HasDatabaseName("claim_one_writer_per_tree")
                         .HasFilter("released_at IS NULL AND writes");
+
+                    NpgsqlIndexBuilderExtensions.AreNullsDistinct(b.HasIndex("SerializationKey", "KeyWorkspaceId"), false);
 
                     b.ToTable("claim", (string)null);
                 });

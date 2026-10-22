@@ -92,8 +92,20 @@ public class Claim
     public Guid Id { get; set; }
     public Guid ItemId { get; set; }
 
-    /// <summary>Copied from the owning run_config at claim time; the write lock is on the tree.</summary>
+    /// <summary>
+    /// The working tree the write lock is on: the <c>tree</c> the caller named, else the owning
+    /// run_config's key, else the project's repo root, else the ref scope.
+    /// </summary>
     public string SerializationKey { get; set; } = "";
+
+    /// <summary>
+    /// Set when the key is a name rather than a path — a branch, or the ref-scope fallback — so the
+    /// lock is per workspace. Null means the key is a place on disk and the lock is server-wide.
+    /// </summary>
+    public Guid? KeyWorkspaceId { get; set; }
+
+    /// <summary>The normalised <c>tree</c> the caller passed to <c>work_status</c>, if it passed one.</summary>
+    public string? Tree { get; set; }
 
     /// <summary>Read-only recon claims do not serialize.</summary>
     public bool Writes { get; set; } = true;

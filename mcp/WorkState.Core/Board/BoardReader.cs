@@ -205,10 +205,14 @@ public sealed partial class BoardReader(WorkStateQueries queries, BoardQueries b
 
         foreach (var claim in await board.ExpiredClaimsAsync(item.Id, cancellationToken))
         {
+            var (on, tree) = claim.Tree is { } t
+                ? ($" on tree \"{Glyph.Clip(t, 40)}\"", $", tree:\"{t}\"")
+                : (string.Empty, string.Empty);
+
             lines.Add(new AttentionLine(
                 AttentionRank.ExpiredClaim,
-                $"{claim.ItemRef} claim by {claim.AgentName} expired {Glyph.Age(Since(claim.ExpiresAt))} ago",
-                $"work_status(ref:\"{claim.ItemRef}\", to:\"in_progress\") to retake it",
+                $"{claim.ItemRef} claim by {claim.AgentName}{on} expired {Glyph.Age(Since(claim.ExpiresAt))} ago",
+                $"work_status(ref:\"{claim.ItemRef}\", to:\"in_progress\"{tree}) to retake it",
                 claim.ItemRef,
                 claim.QualifiedRef));
         }
