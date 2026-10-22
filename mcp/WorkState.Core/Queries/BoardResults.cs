@@ -53,7 +53,9 @@ public sealed record NoteRow(
     string Body,
     string? ToRef,
     string? ToQualifiedRef,
-    string? FromRef);
+    string? FromRef,
+    Guid Id,
+    Guid? ToItemId);
 
 public sealed record VerificationRow(
     string ItemRef,

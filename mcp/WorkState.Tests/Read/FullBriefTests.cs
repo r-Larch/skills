@@ -108,6 +108,175 @@ public sealed class FullBriefTests(PostgresFixture fixture)
     }
 
     /// <summary>
+    /// ws/3. A worker does not own its task's status — the orchestrator claims, verifies and closes,
+    /// and a worker token cannot call work_status at all. The worker brief told it to anyway.
+    /// </summary>
+    [Fact]
+    public async Task The_worker_brief_on_a_claimed_task_names_work_report_and_never_work_status()
+    {
+        var world = await WriteSeed.CreateAsync(fixture);
+
+        var claimed = await world.Writer.StatusAsync(
+            world.WorkspaceId, "1.1", "in_progress", WriteSeed.Orchestrator, new StatusArgs(), Ct);
+        Assert.False(claimed.Refused, claimed.Text);
+
+        await using var server = await ReadServer.StartAsync(fixture.ConnectionString, world.Slug, Ct);
+        await using var client = await server.ConnectAsync(ReadServer.WorkerToken, Ct);
+
+        var tool = await ReadServer.CallAsync(
+            client,
+            "work_brief",
+            new Dictionary<string, object?> { ["scope"] = "1.1", ["for"] = "worker" },
+            Ct);
+
+        var read = await client.ReadResourceAsync(WorkUris.ItemBrief("1.1"), cancellationToken: Ct);
+        var resource = string.Join("\n", read.Contents.OfType<TextResourceContents>().Select(c => c.Text));
+
+        foreach (var brief in new[] { tool, resource })
+        {
+            Assert.DoesNotContain("work_status(", brief, StringComparison.Ordinal);
+            Assert.Matches(@"(?m)^NEXT   .*work_report\(ref:""1\.1""", brief);
+        }
+    }
+
+    /// <summary>The resume brief belongs to the orchestrator, and its NEXT is the closing pair.</summary>
+    [Fact]
+    public async Task The_resume_brief_on_the_same_claimed_task_keeps_its_work_status_NEXT()
+    {
+        var world = await WriteSeed.CreateAsync(fixture);
+
+        var claimed = await world.Writer.StatusAsync(
+            world.WorkspaceId, "1.1", "in_progress", WriteSeed.Orchestrator, new StatusArgs(), Ct);
+        Assert.False(claimed.Refused, claimed.Text);
+
+        await using var server = await ReadServer.StartAsync(fixture.ConnectionString, world.Slug, Ct);
+        await using var client = await server.ConnectAsync(ReadServer.OrchestratorToken, Ct);
+
+        var brief = await ReadServer.CallAsync(
+            client,
+            "work_brief",
+            new Dictionary<string, object?> { ["scope"] = "1.1" },
+            Ct);
+
+        Assert.Contains(
+            "NEXT   work_verify(ref:\"1.1\", result_line:\"…\", run_by:\"orchestrator\") "
+            + "then work_status(ref:\"1.1\", to:\"done\")",
+            brief.Split('\n'));
+    }
+
+    /// <summary>
+    /// ws/3. A done-criterion is what the worker is judged against and a note addressed to the task
+    /// is what the last session needed it to know; the worker brief cut both at the column budget.
+    /// </summary>
+    [Fact]
+    public async Task The_worker_brief_carries_a_long_criterion_and_a_long_note_in_full()
+    {
+        const string criterion =
+            "numbers recorded in docs/LEARNINGS.md: build time, binary size, idle RSS, p95 first-byte "
+            + "latency under the battle-test load, and the cold-start time of the container measured "
+            + "from docker run to the first healthy probe";
+
+        const string note =
+            "The previous attempt measured idle RSS with the dashboard tab open, which pins the SSE "
+            + "stream and doubles the number; close every client first, wait a full minute, then read "
+            + "the value from docker stats rather than from /proc";
+
+        var world = await WriteSeed.CreateAsync(fixture);
+        await WriteSeed.CriterionAsync(world, world.TaskId, 3, criterion, ticked: false);
+
+        var noted = await world.Writer.NoteAsync(
+            world.WorkspaceId, WriteSeed.Orchestrator, "carry_forward", note, "1.1", null, Ct);
+        Assert.False(noted.Refused, noted.Text);
+
+        await using var server = await ReadServer.StartAsync(fixture.ConnectionString, world.Slug, Ct);
+        await using var client = await server.ConnectAsync(ReadServer.WorkerToken, Ct);
+
+        var brief = await ReadServer.CallAsync(
+            client,
+            "work_brief",
+            new Dictionary<string, object?> { ["scope"] = "1.1", ["for"] = "worker" },
+            Ct);
+
+        AssertWhole(brief, criterion);
+        AssertWhole(brief, note);
+        Assert.All(brief.Split('\n'), l => Assert.True(l.Length <= Columns.Width, $"{l.Length} columns: {l}"));
+    }
+
+    /// <summary>
+    /// ws/4. The worker brief showed three addressed notes and consumed all of them, so the fourth
+    /// and fifth were marked delivered to an agent that never saw them.
+    /// </summary>
+    [Fact]
+    public async Task The_worker_brief_renders_every_note_addressed_to_the_task_and_consumes_exactly_those()
+    {
+        var world = await WriteSeed.CreateAsync(fixture);
+
+        for (var i = 1; i <= 5; i++)
+        {
+            var noted = await world.Writer.NoteAsync(
+                world.WorkspaceId, WriteSeed.Orchestrator, "carry_forward", $"addressed note number {i} of five", "1.1", null, Ct);
+            Assert.False(noted.Refused, noted.Text);
+        }
+
+        await using var server = await ReadServer.StartAsync(fixture.ConnectionString, world.Slug, Ct);
+        await using var client = await server.ConnectAsync(ReadServer.WorkerToken, Ct);
+
+        var brief = await ReadServer.CallAsync(
+            client,
+            "work_brief",
+            new Dictionary<string, object?> { ["scope"] = "1.1", ["for"] = "worker" },
+            Ct);
+
+        Assert.Contains("ADDRESSED TO YOU (5)", brief, StringComparison.Ordinal);
+        Assert.DoesNotContain("more unconsumed in scope", brief, StringComparison.Ordinal);
+
+        for (var i = 1; i <= 5; i++)
+        {
+            Assert.Contains($"  addressed note number {i} of five", brief.Split('\n'));
+        }
+
+        await using var db = fixture.NewContext();
+        var unconsumed = await db.Notes.CountAsync(n => n.ToItemId == world.TaskId && n.ConsumedAt == null, Ct);
+        Assert.Equal(0, unconsumed);
+    }
+
+    /// <summary>
+    /// ws/4. Consumption is by the ids the brief rendered, not by "everything addressed to the item
+    /// right now": a note written after the render was never shown, so it must survive the update.
+    /// </summary>
+    [Fact]
+    public async Task A_note_written_after_the_brief_rendered_stays_unconsumed()
+    {
+        var world = await WriteSeed.CreateAsync(fixture);
+
+        var first = await world.Writer.NoteAsync(
+            world.WorkspaceId, WriteSeed.Orchestrator, "carry_forward", "the note the brief rendered", "1.1", null, Ct);
+        Assert.False(first.Refused, first.Text);
+
+        Guid rendered;
+        await using (var db = fixture.NewContext())
+        {
+            rendered = (await db.Notes.SingleAsync(n => n.ToItemId == world.TaskId, Ct)).Id;
+        }
+
+        var late = await world.Writer.NoteAsync(
+            world.WorkspaceId, WriteSeed.Orchestrator, "carry_forward", "a note written after the render", "1.1", null, Ct);
+        Assert.False(late.Refused, late.Text);
+
+        var consumed = await WriteSeed.Keeper(fixture).ConsumeNotesAsync(world.TaskId, [rendered], Ct);
+
+        Assert.Equal(1, consumed);
+
+        await using var after = fixture.NewContext();
+        var left = await after.Notes
+            .Where(n => n.ToItemId == world.TaskId && n.ConsumedAt == null)
+            .Select(n => n.Body)
+            .ToListAsync(Ct);
+
+        Assert.Equal(["a note written after the render"], left);
+    }
+
+    /// <summary>
     /// The text is wrapped, so it is found with its line breaks folded back into spaces; the lines
     /// that carry it must still fit the width budget and hold no ellipsis.
     /// </summary>

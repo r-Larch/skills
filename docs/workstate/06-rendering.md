@@ -155,6 +155,38 @@ every session start against the ≤ 35-line target, and the full conventions are
 > lists every rule in scope, with no count cap and no `+n more` pointer: a pasted brief has no
 > pointer a worker can follow, so the resume brief's cap of five silently dropped rule six and up.
 
+**The worker brief is worker-shaped.** A worker does not own its task's status — the orchestrator
+claims, verifies and closes, and a worker token cannot call `work_status` — so the worker variant's
+`NEXT` names the hand-back, never a transition, and its done-criteria and the notes addressed to the
+task wrap in full like the rules do:
+
+```
+NEXT   do the task, then work_report(ref:"2.8", status:"done", files:[…], verify:"…", …)
+…
+YOUR TASK  2.8 — ContentHash fix
+  criteria
+    ✗ c3 numbers recorded in docs/LEARNINGS.md: build time, binary size, idle RSS, p95 first-byte
+         latency under the battle-test load
+  report    status / files / verify / red_check / deviations / assumptions / risks / not_done
+  brief     work://item/2.8/brief
+  Next: work_report(ref:"2.8", …) with the fields above; closing is the orchestrator's call.
+        work_verify(ref:"2.8", …, run_by:"worker") records a claim, not evidence.
+```
+
+The resume brief's `NEXT` is unchanged, and it keeps clipping notes to one line.
+
+> **Changed 2026-10-22 (ws/3).** The worker brief's `NEXT` was the resume brief's — on a claimed task
+> `work_verify(…, run_by:"orchestrator") then work_status(ref, to:"done")`, on an open one
+> `work_status(ref, to:"in_progress")` — and its trailing line named only `work_verify`. Both told a
+> worker to make a call it does not own. Its criteria were clipped at 80 columns and its notes at 94,
+> so a worker read `p95 f…` for the criterion it is judged against.
+
+> **Changed 2026-10-22 (ws/4).** The worker brief rendered three addressed notes and then consumed
+> every note addressed to the task, so the fourth and later were marked delivered unseen. It now
+> renders every note addressed to its own item (notes it merely carries keep the cap of three), and
+> consumption marks exactly the rendered notes by id — a note written between render and consume
+> stays for the next brief.
+
 **The note header names what it is holding.** `ADDRESSED TO YOU (n)` counts only notes that name a
 target item — those are the ones a worker brief renders and consumes. Where a run carries unconsumed
 notes that name nobody, the section is instead:
