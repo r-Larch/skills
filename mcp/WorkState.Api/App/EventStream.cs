@@ -21,7 +21,7 @@ internal sealed record StreamFrame(long Seq, Guid? RunId, Guid? ItemId, string K
 /// Nothing here polls. The board updates because the <em>database</em> changed, not because an
 /// agent session is open — which is the whole reason doc 08 §1 chose a transport that outlives a
 /// session. A client that misses events while disconnected does not lose them: every event carries
-/// its <c>event.seq</c>, and <c>GET /api/runs/{ref}/journal?since=</c> returns the gap.
+/// its <c>event.seq</c>, and <c>GET /api/v1/journal?scope={id}&amp;since=</c> returns the gap.
 /// </para>
 /// </summary>
 public sealed class EventStream(NpgsqlDataSource dataSource, ILogger<EventStream> logger)

@@ -127,7 +127,7 @@ public static partial class ApiV1
 
     /// <summary>
     /// The verbatim <c>work_brief</c>, through the one method every brief surface calls — so its
-    /// housekeeping runs here too, exactly as on the pre-v1 route.
+    /// housekeeping runs here too, exactly as in the tool.
     /// </summary>
     private static async Task<IResult> BriefAsync(
         Guid id,

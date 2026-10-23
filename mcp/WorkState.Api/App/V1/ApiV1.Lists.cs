@@ -26,7 +26,7 @@ public static partial class ApiV1
 
     /// <summary>
     /// Ascending by seq. With no <c>since</c> it is the newest page, reversed into the same order;
-    /// with one it is the contiguous page after the cursor — the pre-v1 journal's two reads, by id.
+    /// with one it is the contiguous page after the cursor.
     /// </summary>
     private static async Task<IResult> JournalAsync(
         [FromQuery] Guid? scope,

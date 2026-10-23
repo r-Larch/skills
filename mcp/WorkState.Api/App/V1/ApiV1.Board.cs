@@ -92,7 +92,7 @@ public static partial class ApiV1
 
     /// <summary>
     /// The board's exceptions, in the vocabulary of doc 06 §2 read the way the text surfaces read it.
-    /// <c>disagrees</c> is the pre-v1 tree's test; <c>done_unverified</c> is the honesty count's.
+    /// <c>disagrees</c> is a closed container over unclosed leaves; <c>done_unverified</c> is the honesty count's.
     /// </summary>
     private static IReadOnlyList<string> Flags(BoardRow row, ClaimView? claim)
     {

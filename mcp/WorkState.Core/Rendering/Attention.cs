@@ -32,7 +32,7 @@ public enum AttentionRank
 /// </para>
 /// <para>
 /// <paramref name="QualifiedRef"/> is what the queue links on. A bare ref is unique only inside its
-/// ref scope, and <c>/api/watch</c> spans every run under a project — the live corpus has one
+/// ref scope, and the project-scoped attention block spans every run under a project — the live corpus has one
 /// <c>phase-4</c> in each of four runs. Every source names one item, the unconsumed-note line
 /// included: it is one line per addressee (ws/13), so its call can never name an ambiguous scope.
 /// </para>

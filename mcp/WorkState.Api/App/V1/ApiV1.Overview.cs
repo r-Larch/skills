@@ -34,7 +34,7 @@ public static partial class ApiV1
         var inbox = await InboxRowsAsync(snapshot, scopes, book, board, api, cancellationToken);
         var inboxByRun = inbox.Where(r => r.Run is not null).GroupBy(r => r.Run!.Id).ToDictionary(g => g.Key, g => g.Count());
 
-        // The honesty strip, summed over projects exactly as the pre-v1 watch floor and work_audit count it.
+        // The honesty strip, summed over projects exactly as work_audit counts it.
         int doneUnverified = 0, forced = 0, ungated = 0, followupsOpen = 0;
         foreach (var scope in scopes)
         {

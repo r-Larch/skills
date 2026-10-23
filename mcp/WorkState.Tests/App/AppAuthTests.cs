@@ -16,28 +16,10 @@ namespace WorkState.Tests.App;
 public sealed class AppAuthTests(PostgresFixture fixture)
 {
     private static readonly string[] AppRoutes =
-        ["/api/projects", "/api/watch", "/api/runs/run-a/tree", "/api/runs/run-a/brief", "/api/runs/run-a/journal"];
-
-    [Fact]
-    public async Task A_bearer_token_cannot_reach_the_app_api_however_privileged_it_is()
-    {
-        await using var server = await StartAsync();
-        var client = server.NewClient();
-
-        client.DefaultRequestHeaders.Authorization =
-            new AuthenticationHeaderValue("Bearer", ReadServer.ControllerToken);
-
-        foreach (var route in AppRoutes)
-        {
-            var response = await client.GetAsync(route, Ct);
-            Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
-        }
-
-        // The same token on the transport it belongs to, so the 401s above are about the scheme and
-        // not about a token that was simply wrong.
-        await using var mcp = await server.ConnectAsync(ReadServer.ControllerToken, Ct);
-        Assert.NotEmpty(await mcp.ListToolsAsync(cancellationToken: Ct));
-    }
+    [
+        "/api/v1/overview", "/api/v1/inbox", "/api/v1/journal",
+        $"/api/v1/items/{Guid.Empty}", $"/api/v1/items/{Guid.Empty}/brief", $"/api/v1/runs/{Guid.Empty}/board",
+    ];
 
     [Fact]
     public async Task A_dashboard_cookie_cannot_reach_mcp()

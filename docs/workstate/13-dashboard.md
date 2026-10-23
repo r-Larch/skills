@@ -5,9 +5,9 @@ Replaces [09](09-dashboard-design.md). Built from the prototype the owner approv
 the only write path. Code: `mcp/frontend` (SolidJS, `@solidjs/router`, Vite, Tailwind 4; no other
 dependency).
 
-The dashboard no longer calls the pre-v1 routes (`/api/projects`, `/api/watch`,
-`/api/runs/{ref}/tree|brief|journal`). They remain on the server until a follow-up unit removes
-them and moves the tests that still reach present behaviour through them onto v1.
+The dashboard does not call the pre-v1 routes (`/api/projects`, `/api/watch`,
+`/api/runs/{ref}/tree|brief|journal`), and they are gone from the server (unit
+`mature/prev1-removal`); the tests that reached present behaviour through them now go through v1.
 
 ## Information architecture
 
