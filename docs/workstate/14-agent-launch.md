@@ -36,14 +36,27 @@ All new; additive; **not** under `/api/v1` (v1 is read-only by rule).
 
 | Call | Who | Does |
 |---|---|---|
-| `POST /api/agent-sessions` `{name, role, launchedBy?, origin?, cwd?, claudeSessionId?, ttlHours?, replace?}` | a bearer with **orchestrator or controller** role (static or minted) | creates/updates the `agent_session` row for `name`, issues a token `wss_<base64url 32 bytes>`, stores only its SHA-256, returns `201 {sessionId, name, role, token, expiresAt}` **once** |
+| `POST /api/agent-sessions` `{name, role, launchedBy?, origin?, cwd?, externalRole?, claudeSessionId?, ttlHours?, replace?}` | a bearer with **orchestrator or controller** role (static or minted) | creates/updates the `agent_session` row for `name`, issues a token `wss_<base64url 32 bytes>`, stores only its SHA-256, returns `201 {sessionId, name, role, token, expiresAt}` **once** |
 | `PATCH /api/agent-sessions/{id}` `{claudeSessionId}` | the same principal, or a controller | sets the Claude session uuid (history kept as an event, doc 11) |
 | `DELETE /api/agent-sessions/{id}` | the same principal, or a controller | revokes: `revoked_at = now()`, live claims of that session released (`release_reason = 'revoked'`) |
 
 Rules:
 - **A role is never raised:** requested role ≤ the caller's role. Worker < orchestrator < controller.
 - **One live token per name:** a second mint for a name with an unrevoked, unexpired token is `409`
-  unless `replace: true`, which revokes the old one first.
+  unless `replace: true`, which revokes the old one first. `replace` keeps the **same row and
+  `sessionId`** (one row per name across restarts, one continuous history) and swaps only the token;
+  it does not release claims. A revoked or expired name mints again without `replace`, on the same row.
+- **Launcher collision (doc 11):** a name held by a row with a different `launchedBy` is `409`, and
+  `replace` does not override it. A mint for a header-named row with the same launcher attaches the
+  token to that row.
+- `externalRole` fills `external_role` exactly as `X-WorkState-Foreman-Role` does.
+- **"The same principal":** a controller may PATCH/DELETE any session. Otherwise, a session minted by
+  a minted token belongs to that minting session. A session minted by a static token belongs to any
+  static caller whose role is at least the granted role, because the static orchestrator and
+  controller tokens carry no session and cannot be told apart beyond their role.
+- **Revoke** also returns the released claims' `in_progress` items to `ready` and journals
+  `claim_revoked`, as the expiry sweep does for an expired claim.
+- Revoked, expired and unknown tokens are refused on `/mcp` itself (HTTP 401), before any tool runs.
 - **Expiry:** `ttlHours` default 72, max 720. An expired token is refused like an unknown one.
 - **Authentication:** the bearer handler accepts the three static tokens as today, and a `wss_` token
   by hash lookup (not revoked, not expired). A minted token's principal carries the granted role

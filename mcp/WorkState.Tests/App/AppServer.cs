@@ -133,14 +133,23 @@ internal sealed class AppServer : IAsyncDisposable
         return request;
     }
 
-    public Task<McpClient> ConnectAsync(string token, CancellationToken cancellationToken)
+    public Task<McpClient> ConnectAsync(
+        string token,
+        CancellationToken cancellationToken,
+        IReadOnlyDictionary<string, string>? headers = null)
     {
+        var all = new Dictionary<string, string> { ["Authorization"] = $"Bearer {token}" };
+        foreach (var (name, value) in headers ?? new Dictionary<string, string>())
+        {
+            all[name] = value;
+        }
+
         var transport = new HttpClientTransport(new HttpClientTransportOptions
         {
             Endpoint = new Uri($"{BaseAddress}/mcp"),
             TransportMode = HttpTransportMode.StreamableHttp,
             EnableStandaloneGetStream = false,
-            AdditionalHeaders = new Dictionary<string, string> { ["Authorization"] = $"Bearer {token}" },
+            AdditionalHeaders = all,
         });
 
         return McpClient.CreateAsync(transport, cancellationToken: cancellationToken);

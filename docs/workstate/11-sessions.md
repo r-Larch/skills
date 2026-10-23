@@ -23,7 +23,18 @@ Foreman launches each session with `--mcp-config` carrying its role token, so it
 launch; a user can put them on `claude mcp add --header`. They ride on every request, so they survive
 reconnects, resumes and compaction.
 
-A call without `X-WorkState-Agent` has **no session**: it writes `session_id` NULL, renders as its role
+**Or from a minted token (doc 14 §2).** A launcher can mint a session instead of naming it:
+`POST /api/agent-sessions {name, role, launchedBy?, origin?, cwd?, externalRole?, claudeSessionId?,
+ttlHours?, replace?}` creates (or reuses) the row for `name` and returns a `wss_` token once. A call
+with that token *is* that session: the name comes from the credential, `X-WorkState-Agent` is ignored,
+and the other headers still fill the row as above. `externalRole` fills `external_role` exactly as
+`X-WorkState-Foreman-Role` does. The collision rule below holds for a mint too: a name held under a
+different `launched_by` is refused (409), and `replace` does not override it. `replace: true` keeps the
+row, its id, claims and history, and swaps only the token. `DELETE /api/agent-sessions/{id}` revokes
+the token and releases the session's live claims (`release_reason = 'revoked'`; the items go back to
+`ready`, as an expired claim's do). Header-named sessions keep working for anything that cannot mint.
+
+A call without `X-WorkState-Agent` and without a minted token has **no session**: it writes `session_id` NULL, renders as its role
 exactly as before doc 11, and keeps today's per-tree behaviour (a sessionless claim holds its tree
 alone). `work_brief` tells such a caller, in one line under its header, how to register; write tools
 say nothing.
@@ -80,6 +91,6 @@ Foreman's fleet rows ("holds m2/4") and Attach. Session shape adds `origin`, `ex
 The dashboard's journal `actor` and lease holder already show the session name where there is one.
 
 ## Not in this unit (decision)
-- Authenticating the name: a session can claim any name; it is a label, like a git author. Tokens per
-  session (Foreman need #4) remain the authority.
+- Authenticating the name: a header-named session can claim any name; it is a label, like a git
+  author. A minted token (doc 14 §2, Foreman need #4) binds the name to the credential instead.
 - Killing/attaching sessions from WorkState: Foreman's job, using `claudeSessionId`.

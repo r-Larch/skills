@@ -20,6 +20,7 @@ public static class AppEndpoints
         var api = app.MapGroup("/api").ExcludeFromDescription();
 
         MapSession(api);
+        api.MapAgentSessions();
 
         // doc 10 rule 5: the stream and the v1 reads take a cookie, an agent token or a reader token.
         api.MapGet("/stream", EventStream.HandleAsync).RequireAuthorization(ApiV1.Policy);
