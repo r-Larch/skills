@@ -129,14 +129,29 @@ public sealed class AttentionRefTests(PostgresFixture fixture)
 
         foreach (var (note, run) in notes.Zip(["run-one", "run-two"]))
         {
-            Assert.Equal($"{run}/4.1", note.QualifiedRef);
-            Assert.Equal($"1 note(s) addressed to {run}/4.1 unconsumed", note.What);
-            Assert.Equal($"work_brief(scope:\"{run}/4.1\", for:\"worker\")", note.Call);
+            Assert.Equal($"{run}/4.2", note.QualifiedRef);
+            Assert.Equal($"1 note(s) addressed to {run}/4.2 unconsumed", note.What);
+            Assert.Equal($"work_brief(scope:\"{run}/4.2\", for:\"worker\")", note.Call);
 
             var called = System.Text.RegularExpressions.Regex.Match(note.Call, @"scope:""([^""]+)""").Groups[1].Value;
             var resolved = Assert.IsType<ScopeResult.Found>(await reader.ResolveAsync(world.Slug, called, Ct));
-            Assert.Equal($"{run}/4.1", resolved.Item.QualifiedRef);
+            Assert.Equal($"{run}/4.2", resolved.Item.QualifiedRef);
         }
+    }
+
+    /// <summary>
+    /// F-08, on ws/13's own shape: the same notes addressed to the done 4.1 of each run. Nobody
+    /// briefs a done item, so a line inviting work_brief(for:"worker") on it could never be
+    /// discharged, and it repeated on every call.
+    /// </summary>
+    [Fact]
+    public async Task Unconsumed_notes_to_a_done_shared_ref_raise_no_attention_line()
+    {
+        var world = await TwoRunsAsync(notesToDone: true);
+        var reader = Reader();
+        var lines = await reader.AttentionAsync(await ScopeAsync(reader, world.Slug, "proj-q"), Ct);
+
+        Assert.DoesNotContain(lines, l => l.Rank == AttentionRank.UnconsumedNote);
     }
 
     /// <summary>
@@ -266,7 +281,7 @@ public sealed class AttentionRefTests(PostgresFixture fixture)
     /// The live corpus in miniature: the same <c>phase-4</c>, and the same <c>4.1</c> beneath it, in
     /// two runs under one project — which is the scope <c>/api/watch</c> reads.
     /// </summary>
-    private async Task<World> TwoRunsAsync()
+    private async Task<World> TwoRunsAsync(bool notesToDone = false)
     {
         var slug = $"attref-{Guid.CreateVersion7():n}";
         var now = DateTimeOffset.UtcNow;
@@ -298,6 +313,15 @@ public sealed class AttentionRefTests(PostgresFixture fixture)
             task.Resolution = ItemResolution.Accepted;
             task.ClosedAt = closed;
             inner.Items.Add(task);
+
+            // F-08: a done addressee leaves attention, so the notes go to an open colliding ref.
+            // Its own phase, because an open task under phase-4 would un-fire phase-4's gate line.
+            var next = Seed.NewItem(workspace.Id, run.Id, "phase", "phase-5", 5m, "Phase five");
+            inner.Items.Add(next);
+            await inner.SaveChangesAsync(Ct);
+
+            var open = Seed.NewItem(workspace.Id, next.Id, "task", "4.2", 1m, "The open colliding task");
+            inner.Items.Add(open);
             await inner.SaveChangesAsync(Ct);
 
             inner.Notes.Add(new Note
@@ -305,7 +329,7 @@ public sealed class AttentionRefTests(PostgresFixture fixture)
                 Id = Guid.CreateVersion7(),
                 WorkspaceId = workspace.Id,
                 FromItemId = run.Id,
-                ToItemId = task.Id,
+                ToItemId = notesToDone ? task.Id : open.Id,
                 Kind = NoteKind.CarryForward,
                 Body = "the facet cap applies here too",
                 CreatedBy = "test",

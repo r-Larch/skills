@@ -57,7 +57,7 @@ open ──▶ ready ──▶ in_progress ──▶ review ──▶ done
 | `review`/`in_progress` | `done` | **the five conditions, §3.** |
 | `review`/`in_progress` | `in_progress` | rework. Records the attempt count; **a fresh worker, not the old one** — that is orchestration doctrine, not a schema rule. |
 | any non-terminal | `cancelled` | requires `reason`. `destructiveHint: true`. |
-| any | `superseded` | **not directly.** `work_link(supersedes)` sets it in the same transaction (U1 trigger). |
+| any | `superseded` | **not directly.** `work_link(supersedes)` sets it in the same transaction (U1 trigger), and the same transaction moves the target's unconsumed notes to the replacing item (F-08). |
 | any non-terminal | `deferred` | **a move, §4.** |
 
 **Releasing the claim** happens automatically on leaving `in_progress` by any route.

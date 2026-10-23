@@ -240,6 +240,16 @@ shares it, in which case it is qualified (`run-one/4.1`), the same rule as ws/10
 > `run-one/4.1` and `run-two/4.1` were one line whose `work_brief(scope:"4.1")` is refused as
 > ambiguous: a hint that could not fire, over two briefs that each consume only their own notes.
 
+**A closed addressee raises no line.** Only the addressee's worker brief consumes a note, and nobody
+briefs a `done`, `cancelled` or `superseded` item, so its notes leave attention. They stay unconsumed
+and readable in `work_threads(include:"notes")` and the history. When the item is superseded through
+`work_link(type:"supersedes")`, the link moves its unconsumed notes to the replacing item in the same
+transaction, because they are still somebody's obligation. The line then names the replacement.
+
+> **Changed 2026-10-23 (F-08).** A note addressed to a closed item repeated on every call:
+> `1 note(s) addressed to 8-d unconsumed` long after 8-d was superseded, and the same for `m2/1` after
+> it was done. The line's call was a brief nobody would run.
+
 ---
 
 ## 6. Refusals

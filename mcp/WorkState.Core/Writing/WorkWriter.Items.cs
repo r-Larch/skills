@@ -280,5 +280,22 @@ public sealed partial class WorkWriter
             },
             transaction,
             cancellationToken: cancellationToken));
+
+        if (type == LinkType.Supersedes)
+        {
+            // F-08: a superseded item is never briefed again, so its unconsumed notes would never be
+            // consumed. They are still somebody's obligation, and the replacement is that somebody.
+            const string carry =
+                """
+                UPDATE note SET to_item_id = @from
+                 WHERE to_item_id = @to AND consumed_at IS NULL;
+                """;
+
+            await connection.ExecuteAsync(new CommandDefinition(
+                carry,
+                new { from = fromItemId, to = toItemId },
+                transaction,
+                cancellationToken: cancellationToken));
+        }
     }
 }

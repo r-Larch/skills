@@ -308,11 +308,17 @@ public sealed class BoardQueries(NpgsqlDataSource dataSource)
     /// it alone left the whole block tied and the first line arbitrary. The kind is the ranking a
     /// reader can act on — a correction retracts something they would otherwise believe — and the id
     /// makes what is left deterministic rather than whatever the scan returned.
+    /// <para>
+    /// F-08: <paramref name="openAddresseesOnly"/> drops notes addressed to a closed item. Only the
+    /// addressee's worker brief consumes a note and nobody briefs a closed item, so for attention
+    /// such a note would be an obligation nobody can discharge. It stays readable everywhere else.
+    /// </para>
     /// </summary>
     public async Task<IReadOnlyList<NoteRow>> UnconsumedNotesAsync(
         Guid workspaceId,
         Guid? scopeItemId,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        bool openAddresseesOnly = false)
     {
         const string sql =
             """
@@ -330,6 +336,9 @@ public sealed class BoardQueries(NpgsqlDataSource dataSource)
             LEFT   JOIN item f  ON f.id  = n.from_item_id
             WHERE  n.workspace_id = @workspace
               AND  n.consumed_at IS NULL
+              AND  (NOT @openOnly
+                    OR n.to_item_id IS NULL
+                    OR t.status NOT IN ('done','cancelled','superseded'))
               AND  (@scope IS NULL
                     OR n.to_item_id = @scope
                     OR n.from_item_id = @scope
@@ -351,7 +360,7 @@ public sealed class BoardQueries(NpgsqlDataSource dataSource)
 
         return await ListAsync<NoteRow>(
             sql,
-            new { workspace = workspaceId, scope = scopeItemId },
+            new { workspace = workspaceId, scope = scopeItemId, openOnly = openAddresseesOnly },
             cancellationToken);
     }
 

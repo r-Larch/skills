@@ -266,7 +266,8 @@ public sealed partial class BoardReader(WorkStateQueries queries, BoardQueries b
         // ws/13: one line per addressee. Grouped on the bare ref, two runs' 4.1 merged into a line
         // whose work_brief(scope:"4.1") is refused as ambiguous — and each brief consumes only its
         // own notes anyway. A shared bare ref is printed qualified, as every other call is (ws/10).
-        var notes = await board.UnconsumedNotesAsync(scope.WorkspaceId, item.Id, cancellationToken);
+        var notes = await board.UnconsumedNotesAsync(
+            scope.WorkspaceId, item.Id, cancellationToken, openAddresseesOnly: true);
         var addressees = notes.Where(n => n.ToItemId is not null).GroupBy(n => n.ToItemId!.Value).ToList();
         var shared = (await board.FactsAsync([.. addressees.Select(a => a.Key)], cancellationToken))
             .Where(f => f.RefShared)
