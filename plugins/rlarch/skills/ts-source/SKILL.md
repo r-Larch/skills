@@ -39,8 +39,11 @@ OS. Everything below is written as `tss <command>`; substitute accordingly.
 
 ```bash
 # Windows (PowerShell)          # macOS / Linux
-./tss.ps1 <command> …           ./tss.sh <command> …
+./tss.ps1 <command> …           bash ./tss.sh <command> …
 ```
+
+`bash ./tss.sh` works even where the exec bit was lost (zip downloads, some plugin caches). The
+`.ps1` runs under `pwsh` 7+ or Windows PowerShell 5.1 — unlike `ds.ps1` it uses no 7-only API.
 
 Needs **Node 18+**. There is **no build step and no install** — unlike `dotnet-source`, the tool is
 plain ES modules and the compiler it analyses with is **the one your project already resolves**

@@ -8,7 +8,11 @@ can address it by name from the first second and drive it with claude's own life
 (agents / logs / attach / stop / rm / respawn). The agent outlives the controller.
 
 -Watch opens a terminal window running `claude attach <id>`. That window is a VIEW: closing it
-detaches and leaves the agent running.
+detaches and leaves the agent running. If no window can be opened the agent still runs: you get a
+warning with the attach command, and the object is returned as usual.
+
+-DryRun does everything except run claude: it validates, writes the brief, and prints the exact argv.
+The bash twin is start-nested-agent.sh; for the same inputs the two print the same argv.
 
 .EXAMPLE
 $a = .\Start-NestedAgent.ps1 -Name fix-B-07 -PromptFile .\brief.txt -Controller 'my-session [9825b9]' -Watch
@@ -40,7 +44,9 @@ param(
     # prompts the moment the target is outside -RepoRoot. Package caches are the usual case.
     [string[]] $AddDir         = @(),
 
-    [switch]   $Watch
+    [switch]   $Watch,
+
+    [switch]   $DryRun
 )
 
 $ErrorActionPreference = "Stop"
@@ -83,14 +89,17 @@ You have no human at a keyboard. If you hit a permission prompt you cannot clear
 it and do not ask a peer to act for you - send BLOCKED naming the exact operation, and wait.
 
 "@
+# LF, so the brief is byte-identical to the one start-nested-agent.sh writes; this file is CRLF on disk.
+$header = $header -replace "`r`n", "`n"
 
 # Inside the repo on purpose. A brief under $env:TEMP makes the agent's first Read raise a permission
 # prompt, and --add-dir cannot buy its way out: it takes <directories...>, so it swallows the prompt
 # that follows as another directory and the agent launches with no instructions at all.
-$briefDir  = Join-Path $RepoRoot ".claude\briefs"
+$briefDir  = Join-Path (Join-Path $RepoRoot '.claude') 'briefs'
 New-Item -ItemType Directory -Force -Path $briefDir | Out-Null
 $briefPath = Join-Path $briefDir "brief-$Name.txt"
-Set-Content -Path $briefPath -Value ($header + (Get-Content -Raw -Encoding UTF8 $PromptFile)) -Encoding UTF8
+[System.IO.File]::WriteAllText($briefPath, $header + (Get-Content -Raw -Encoding UTF8 $PromptFile),
+    [System.Text.UTF8Encoding]::new($false))
 
 # One quote-free line naming the brief. A multi-line prompt passed positionally is truncated at its
 # first quote, and this brief's own header contains quotes.
@@ -131,22 +140,67 @@ $tools = @($tools + $AllowedTools | Select-Object -Unique)
 # Both --allowedTools and --add-dir are variadic. They are safe ONLY because each is followed by
 # another flag: --add-dir closes --allowedTools, and --permission-mode closes --add-dir. The prompt
 # comes last, after a flag that takes exactly one value. Reorder this and the prompt disappears.
-$args = @("--bg", "--name", $Name)
-if ($tools.Count)   { $args += @("--allowedTools") + $tools }
-if ($AddDir.Count)  { $args += @("--add-dir") + $AddDir }
-$args += @("--permission-mode", $PermissionMode)
-$args += "Read the file $briefPath and follow it exactly. It is your brief. Start now."
+$claudeArgs = @("--bg", "--name", $Name)
+if ($tools.Count)   { $claudeArgs += @("--allowedTools") + $tools }
+if ($AddDir.Count)  { $claudeArgs += @("--add-dir") + $AddDir }
+$claudeArgs += @("--permission-mode", $PermissionMode)
+$claudeArgs += "Read the file $briefPath and follow it exactly. It is your brief. Start now."
+
+$onWindows = $IsWindows -or $PSVersionTable.PSEdition -eq 'Desktop'
+$onMac     = [bool]$IsMacOS
+
+# The window that runs `claude attach <id>`, or $null when this OS has no launcher we know.
+function Get-WatchLauncher([string] $id) {
+    if ($onWindows) {
+        $shell = if (Get-Command pwsh -ErrorAction SilentlyContinue) { 'pwsh' } else { 'powershell.exe' }
+        $watchPath = Join-Path ([System.IO.Path]::GetTempPath()) "nested-watch-$Name.ps1"
+        return @{ Exe = $shell; Args = @("-NoExit","-ExecutionPolicy","Bypass","-File",$watchPath); Script = $watchPath }
+    }
+    # The same shell line start-nested-agent.sh uses, so a watch window looks alike from either twin.
+    $q = "'" + ($RepoRoot -replace "'", "'\''") + "'"
+    $line = "cd $q && printf '\n  Attached to $Name ($id). Closing this window DETACHES - the agent keeps running.\n\n' && claude attach $id; printf '\n--- detached. The agent is still running; claude agents --json to check. ---\n'"
+    if ($onMac) {
+        $as = $line -replace '\\', '\\' -replace '"', '\"'
+        return @{ Exe = 'osascript'; Args = @("-e", "tell application `"Terminal`" to do script `"$as`"") }
+    }
+    if (Get-Command gnome-terminal -ErrorAction SilentlyContinue) {
+        return @{ Exe = 'gnome-terminal'; Args = @("--", "bash", "-c", "$line; exec bash") }
+    }
+    if (Get-Command x-terminal-emulator -ErrorAction SilentlyContinue) {
+        return @{ Exe = 'x-terminal-emulator'; Args = @("-e", "bash", "-c", "$line; exec bash") }
+    }
+    return $null
+}
+
+if ($DryRun) {
+    "dry-run: claude is NOT started"
+    "brief: $briefPath"
+    "cwd:   $RepoRoot"
+    "argv:"
+    "  [0] claude"
+    for ($i = 0; $i -lt $claudeArgs.Count; $i++) { "  [$($i + 1)] $($claudeArgs[$i])" }
+    if ($Watch) {
+        $w = Get-WatchLauncher '<id>'
+        "watch: " + $(if ($w) { "$($w.Exe) $($w.Args -join ' ')" } else { "no terminal launcher found - would warn and print: claude attach <id>" })
+    }
+    return
+}
 
 Push-Location $RepoRoot
-try   { $out = & claude @args 2>&1 | Out-String }
+try   { $out = & claude @claudeArgs 2>&1 | Out-String }
 finally { Pop-Location }
 
 # "backgrounded · <id> · <name>", with colour codes around the id.
 $id = ([regex]::Match(($out -replace '\x1b\[[0-9;]*m',''), 'backgrounded\s*[·|]\s*(\S+)')).Groups[1].Value
 if (-not $id) { throw "could not read the background id from claude's output:`n$out" }
 
+# The agent is running from here on. Nothing below may throw: a lost return value is a lost Id.
 if ($Watch) {
-    $inner = @"
+    try {
+        $w = Get-WatchLauncher $id
+        if (-not $w) { throw "no terminal launcher found (tried osascript / gnome-terminal / x-terminal-emulator)" }
+        if ($w.Script) {
+            $inner = @"
 `$Host.UI.RawUI.WindowTitle = 'watch $Name'
 Set-Location '$RepoRoot'
 Write-Host ''
@@ -157,11 +211,26 @@ Write-Host ''
 Write-Host ''
 Write-Host '--- detached. The agent is still running; claude agents --json to check. ---' -ForegroundColor DarkGray
 "@
-    $watchPath = Join-Path ([System.IO.Path]::GetTempPath()) "nested-watch-$Name.ps1"
-    Set-Content -Path $watchPath -Value $inner -Encoding UTF8
-    # A plain console process, NOT wt.exe: Windows Terminal hosts it anyway when it is the default
-    # terminal, and `wt.exe new-tab` collapses everything after the tab options into one path.
-    Start-Process powershell.exe -ArgumentList @("-NoExit","-ExecutionPolicy","Bypass","-File",$watchPath) | Out-Null
+            Set-Content -Path $w.Script -Value $inner -Encoding UTF8
+        }
+        if ($w.Exe -eq 'osascript') {
+            & osascript @($w.Args) | Out-Null
+            if ($LASTEXITCODE -ne 0) { throw "osascript exited $LASTEXITCODE" }
+        } elseif ($onWindows) {
+            # A plain console process, NOT wt.exe: Windows Terminal hosts it anyway when it is the default
+            # terminal, and `wt.exe new-tab` collapses everything after the tab options into one path.
+            # Start-Process joins -ArgumentList with spaces and quotes nothing, hence the quoted -File.
+            $winArgs = @($w.Args[0..3]) + "`"$($w.Args[4])`""
+            Start-Process $w.Exe -ArgumentList $winArgs | Out-Null
+        } else {
+            # Not Start-Process: it would split the `bash -c` line at its spaces.
+            $psi = [System.Diagnostics.ProcessStartInfo]::new($w.Exe)
+            foreach ($a in $w.Args) { $psi.ArgumentList.Add($a) }
+            [void][System.Diagnostics.Process]::Start($psi)
+        }
+    } catch {
+        Write-Warning "could not open a watch window ($($_.Exception.Message)). $Name is running; attach yourself with: claude attach $id"
+    }
 }
 
 [pscustomobject]@{
