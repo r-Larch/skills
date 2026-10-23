@@ -144,7 +144,7 @@ warns about — and the file path would rot, because nobody would exercise it.
   > **CORRECTED 2026-09-22.** This bullet used to add *“and most of `references/briefs.md` … its
   > 311 lines mostly evaporate”*, on the strength of doc 03 §4.3's plan to move brief templates to
   > **MCP prompts**. **Prompts were cancelled by measurement on 2026-09-18** — they are invisible
-  > to the client (doc 01 §9, `mcp/PROBE.md`) — so the destination that bullet assumed does not
+  > to the client (doc 01 §9, [`PROBE.md`](PROBE.md)) — so the destination that bullet assumed does not
   > exist. The stale plan survived here because the correction was made in doc 01 and doc 03 and
   > never chased into this file.
   >

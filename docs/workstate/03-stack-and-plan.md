@@ -88,7 +88,7 @@ app.MapFallbackToFile("index.html");                              // SPA
 ```
 
 > **Verified 2026-09-18** against the 2.2.0 assemblies (doc 01 §11) and against the live
-> client (`mcp/PROBE.md`). Every symbol above is real, and the shape above is what U0 shipped.
+> client ([`PROBE.md`](PROBE.md)). Every symbol above is real, and the shape above is what U0 shipped.
 
 Client registration:
 
@@ -109,7 +109,7 @@ rubric (one agent, end-to-end, one verification command that can go red).
 | | |
 |---|---|
 | 0.1 | ~~**Probe the SDK.**~~ **DONE 2026-09-18** — see doc 01 §11. Every assumption held; `AddAuthorizationFilters()` turned out to be a *better* mechanism than the design assumed, and `Stateless` is the framework default. No correction needed. (`WithListToolsHandler` looked useful here and was later dropped by task 0.2 — `[Authorize]` narrows the list unaided.) |
-| 0.2 | ~~**Probe the client.**~~ **DONE 2026-09-18**, two rounds — see `mcp/PROBE.md` §5–6. Found that `structuredContent` **replaces** the text block (doc 01 §2 rewritten), prompts are **invisible** (§9 rewritten), completions have **no client mechanism** (§8), templates are readable but undiscoverable, and `[Authorize]` **narrows `tools/list` by itself** (§6 — `WithListToolsHandler` dropped). |
+| 0.2 | ~~**Probe the client.**~~ **DONE 2026-09-18**, two rounds — see [`PROBE.md`](PROBE.md) §5–6. Found that `structuredContent` **replaces** the text block (doc 01 §2 rewritten), prompts are **invisible** (§9 rewritten), completions have **no client mechanism** (§8), templates are readable but undiscoverable, and `[Authorize]` **narrows `tools/list` by itself** (§6 — `WithListToolsHandler` dropped). |
 | 0.3 | Scaffold the solution, `Directory.Build.props`, CI, `.gitignore`, compose with Postgres 17 + `pg_trgm`. |
 
 *Gate:* the client's real behaviour is written down, and §9/§6 are corrected where they were wrong.
@@ -161,7 +161,7 @@ assumed.
 |---|---|
 | 4.1 | `work_import` + `tools/WorkState.Import`: parse a `.claude/orchestration/<slug>/` directory into items, docs and blocks, preserving every original line verbatim. Run it over all 181 files; the failures are the specification for what the schema is missing. |
 | 4.2 | Resources + templates. ~~+ completions~~ — **cancelled by measurement 2026-09-18:** completions have **no client mechanism** (doc 01 §8), so the handler would have been dead code. Templates shipped, but are readable only if you already know the URI — exact URIs beat them. |
-| 4.3 | ~~Prompts: `worker_brief`, `review_brief`, `gate_brief`, … with note-consumption on render.~~ **CANCELLED by measurement 2026-09-18:** MCP prompts are **invisible to the client** (doc 01 §9, `mcp/PROBE.md`). Replaced by **`work_brief(for:)`** — a tool, and therefore actually reachable. Note-consumption happens there; see `BoardReader.BriefSessionAsync`. |
+| 4.3 | ~~Prompts: `worker_brief`, `review_brief`, `gate_brief`, … with note-consumption on render.~~ **CANCELLED by measurement 2026-09-18:** MCP prompts are **invisible to the client** (doc 01 §9, [`PROBE.md`](PROBE.md)). Replaced by **`work_brief(for:)`** — a tool, and therefore actually reachable. Note-consumption happens there; see `BoardReader.BriefSessionAsync`. |
 | 4.4 | `work_audit` — the mechanical checks. |
 
 ### Phase 5 — Operator dashboard

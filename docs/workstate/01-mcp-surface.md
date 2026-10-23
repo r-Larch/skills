@@ -28,7 +28,7 @@
 
 > **This section was rewritten after the probe.** The original design — compact text in `content`,
 > typed JSON in `structuredContent`, deliberately not duplicated — **does not work in Claude Code**,
-> and would have made the compact rendering invisible. `mcp/PROBE.md` §6 has the evidence. The
+> and would have made the compact rendering invisible. [`PROBE.md`](PROBE.md) §6 has the evidence. The
 > superseded version is not reproduced here; it was wrong and being able to grep it would only
 > mislead.
 
