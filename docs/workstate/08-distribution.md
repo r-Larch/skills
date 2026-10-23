@@ -47,7 +47,7 @@ frontend requirement:
 
 | | Model | Verdict |
 |---|---|---|
-| **(a)** | Plugin ships **`.mcp.json` pointing at `localhost:5290`**; the user runs the stack | ✅ **this one** |
+| **(a)** | Plugin ships **`.mcp.json` pointing at `127.0.0.1:5290`**; the user runs the stack | ✅ **this one** |
 | (b) | Plugin ships the .NET project; Claude spawns it per session over stdio | ✗ kills the frontend; and every session migrating a shared Postgres is a race nobody needs |
 | (c) | stdio shim that proxies to the HTTP server, starting it if absent | ✗ over-engineered, and it hides a failure you want loud |
 
@@ -55,7 +55,7 @@ So `plugins/rlarch/.mcp.json` becomes:
 
 ```json
 { "mcpServers": {
-    "workstate": { "type": "http", "url": "http://localhost:5290/mcp",
+    "workstate": { "type": "http", "url": "http://127.0.0.1:5290/mcp",
                    "headers": { "Authorization": "Bearer ${WORKSTATE_TOKEN}" } } } }
 ```
 
@@ -109,7 +109,7 @@ The plugin and the server now **version separately**: the plugin updates through
 server when you rebuild it. A skill that assumes `work_status` exists breaks against an older server,
 **silently**, because a missing tool is simply absent from `tools/list` (measured — doc 01 §6).
 
-`McpServerOptions.ServerInfo.Version` is already set (`0.3.0`). **Bump it deliberately**, and have
+`McpServerOptions.ServerInfo.Version` is already set (`0.4.0` as of rlarch 2.2.0). **Bump it deliberately**, and have
 the rewritten skills state the minimum they need, so the failure is a sentence rather than a mystery.
 
 ---
@@ -144,7 +144,7 @@ warns about — and the file path would rot, because nobody would exercise it.
   > **CORRECTED 2026-09-22.** This bullet used to add *“and most of `references/briefs.md` … its
   > 311 lines mostly evaporate”*, on the strength of doc 03 §4.3's plan to move brief templates to
   > **MCP prompts**. **Prompts were cancelled by measurement on 2026-09-18** — they are invisible
-  > to the client (doc 01 §9, `mcp/PROBE.md`) — so the destination that bullet assumed does not
+  > to the client (doc 01 §9, [`PROBE.md`](PROBE.md)) — so the destination that bullet assumed does not
   > exist. The stale plan survived here because the correction was made in doc 01 and doc 03 and
   > never chased into this file.
   >
@@ -202,7 +202,7 @@ Foreman authenticates with the reader token: it watches every project and can wr
 docker compose -f mcp/compose.yml up -d
 ```
 
-…and the UI is at `http://localhost:5290` permanently, surviving reboots wherever Docker Desktop
+…and the UI is at `http://127.0.0.1:5290` permanently, surviving reboots wherever Docker Desktop
 starts at logon. Agents reach `/mcp` on the same host and port. **Nothing needs to know an agent is
 working** — the SSE stream is fed by `LISTEN/NOTIFY` on the event journal, so the board updates
 because the *database* changed, not because a session is open.
@@ -247,7 +247,7 @@ It is written and proved, so the temptation is to drop it straight into `plugins
 reasons not to, and the second is the real one:
 
 - **It is not free to install.** The moment it ships, every session in every repo with the rlarch
-  plugin tries to reach `localhost:5290`. If the stack is not up or `WORKSTATE_TOKEN` is unset, the
+  plugin tries to reach `127.0.0.1:5290`. If the stack is not up or `WORKSTATE_TOKEN` is unset, the
   result is a failed MCP connection notice — in every project, whether or not that project has
   anything to do with WorkState. That is a cost the owner should choose, not inherit.
 - **An unbumped file in `plugins/rlarch/` is a landmine.** It reaches nobody today, which reads as

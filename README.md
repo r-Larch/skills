@@ -22,9 +22,13 @@ claude plugin install rlarch@rlarch
 Restart Claude Code afterwards. Confirm with `claude plugin details rlarch` — it should list eight
 skills.
 
+> **Upgrading from 1.x?** `orchestrate` and `controller` now require WorkState. Read
+> **[Upgrading from 1.x to 2.x](upgrade_guide.md#upgrading-from-1x-to-2x)**; what changed in each
+> version is in **[CHANGELOG.md](CHANGELOG.md)**.
+>
 > **Already have `dotnet-reflect@rlarch` / `dotnet-source@rlarch` installed?** Those were separate
-> plugins and are gone. Follow **[upgrade_guide.md](upgrade_guide.md)** — it takes two minutes, and
-> there is one scope trap in it that will bite you if you improvise.
+> plugins and are gone. Follow **[upgrade_guide.md](upgrade_guide.md#upgrading-to-the-single-rlarch-plugin)**
+> — it takes two minutes, and there is one scope trap in it that will bite you if you improvise.
 
 ## The eight skills
 
@@ -373,16 +377,28 @@ unless an escalation trigger fires.
 > entirely.** WorkState is a **.NET service plus a Postgres, running in Docker on your own machine**,
 > and nothing installs or starts it for you. It costs a container you have to keep alive, and the
 > four navigation/cleanup skills never touch it. **`orchestrate` and `controller` require it** —
-> since 2.0.0 they keep their plan and record nowhere else. `nested-claude` does not need it.
+> since 2.x (first published as 2.2.0) they keep their plan and record nowhere else. `nested-claude` does not need it.
 
 WorkState is an MCP server that holds **what coding agents are doing**: projects, runs, phases,
 tasks, findings, claims, assumptions, the evidence behind each verification, and an append-only
 journal of every change. It replaced the `PLAN.md` / `LEDGER.md` files an orchestrated run used to
-scatter across a repo before 2.0.0 — one store, queryable, with a generated recovery payload
+scatter across a repo in 1.x — one store, queryable, with a generated recovery payload
 (`work_brief`) that cannot go stale the way a hand-maintained ledger does.
 
-It is also a **live operator dashboard** on the same port, so a human can watch a run happen instead
-of reading a markdown file afterwards.
+The same port serves a read-only **operator dashboard**, so a human can watch a run happen instead of
+reading a markdown file afterwards:
+
+- an **overview** of every project and run, each run a bar with one segment per task, coloured by state;
+- a **Needs you** inbox — everything waiting on a person, each row with the call that resolves it;
+- the **run plan**, with item detail beside it: done-criteria, findings, notes, and *what the agent
+  reported* next to *what was verified*;
+- **activity** (the journal, grouped by day) and each project's **backlog** of deferred work;
+- a dark and a light theme, following the system setting until you pick one.
+
+Writes only ever go through the MCP tools. The dashboard is built on a **JSON read API v1**
+(`/api/v1/*`), which other clients can use too — [docs/workstate/10-read-api.md](docs/workstate/10-read-api.md).
+A session that sends an `X-WorkState-Agent` header is recorded **by name** on its claims and events —
+[docs/workstate/11-sessions.md](docs/workstate/11-sessions.md).
 
 Claude Code never manages the process — it only connects. You start it once:
 
@@ -390,8 +406,9 @@ Claude Code never manages the process — it only connects. You start it once:
 docker compose -f mcp/compose.yml up -d
 ```
 
-…and it is at **http://localhost:5290** permanently (`restart: unless-stopped`, so it survives a
-reboot wherever Docker starts at logon).
+…and it is at **http://127.0.0.1:5290** permanently (`restart: unless-stopped`, so it survives a
+reboot wherever Docker starts at logon). Use `127.0.0.1`, not `localhost`: the server binds IPv4
+loopback only, and some clients try `::1` first.
 
 **The way in is [`/rlarch:workstate-setup`](plugins/rlarch/skills/workstate-setup/SKILL.md).** It
 works out which of four states your machine is in — already working, registered but down, up but not
@@ -493,6 +510,7 @@ mcp/                                     # the WorkState server — NOT part of 
   plugin.mcp.json                        # reference config, deliberately not shipped in the plugin
 docs/workstate/                          # the server's design notes
 README.md
+CHANGELOG.md
 upgrade_guide.md
 ```
 

@@ -45,7 +45,7 @@ PowerShell 5.1's `curl` is an alias for `Invoke-WebRequest`, which takes none of
 claude mcp get workstate
 ```
 ```
-curl -s -m 5 -o /dev/null -w "%{http_code}" http://localhost:5290/health
+curl -s -m 5 -o /dev/null -w "%{http_code}" http://127.0.0.1:5290/health
 ```
 
 | `claude mcp get workstate` | `/health` | State | Do |
@@ -151,13 +151,13 @@ docker compose -f mcp/compose.yml ps
 Both `api` and `db` should read `Up … (healthy)`. Confirm from outside the container too:
 
 ```
-curl -s -m 5 -o /dev/null -w "%{http_code}" http://localhost:5290/health
+curl -s -m 5 -o /dev/null -w "%{http_code}" http://127.0.0.1:5290/health
 ```
 
 `200` and you are done here. `restart: unless-stopped` is set on both services, so this survives a
 reboot wherever Docker starts at logon — you run this once, not once per session.
 
-The operator dashboard is the same address in a browser: **http://localhost:5290**, signed in with
+The operator dashboard is the same address in a browser: **http://127.0.0.1:5290**, signed in with
 the dashboard username and password from `mcp/.env`.
 
 ---
@@ -174,7 +174,7 @@ satisfies orchestrator and worker:
 | `WORKSTATE_CONTROLLER_TOKEN` | 19 tools | you run `/rlarch:controller` over a queue |
 
 ```
-claude mcp add --scope user --transport http workstate http://localhost:5290/mcp --header "Authorization: Bearer <token>"
+claude mcp add --scope user --transport http workstate http://127.0.0.1:5290/mcp --header "Authorization: Bearer <token>"
 ```
 
 Two things about that line, both measured:
@@ -184,7 +184,24 @@ Two things about that line, both measured:
 - **`--scope user`** registers it once for every project on the machine. Project scope means
   re-doing this in the next repo.
 
+Every address in this skill is `127.0.0.1`, not `localhost`: the server binds IPv4 loopback only, and
+some clients resolve `localhost` to `::1` first and find nothing there.
+
 Tools then appear as `mcp__workstate__work_*`.
+
+### Naming a session
+
+The token sets the **role**; a session's **name** travels as a registration header,
+`X-WorkState-Agent: <name>`, on every request. Without it the session is unnamed: its work is
+signed only by its role, and `work_brief` prints `session  unnamed — …` under its header to say so.
+To name a session a human runs, register it for that project with its own header — at local scope,
+so it overrides the user-scope entry in that project only:
+
+```
+claude mcp add --scope local --transport http workstate http://127.0.0.1:5290/mcp --header "Authorization: Bearer <token>" --header "X-WorkState-Agent: <session-name>"
+```
+
+The `--header` flags still come **last**, every one of them.
 
 ---
 
@@ -193,7 +210,7 @@ Tools then appear as `mcp__workstate__work_*`.
 Ask the server what it will actually give that token:
 
 ```
-curl -s -m 10 -X POST http://localhost:5290/mcp -H "Content-Type: application/json" -H "Accept: application/json, text/event-stream" -H "Authorization: Bearer <token>" -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' -o tools.json
+curl -s -m 10 -X POST http://127.0.0.1:5290/mcp -H "Content-Type: application/json" -H "Accept: application/json, text/event-stream" -H "Authorization: Bearer <token>" -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' -o tools.json
 ```
 
 **Run it in the Bash tool and keep the body in single quotes.** The `-d "{\"jsonrpc\":…}"` form you
