@@ -46,7 +46,8 @@ public sealed record AssumptionRow(
     AssumptionState State,
     string? RevisitRef,
     ItemStatus? RevisitStatus,
-    DateTimeOffset? RevisitClosedAt);
+    DateTimeOffset? RevisitClosedAt,
+    Guid? ScopeItemId);
 
 public sealed record NoteRow(
     NoteKind Kind,
@@ -55,7 +56,8 @@ public sealed record NoteRow(
     string? ToQualifiedRef,
     string? FromRef,
     Guid Id,
-    Guid? ToItemId);
+    Guid? ToItemId,
+    DateTimeOffset CreatedAt);
 
 public sealed record VerificationRow(
     Guid ItemId,
@@ -96,7 +98,8 @@ public sealed record BlockerRow(
     string FindingRef,
     string QualifiedRef,
     string FindingTitle,
-    string? TargetRef);
+    string? TargetRef,
+    Guid FindingId);
 
 public sealed record BlockedRow(Guid ItemId, string Ref, string BlockedByRef);
 
@@ -105,7 +108,8 @@ public sealed record ClaimRow(
     string QualifiedRef,
     string AgentName,
     DateTimeOffset ExpiresAt,
-    string? Tree);
+    string? Tree,
+    Guid ItemId);
 
 /// <summary>
 /// A lease the watch floor shows (doc 09 §5): the claim itself, plus the title and qualified ref a
@@ -120,7 +124,7 @@ public sealed record LiveClaimRow(
     string AgentName,
     DateTimeOffset ExpiresAt);
 
-public sealed record StaleRow(string Ref, string QualifiedRef, DateTimeOffset StartedAt);
+public sealed record StaleRow(string Ref, string QualifiedRef, DateTimeOffset StartedAt, Guid Id);
 
 /// <summary>One entry of the dashboard's project switcher (doc 09 §5), with the runs under it.</summary>
 public sealed record ProjectRow(Guid Id, string Ref, string Title, ItemStatus Status, int RunCount);
@@ -133,7 +137,7 @@ public sealed record GateRow(string PhaseRef, string QualifiedRef, int TaskCount
 /// the rendered line, which is always read inside one run — but not for doc 09 §5's queue, which
 /// spans every run under a project and where <c>phase-4</c> names four different phases.
 /// </summary>
-public sealed record UnverifiedRow(string Ref, string QualifiedRef);
+public sealed record UnverifiedRow(string Ref, string QualifiedRef, Guid Id, DateTimeOffset? ClosedAt);
 
 public sealed record EventRow(
     long Seq,
