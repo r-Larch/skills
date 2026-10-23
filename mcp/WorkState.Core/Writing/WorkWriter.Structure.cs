@@ -221,6 +221,16 @@ public sealed partial class WorkWriter
             return WriteResult.No(unresolved!);
         }
 
+        if (Fields(args).Length == 0 && args.RiskTags is null && args.Criteria is not { Length: > 0 })
+        {
+            return WriteResult.No(Refusal.Blocked(
+                $"work_update({scope.Ref}) — nothing changed: the call sets no field and no criterion.",
+                "every field it can patch was absent or blank, so there was nothing to write",
+                $"work_update(ref:\"{reference}\", criteria:[{{id:\"c1\", checked:true, evidence:\"…\"}}]) "
+                + "to tick a criterion",
+                $"work_update(ref:\"{reference}\", title:\"…\") — or intent, verify_cmd, risk_tags, priority"));
+        }
+
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
 

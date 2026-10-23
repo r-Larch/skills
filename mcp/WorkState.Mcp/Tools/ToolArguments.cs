@@ -62,8 +62,28 @@ public static class ToolArguments
     {
         coerced = false;
         var unmet = new List<Unmet>();
+        var suggested = new HashSet<string>(StringComparer.Ordinal);
 
-        foreach (var missing in schema.Parameters.Where(p => p.Required && !arguments.ContainsKey(p.Name)))
+        // An undeclared name is dropped by the binder without a word, so work_update(check_all:true)
+        // answered "OK updated" having written nothing.
+        foreach (var unknown in arguments.Keys.Where(k => schema.Find(k) is null))
+        {
+            var closest = schema.Closest(unknown);
+            if (closest is not null)
+            {
+                suggested.Add(closest.Name);
+            }
+
+            unmet.Add(new Unmet(
+                closest is null
+                    ? $"{unknown} is not a parameter of {schema.Name}, which takes "
+                      + string.Join(", ", schema.Parameters.Select(p => p.Name))
+                    : $"{unknown} is not a parameter of {schema.Name} — the closest it declares is {closest.Name}",
+                schema.Example(closest)));
+        }
+
+        foreach (var missing in schema.Parameters.Where(p =>
+                     p.Required && !arguments.ContainsKey(p.Name) && !suggested.Contains(p.Name)))
         {
             unmet.Add(new Unmet(
                 $"{missing.Name} is required and was not sent — {Glyph.Clip(missing.Description, 90)}",
@@ -147,6 +167,51 @@ public static class ToolArguments
         public IReadOnlyList<Parameter> Parameters { get; } = [];
 
         public Parameter? Find(string name) => Parameters.FirstOrDefault(p => p.Name == name);
+
+        /// <summary>
+        /// The declared parameter an undeclared name most likely meant: the same name spelled
+        /// differently (<c>include_counts</c>), one that extends or shortens it (<c>ref</c> → <c>refs</c>),
+        /// or one a small edit away. Nothing, rather than a guess, when none is close.
+        /// </summary>
+        public Parameter? Closest(string asked)
+        {
+            var wanted = Fold(asked);
+            if (wanted.Length == 0)
+            {
+                return null;
+            }
+
+            return Parameters
+                .Select(p => (Parameter: p, Folded: Fold(p.Name)))
+                .Select(c => (c.Parameter, Distance: c.Folded == wanted ? 0
+                    : c.Folded.StartsWith(wanted, StringComparison.Ordinal) || wanted.StartsWith(c.Folded, StringComparison.Ordinal) ? 1
+                    : Levenshtein(c.Folded, wanted)))
+                .Where(c => c.Distance <= Math.Max(1, wanted.Length / 3))
+                .OrderBy(c => c.Distance)
+                .Select(c => c.Parameter)
+                .FirstOrDefault();
+        }
+
+        private static string Fold(string name)
+            => new([.. name.Where(char.IsLetterOrDigit).Select(char.ToLowerInvariant)]);
+
+        private static int Levenshtein(string a, string b)
+        {
+            var row = Enumerable.Range(0, b.Length + 1).ToArray();
+            for (var i = 1; i <= a.Length; i++)
+            {
+                var diagonal = row[0];
+                row[0] = i;
+                for (var j = 1; j <= b.Length; j++)
+                {
+                    var above = row[j];
+                    row[j] = Math.Min(Math.Min(row[j] + 1, row[j - 1] + 1), diagonal + (a[i - 1] == b[j - 1] ? 0 : 1));
+                    diagonal = above;
+                }
+            }
+
+            return row[b.Length];
+        }
 
         /// <summary>A call that binds: every required parameter, plus the one being corrected.</summary>
         public string Example(Parameter? focus)

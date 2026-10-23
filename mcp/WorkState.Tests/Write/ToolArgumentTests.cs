@@ -25,9 +25,114 @@ public sealed class ToolArgumentTests(PostgresFixture fixture)
 
         Assert.True(refused, text);
         RefusalShape.SelfCorrecting(text);
-        Assert.Contains("refs is required", text, StringComparison.Ordinal);
+        Assert.Contains("ref is not a parameter of work_get — the closest it declares is refs", text, StringComparison.Ordinal);
         Assert.Contains("→ work_get(refs:[\"…\"])", text, StringComparison.Ordinal);
         Assert.DoesNotContain("An error occurred", text, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The third live call: two names work_update does not declare, answered "OK updated (revision 3)"
+    /// with nothing written, so the close guard refused next and the agent could not see why.
+    /// </summary>
+    [Fact]
+    public async Task work_update_with_undeclared_arguments_is_refused_naming_each_and_writes_nothing()
+    {
+        await using var session = await OpenAsync(ReadServer.OrchestratorToken);
+        var before = (await session.World.ItemAsync("1.1")).Revision;
+
+        var (text, refused) = await ReadServer.CallEitherAsync(
+            session.Client,
+            "work_update",
+            new Dictionary<string, object?> { ["ref"] = "1.1", ["check_all"] = true, ["evidence"] = "suite green" },
+            Ct);
+
+        Assert.True(refused, text);
+        RefusalShape.SelfCorrecting(text);
+        Assert.Equal(2, RefusalShape.Conditions(text));
+        Assert.Contains("check_all is not a parameter of work_update, which takes ref, criteria,", text, StringComparison.Ordinal);
+        Assert.Contains("evidence is not a parameter of work_update", text, StringComparison.Ordinal);
+        Assert.Equal(before, (await session.World.ItemAsync("1.1")).Revision);
+    }
+
+    [Theory]
+    [InlineData("work_tree", "include_counts", "includeCounts")]
+    [InlineData("work_history", "since_seq", "sinceSeq")]
+    [InlineData("work_status", "reasn", "reason")]
+    [InlineData("work_get", "ref", "refs")]
+    public async Task An_undeclared_argument_names_the_closest_declared_parameter(string tool, string asked, string meant)
+    {
+        await using var session = await OpenAsync(ReadServer.ControllerToken);
+
+        var (text, refused) = await ReadServer.CallEitherAsync(
+            session.Client, tool, new Dictionary<string, object?> { [asked] = "x" }, Ct);
+
+        Assert.True(refused, text);
+        RefusalShape.SelfCorrecting(text);
+        Assert.Contains($"{asked} is not a parameter of {tool} — the closest it declares is {meant}", text, StringComparison.Ordinal);
+        Assert.Contains($"{meant}:", text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Every_tool_refuses_an_argument_it_does_not_declare()
+    {
+        await using var session = await OpenAsync(ReadServer.ControllerToken);
+        var checkedTools = 0;
+
+        foreach (var tool in await session.Client.ListToolsAsync(cancellationToken: Ct))
+        {
+            if (!tool.Name.StartsWith("work_", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            var (text, refused) = await ReadServer.CallEitherAsync(
+                session.Client, tool.Name, new Dictionary<string, object?> { ["zz_not_declared"] = 1 }, Ct);
+
+            Assert.True(refused, $"{tool.Name}: {text}");
+            RefusalShape.SelfCorrecting(text);
+            Assert.Contains($"zz_not_declared is not a parameter of {tool.Name}, which takes", text, StringComparison.Ordinal);
+            checkedTools++;
+        }
+
+        Assert.True(checkedTools >= 18, $"only {checkedTools} work_ tools listed");
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData(1)]
+    public async Task work_update_that_sets_nothing_reports_nothing_changed_and_writes_nothing(int? expectedRevision)
+    {
+        await using var session = await OpenAsync(ReadServer.OrchestratorToken);
+        var before = (await session.World.ItemAsync("1.1")).Revision;
+
+        var arguments = new Dictionary<string, object?> { ["ref"] = "1.1", ["title"] = "  " };
+        if (expectedRevision is { } revision)
+        {
+            arguments["expected_revision"] = revision;
+        }
+
+        var (text, refused) = await ReadServer.CallEitherAsync(session.Client, "work_update", arguments, Ct);
+
+        Assert.True(refused, text);
+        RefusalShape.SelfCorrecting(text);
+        Assert.Contains("nothing changed", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("OK", text, StringComparison.Ordinal);
+        Assert.Equal(before, (await session.World.ItemAsync("1.1")).Revision);
+    }
+
+    [Fact]
+    public async Task work_update_that_sets_a_field_still_answers_OK_updated()
+    {
+        await using var session = await OpenAsync(ReadServer.OrchestratorToken);
+
+        var (text, refused) = await ReadServer.CallEitherAsync(
+            session.Client,
+            "work_update",
+            new Dictionary<string, object?> { ["ref"] = "1.1", ["title"] = "Renamed", ["expected_revision"] = 1 },
+            Ct);
+
+        Assert.False(refused, text);
+        Assert.StartsWith("OK  1.1  updated (revision 2)", text, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -208,10 +313,10 @@ public sealed class ToolArgumentTests(PostgresFixture fixture)
     {
         var world = await WriteSeed.CreateAsync(fixture);
         var server = await ReadServer.StartAsync(fixture.ConnectionString, world.Slug, Ct);
-        return new Session(server, await server.ConnectAsync(token, Ct));
+        return new Session(world, server, await server.ConnectAsync(token, Ct));
     }
 
-    private sealed record Session(ReadServer Server, McpClient Client) : IAsyncDisposable
+    private sealed record Session(WriteWorld World, ReadServer Server, McpClient Client) : IAsyncDisposable
     {
         public async ValueTask DisposeAsync()
         {

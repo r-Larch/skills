@@ -147,7 +147,7 @@ Names are `work_*`-prefixed so they survive aggregation across servers.
 | Tool | Notes |
 |---|---|
 | **`work_create`** | **Batch**: takes an array. Decomposition creates 6–20 items in one call. Refuses a `task` without `verify_cmd` and without ≥1 done-criterion — the skill's *"a brief that omits done-criteria or a verification command is a defect"*, made unwritable. Accepts an agent-chosen `ref` (`2.1b`, `3.R1` — the corpus uses these constantly) or derives one; `UNIQUE(ref_scope_id, ref)` makes duplicate task numbers impossible **within a run**, while leaving parallel runs free to use the same numbering. |
-| **`work_update`** | Field-level patch of `title`/`intent`/`verify_cmd`/`risk`/`criteria`/`priority`. Takes `expected_revision`; a mismatch returns the current revision and what changed. **Criteria:** `{id:"c2", …}` patches criterion 2, which must exist — an id never creates one; `{text:"…"}` with no id appends as the next number. A row that would write nothing (an unknown id, an id with nothing to set, neither id nor text) refuses the **whole** call before anything is written, naming the ids that exist and the append form. The `OK` line counts exactly the criteria written. |
+| **`work_update`** | Field-level patch of `title`/`intent`/`verify_cmd`/`risk`/`criteria`/`priority`. Takes `expected_revision`; a mismatch returns the current revision and what changed. **Criteria:** `{id:"c2", …}` patches criterion 2, which must exist — an id never creates one; `{text:"…"}` with no id appends as the next number. A row that would write nothing (an unknown id, an id with nothing to set, neither id nor text) refuses the **whole** call before anything is written, naming the ids that exist and the append form. The `OK` line counts exactly the criteria written. A call that sets no field and no criterion (every field absent or blank) is refused with `nothing changed`, and writes no revision, no heartbeat and no event. |
 | **`work_move`** | Reparent / reorder. Separate from `update` because it is the risky one. Fractional `seq` means inserting `2.1b` between `2.1` and `2.2` rewrites **one row**. |
 | **`work_link`** | `blocks`, `supersedes`, `duplicates`, `derived_from`, `verifies`. Cycle-checked on write. `supersedes` sets the target to `superseded` — which is the skill's *"a superseded task is deleted, not annotated"*, enforced. |
 | **`work_status`** | The guarded transition (§4). `destructiveHint: true` for `cancel`. |
@@ -198,6 +198,11 @@ never reaches the tool's own refusals. A call-tool request filter (`ToolArgument
 `inputSchema` first. A call that fails is a tool result with `isError: true`, text starting
 `REFUSED`, one `✗` per problem, and a `→` that is a call which binds. Nothing runs.
 
+- **An argument the tool does not declare** is refused, never dropped. The refusal names it and the
+  closest declared parameter (the same name spelled differently, as in `include_counts` for
+  `includeCounts`, a prefix, as in `ref` for `refs`, or one a small edit away). When none is close
+  it lists every parameter the tool takes: `work_link(links:[…])` gets `from, to, type, remove`.
+  A required parameter the refusal already suggests is not listed again as missing.
 - **A missing required argument** is named, with its description and an example call:
   `work_get(ref:"m2/1")` is refused with `✗ refs is required and was not sent` and
   `→ work_get(refs:["…"])`.
@@ -219,6 +224,12 @@ never reaches the tool's own refusals. A call-tool request filter (`ToolArgument
 > session had copied `work_get(ref:…)` from the server's own NEXT line and from `work_next`, which
 > both printed it. Both now print `work_get(refs:["…"])`, and the `work_create` refusal headlines
 > that printed `work_create(kind:…)` now print `work_create(items:[{kind:…}])`.
+>
+> The same session called `work_update(ref:"m2/1", check_all:true, evidence:"…")`. Neither name
+> exists, and the binder dropped both without a word. The call answered `OK updated (revision 3)`
+> and wrote nothing, so the close guard refused next and the agent could not see why. Undeclared
+> names are now refused, and a `work_update` that sets nothing is refused as `nothing changed`
+> (§3.2).
 
 ---
 
