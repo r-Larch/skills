@@ -129,7 +129,7 @@ Names are `work_*`-prefixed so they survive aggregation across servers.
 | **`work_brief`** | `scope` (workspace or item ref), `for` = `resume\|handoff\|phase` | The recovery payload: goal chain, current position, next action, branch/HEAD, mode, binding constraints in scope, open assumptions, unconsumed notes, deferred follow-ups, last verification. | The `LEDGER.md` header block — **generated, therefore never stale**. The first call of every session. |
 | **`work_next`** | `scope`, `limit`, `kind?` | The ready frontier: items whose blocking dependencies are all `done`, in `seq` order, with their `verify_cmd` and risk flags. | "read PLAN.md and work out what's next" |
 | **`work_tree`** | `scope`, `depth`, `status in[]`, `include_counts` | Indented tree with per-node rollups (`open/doing/blocked/review/done`). | `PLAN.md` § Phases, and the checkbox list that never gets checked |
-| **`work_get`** | `ref[]` (batch), `include` = `body\|criteria\|deps\|attempts\|findings\|notes` | Full item(s). Body returned as `resource_link` unless `include: body` is asked for. | reading a section of the ledger |
+| **`work_get`** | `refs[]` (batch), `include` = `body\|criteria\|deps\|attempts\|findings\|notes` | Full item(s). Body returned as `resource_link` unless `include: body` is asked for. | reading a section of the ledger |
 | **`work_search`** | `q`, `scope?`, `in` = `items\|blocks\|events\|notes\|reports`, `limit` | FTS + trigram hits with `ref` + snippet. | `Grep` over the run directory — which is what agents do today |
 | **`work_threads`** | `scope`, `include` = `assumptions\|findings\|followups\|notes\|stale\|deps` | **Everything unclosed that is not a task.** The single query the user asked for. A note is a thread only while it is addressed to an item and unconsumed; a note with no `to:` is a record (doc 06 §4) and is not listed. | `grep -c '⚠'` |
 | **`work_audit`** | `scope`, `checks[]` | Mechanical integrity report (§5). | the cheap 60% of a 60–150k-token plan audit |
@@ -189,6 +189,36 @@ suggested; the refusal routes to `work_tree` or `work_threads` instead.
 |---|---|
 | **`work_init`** | Create/configure a workspace: repo root, default branch, item-kind ladder, verification command catalogue. |
 | **`work_import`** | Parse an existing `.claude/orchestration/<slug>/` directory into items + docs, best-effort, preserving every original line verbatim as blocks. 181 files exist; this is how they arrive. |
+
+### 3.6 Arguments that cannot bind
+
+The SDK binds a call's arguments before the tool body runs, so an argument the method cannot take
+never reaches the tool's own refusals. A call-tool request filter (`ToolArguments.Filter`, wired in
+`ApiHost` after `AddAuthorizationFilters`) judges the arguments against the tool's published
+`inputSchema` first. A call that fails is a tool result with `isError: true`, text starting
+`REFUSED`, one `✗` per problem, and a `→` that is a call which binds. Nothing runs.
+
+- **A missing required argument** is named, with its description and an example call:
+  `work_get(ref:"m2/1")` is refused with `✗ refs is required and was not sent` and
+  `→ work_get(refs:["…"])`.
+- **A container of the wrong shape** (an array where a string is expected, an object where an array
+  is expected, or the reverse) is refused naming what the parameter takes and what was sent.
+- **One lenient reading:** a lone string where a list of strings is expected binds as a list of
+  one, so `work_get(refs:"2.3")` is `work_get(refs:["2.3"])`. It has no other reading.
+- **A scalar of the wrong kind** (`limit:"ten"`) is left to the binder, whose serializer is more
+  lenient than a schema check, and what it still rejects comes back as the same refusal shape.
+- Authorization runs first: a token that cannot see a tool is forbidden it, never taught its
+  arguments.
+- Every `work_xxx(name:…)` written in WorkState.Core and WorkState.Mcp names only parameters that
+  tool declares. `RenderedCallTests` scans the source for it, because a NEXT line or a route the
+  server cannot bind teaches the wrong call.
+
+> **Changed 2026-10-23 (ws/m1).** A Foreman session called `work_get(ref:"m2/1")` and
+> `work_link(links:[…])` and got the SDK's generic `An error occurred invoking 'work_get'`, with
+> `ArgumentException … missing a value for the required parameter 'refs'` in the server log. The
+> session had copied `work_get(ref:…)` from the server's own NEXT line and from `work_next`, which
+> both printed it. Both now print `work_get(refs:["…"])`, and the `work_create` refusal headlines
+> that printed `work_create(kind:…)` now print `work_create(items:[{kind:…}])`.
 
 ---
 
@@ -480,7 +510,7 @@ with no fighting the framework.
 
 | Symbol | Use here |
 |---|---|
-| `WithRequestFilters` / `WithMessageFilters` | The **attention block**, actor resolution from the token, and OpenTelemetry spans — all as filters, so no tool body repeats them. |
+| `WithRequestFilters` / `WithMessageFilters` | The **attention block**, actor resolution from the token, and OpenTelemetry spans — all as filters, so no tool body repeats them. **In use** for argument binding (§3.6): `AddCallToolFilter(McpRequestFilter<CallToolRequestParams, CallToolResult>)`; `RequestContext.MatchedPrimitive` is the `McpServerTool`, whose `ProtocolTool.InputSchema` is the schema judged. Authorization runs in `CallToolWithAlternateFilters`, ahead of every ordinary call-tool filter. |
 | ~~`WithListToolsHandler`~~ | **Exists, NOT used.** `[Authorize]` narrows `tools/list` unaided (measured, §6). |
 | ~~`WithCompleteHandler`~~ | **Exists, NOT used.** The client offers no completion mechanism at all (measured, §8). |
 | `WithSubscriptionsListenHandler` | SEP-2575 subscription stream, if we later push `resources/updated` to a watching controller. |

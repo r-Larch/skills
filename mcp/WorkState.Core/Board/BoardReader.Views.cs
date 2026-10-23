@@ -54,7 +54,7 @@ public sealed partial class BoardReader
         }
 
         lines.Add(string.Empty);
-        lines.Add($"Next: work_get(ref:\"{shown[0].Ref}\") for the full brief, "
+        lines.Add($"Next: work_get(refs:[\"{shown[0].Ref}\"]) for the full brief, "
                 + $"then work_status(ref:\"{shown[0].Ref}\", to:\"in_progress\").");
 
         return string.Join("\n", lines);

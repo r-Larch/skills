@@ -389,7 +389,7 @@ public sealed partial class BoardReader(WorkStateQueries queries, BoardQueries b
         if (frontier.Count > 0)
         {
             var first = frontier[0];
-            return $"work_get(ref:\"{first.Ref}\")  then  work_status(ref:\"{first.Ref}\", to:\"in_progress\")";
+            return $"work_get(refs:[\"{first.Ref}\"])  then  work_status(ref:\"{first.Ref}\", to:\"in_progress\")";
         }
 
         var doing = subtree.FirstOrDefault(n => n.Status == ItemStatus.InProgress);

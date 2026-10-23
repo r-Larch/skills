@@ -99,7 +99,7 @@ public sealed partial class WorkWriter
             if (!ladder.TryGetValue(kind, out var rules))
             {
                 return WriteResult.No(Refusal.Blocked(
-                    $"work_create(kind:\"{wanted.Kind}\") — no such kind.",
+                    $"work_create(items:[{{kind:\"{wanted.Kind}\"}}]) — no such kind.",
                     $"the ladder is fixed: {string.Join(", ", ladder.Keys.Order())}",
                     "work_create(items:[{kind:\"task\", parent:\"…\", title:\"…\", verify_cmd:\"…\", "
                     + "criteria:[\"…\"]}])"));
@@ -108,7 +108,7 @@ public sealed partial class WorkWriter
             if (Blank(wanted.Title))
             {
                 return WriteResult.No(Refusal.Blocked(
-                    $"work_create(kind:\"{kind}\") without a title.",
+                    $"work_create(items:[{{kind:\"{kind}\"}}]) without a title.",
                     "the title is the handle a board row is read by",
                     "work_create(items:[{kind:\"" + kind + "\", title:\"…\", …}])"));
             }
@@ -137,7 +137,7 @@ public sealed partial class WorkWriter
             else if (kind is not ("project" or "feature"))
             {
                 return WriteResult.No(Refusal.Blocked(
-                    $"work_create(kind:\"{kind}\") without a parent.",
+                    $"work_create(items:[{{kind:\"{kind}\"}}]) without a parent.",
                     "everything below a project hangs off something — an orphan is invisible to "
                     + "work_next and to every rollup",
                     $"work_create(items:[{{kind:\"{kind}\", parent:\"<a ref>\", title:\"…\"}}])",
@@ -171,7 +171,7 @@ public sealed partial class WorkWriter
             }
             catch (PostgresException refused)
             {
-                return WriteResult.No(FromPostgres(refused, $"work_create(ref:\"{reference}\")"));
+                return WriteResult.No(FromPostgres(refused, $"work_create(items:[{{ref:\"{reference}\"}}])"));
             }
 
             await CriteriaAsync(connection, transaction, row2.Id, wanted.Criteria ?? [], cancellationToken);
@@ -519,7 +519,7 @@ public sealed partial class WorkWriter
         return unmet.Count == 0
             ? null
             : Refusal.Blocked(
-                $"work_create(kind:\"{kind}\", title:\"{Glyph.Clip(wanted.Title, 40)}\"). "
+                $"work_create(items:[{{kind:\"{kind}\", title:\"{Glyph.Clip(wanted.Title, 40)}\"}}]). "
                 + $"{unmet.Count} requirement(s) unmet.",
                 unmet);
     }

@@ -97,6 +97,10 @@ public static class ApiHost
             })
             .WithHttpTransport()
             .AddAuthorizationFilters()
+
+            // After the authorization filters, so a call a token may not make is still refused as
+            // forbidden and never answered with the shape of that tool's arguments (doc 01 §3.6).
+            .WithRequestFilters(filters => filters.AddCallToolFilter(ToolArguments.Filter))
             .WithToolsFromAssembly(typeof(WorkReadTools).Assembly)
             .WithResourcesFromAssembly(typeof(WorkResources).Assembly);
 
