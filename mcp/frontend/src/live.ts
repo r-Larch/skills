@@ -1,31 +1,50 @@
 import { createSignal } from 'solid-js'
 
-export type LinkState = 'connecting' | 'live' | 'down'
+type LinkState = 'connecting' | 'live' | 'down'
 
-const [lastSeq, setLastSeq] = createSignal(0)
-const [pulse, setPulse] = createSignal(0)
+/** doc 10's frame. `runId: null` with `kind: 'reconnect'` is ours: anything may have been missed. */
+type Frame = { seq: number; runId: string | null; itemId: string | null; kind: string }
+
 const [link, setLink] = createSignal<LinkState>('connecting')
+export { link }
 
-export { lastSeq, pulse, link }
+const listeners = new Set<(frames: Frame[]) => void>()
+
+/** Frames arrive in bursts (one write is often several events); readers hear about a burst once. */
+const DEBOUNCE = 400
 
 /**
  * The reopen delay for the one case the browser will not retry itself: a non-200 on the stream
- * (an expired cookie, or the API restarting) closes the EventSource for good. This is not a poll —
- * nothing asks the server for board state on a timer; it re-establishes the one push channel, which
- * is what the browser already does at ~3s for a dropped connection.
+ * (an expired cookie, or the API restarting) closes the EventSource for good.
  */
 const REOPEN_DELAY = 5000
 
+export function onFrames(listener: (frames: Frame[]) => void): () => void {
+  listeners.add(listener)
+  return () => listeners.delete(listener)
+}
+
 /**
- * The single live channel (doc 09 §8). The frame carries only `seq` and `kind` by design, so a
- * pulse is an instruction to re-read — the watch board re-reads `/api/watch`, the run view asks the
- * journal for everything after its cursor. Nothing here holds board state.
+ * The single live channel. A frame is an instruction to re-read, never the state itself: nothing
+ * here holds board data, and nothing asks the server for it on a timer.
  */
 export function startStream(): () => void {
   let source: EventSource | null = null
-  let timer: ReturnType<typeof setTimeout> | undefined
+  let reopen: ReturnType<typeof setTimeout> | undefined
+  let flush: ReturnType<typeof setTimeout> | undefined
+  let pending: Frame[] = []
   let stopped = false
   let everOpened = false
+
+  const push = (frame: Frame) => {
+    pending.push(frame)
+    clearTimeout(flush)
+    flush = setTimeout(() => {
+      const burst = pending
+      pending = []
+      for (const listener of listeners) listener(burst)
+    }, DEBOUNCE)
+  }
 
   const open = () => {
     if (stopped) return
@@ -35,28 +54,21 @@ export function startStream(): () => void {
 
     source.onopen = () => {
       setLink('live')
-
-      // A reconnect may have missed events. Nudge the views: each one recovers through its own
-      // cursor, which is what U6 built `?since=` for.
-      if (everOpened) setPulse((n) => n + 1)
+      if (everOpened) push({ seq: 0, runId: null, itemId: null, kind: 'reconnect' })
       everOpened = true
     }
 
     source.addEventListener('work', (event) => {
       const frame = parse((event as MessageEvent<string>).data)
-      if (frame === undefined) return
-
-      setLastSeq((seen) => (frame.seq > seen ? frame.seq : seen))
-      setPulse((n) => n + 1)
+      if (frame !== undefined) push(frame)
     })
 
     source.onerror = () => {
       if (source?.readyState === EventSource.CLOSED) {
-        // The browser has given up on this one. Everything else it retries by itself.
         setLink('down')
         source.close()
         source = null
-        timer = setTimeout(open, REOPEN_DELAY)
+        reopen = setTimeout(open, REOPEN_DELAY)
         return
       }
 
@@ -68,15 +80,17 @@ export function startStream(): () => void {
 
   return () => {
     stopped = true
-    clearTimeout(timer)
+    clearTimeout(reopen)
+    clearTimeout(flush)
     source?.close()
   }
 }
 
-function parse(data: string): { seq: number; kind: string } | undefined {
+function parse(data: string): Frame | undefined {
   try {
-    const frame = JSON.parse(data) as { seq?: number; kind?: string }
-    return typeof frame.seq === 'number' ? { seq: frame.seq, kind: frame.kind ?? 'unknown' } : undefined
+    const frame = JSON.parse(data) as Partial<Frame>
+    if (typeof frame.seq !== 'number') return undefined
+    return { seq: frame.seq, runId: frame.runId ?? null, itemId: frame.itemId ?? null, kind: frame.kind ?? 'unknown' }
   } catch {
     return undefined
   }

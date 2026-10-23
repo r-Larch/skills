@@ -1,10 +1,11 @@
 import { Show, createSignal } from 'solid-js'
-import { signIn } from './api'
+import { signIn } from './api.ts'
+import { CheckIcon } from './icons.tsx'
 
 /**
- * Not a third view — a gate. `/api/*` is cookie-guarded and the cookie is httponly, so the only way
- * the SPA learns it has no session is a 401, and the only way out is a form. No credential is
- * carried in this source: the fields start empty and stay empty.
+ * Not a view — a gate. `/api/*` is cookie-guarded and the cookie is httponly, so the only way the
+ * SPA learns it has no session is a 401, and the only way out is a form. No credential is carried
+ * in this source: the fields start empty and stay empty.
  */
 export default function Gate() {
   const [username, setUsername] = createSignal('')
@@ -20,19 +21,17 @@ export default function Gate() {
   }
 
   return (
-    <div class="wrap">
-      <form class="gate" onSubmit={(event) => void submit(event)}>
+    <div class="gate-wrap">
+      <form class="panel gate" onSubmit={(event) => void submit(event)}>
         <div class="brand">
-          workstate <span>/ sign in</span>
+          <span class="brand-mark">
+            <CheckIcon size={16} weight={2.6} />
+          </span>
+          <span class="brand-name">WorkState</span>
         </div>
 
         <label for="u">Username</label>
-        <input
-          id="u"
-          autocomplete="username"
-          value={username()}
-          onInput={(event) => setUsername(event.currentTarget.value)}
-        />
+        <input id="u" autocomplete="username" value={username()} onInput={(event) => setUsername(event.currentTarget.value)} />
 
         <label for="p">Password</label>
         <input
@@ -44,7 +43,7 @@ export default function Gate() {
         />
 
         <button type="submit" disabled={busy()}>
-          {busy() ? 'checking…' : 'sign in'}
+          {busy() ? 'Checking…' : 'Sign in'}
         </button>
 
         <Show when={rejected()}>

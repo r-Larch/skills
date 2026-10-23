@@ -1,18 +1,50 @@
-/**
- * Where a qualified ref points.
- *
- * The item travels in the query string rather than the path, and that is forced, not a preference:
- * `MapFallback` registers `{*path:nonfile}`, so any SPA path whose last segment contains a dot is a
- * 404 on a hard reload — and item refs are exactly the dotted ones (`3.1`, `4.6b`, `9.2a`).
- * `/runs/entity-store/3.1` would work until the operator pressed F5. Reported to the controller.
- */
-export function refHref(qualifiedRef: string): string {
-  const cut = qualifiedRef.indexOf('/')
+import type { ItemRef } from './api.ts'
 
-  return cut < 0
-    ? `/runs/${encodeURIComponent(qualifiedRef)}`
-    : `/runs/${encodeURIComponent(qualifiedRef.slice(0, cut))}?item=${encodeURIComponent(qualifiedRef.slice(cut + 1))}`
+/**
+ * Every link to an item goes through here, so every link has a page behind it: a run opens its
+ * board, anything inside a run opens the board with it selected, and anything else opens
+ * `/items/{id}`, which moves itself onto the run page once it knows the run.
+ */
+export function itemHref(item: Pick<ItemRef, 'id' | 'kind'>, run: Pick<ItemRef, 'id'> | null | undefined): string {
+  if (item.kind === 'run') return `/runs/${item.id}`
+  if (item.kind !== 'project' && run != null && run.id !== item.id) return `/runs/${run.id}/${item.id}`
+  return `/items/${item.id}`
 }
 
-export const itemHref = (run: string, item: string): string =>
-  `/runs/${encodeURIComponent(run)}?item=${encodeURIComponent(item)}`
+export const runHref = (run: string) => `/runs/${run}`
+
+/**
+ * A link drawn on a run page: inside this run's board it keeps the board and selects the item;
+ * anything else (a blocker in another run, the project) leaves through `itemHref`.
+ */
+export function boardHref(run: string, onBoard: (id: string) => boolean, item: Pick<ItemRef, 'id' | 'kind'>): string {
+  if (item.id === run) return runHref(run)
+  if (onBoard(item.id)) return `${runHref(run)}/${item.id}`
+  return itemHref(item, null)
+}
+
+export const backlogHref = (project: string) => `/projects/${project}/backlog`
+
+/** The run an item page's path places it in, or the item itself when it is one. */
+export function runOf(item: ItemRef, path: ItemRef[]): ItemRef | null {
+  if (item.kind === 'run') return item
+  return [...path].reverse().find((p) => p.kind === 'run') ?? null
+}
+
+/**
+ * The API reads a route's page makes, so `verify/links.mjs` can prove a link has a page behind it.
+ * Empty means no route matches: the link would land on the not-found page.
+ */
+export function routeReads(href: string): string[] {
+  const [path] = href.split('?')
+  const parts = (path ?? '').split('/').filter(Boolean)
+
+  if (parts.length === 0) return ['/api/v1/overview']
+  if (parts[0] === 'inbox' && parts.length === 1) return ['/api/v1/inbox']
+  if (parts[0] === 'activity' && parts.length === 1) return ['/api/v1/journal?limit=1']
+  if (parts[0] === 'runs' && parts.length === 2) return [`/api/v1/runs/${parts[1]}/board`, `/api/v1/items/${parts[1]}`]
+  if (parts[0] === 'runs' && parts.length === 3) return [`/api/v1/runs/${parts[1]}/board`, `/api/v1/items/${parts[2]}`]
+  if (parts[0] === 'items' && parts.length === 2) return [`/api/v1/items/${parts[1]}`]
+  if (parts[0] === 'projects' && parts[2] === 'backlog' && parts.length === 3) return [`/api/v1/backlog?project=${parts[1]}`]
+  return []
+}

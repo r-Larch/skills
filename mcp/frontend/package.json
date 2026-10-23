@@ -7,10 +7,9 @@
     "build": "vite build",
     "serve": "vite preview",
     "ts": "tsc --project tsconfig.json --noEmit",
-    "verify": "node verify/brief-identity.mjs",
+    "verify": "node verify/state-cases.mjs",
     "verify:board": "node verify/board-numbers.mjs",
-    "verify:journal": "node verify/journal-divider.mjs",
-    "verify:empty": "node verify/empty-states.mjs"
+    "verify:links": "node verify/links.mjs"
   },
   "dependencies": {
     "@solidjs/router": "^1.0.0",

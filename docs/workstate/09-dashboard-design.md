@@ -1,5 +1,13 @@
 # 09 — The operator dashboard: design plan
 
+> **Superseded by [13 — The dashboard](13-dashboard.md).** The watch floor built from this plan made
+> the agent's verbatim `work_brief` the main pane, selecting an item only highlighted a row, and
+> titles were truncated; the owner could not get an overview from it and found the markdown ledger
+> better. It was replaced by a prototyped and approved design (projects → runs → a plan list with a
+> detail panel, one state vocabulary, evidence split into *reported* vs *verified*) built on the
+> [v1 read API](10-read-api.md). The brief survives only as a secondary tab. This document is kept
+> for its reasoning about supervision, not as a description of what ships.
+
 > **Not** built on the `nomos-service` dashboard blueprint — owner's call, and correct: that pattern
 > is an operator console for a *request-processing service* (throughput, latency, a playground). This
 > is a **supervision console for autonomous agents**, and almost nothing transfers.
