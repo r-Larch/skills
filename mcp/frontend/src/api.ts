@@ -1,64 +1,205 @@
 import { createSignal } from 'solid-js'
 
-/** The shapes `WorkState.Api/App/AppContract.cs` serialises. Names are camelCased by the host. */
-export type Project = { ref: string; title: string; status: string; runCount: number }
-
-export type Lease = {
-  agent: string
+/** doc 10 — the frozen v1 shapes, as `WorkState.Api/App/V1/V1Contract.cs` serialises them. */
+export type ItemRef = {
+  id: string
   ref: string
   qualifiedRef: string
-  title: string
-  expiresAt: string
-}
-
-export type Attention = {
-  rank: string
-  ref: string | null
-  qualifiedRef: string | null
-  what: string
-  call: string
-}
-
-export type Honesty = {
-  doneUnverified: number
-  forced: number
-  ungated: number
-  followupsOpen: number
-}
-
-export type Watch = {
-  project: string | null
-  asOf: string
-  workingNow: Lease[]
-  needsYou: Attention[]
-  honesty: Honesty
-}
-
-export type TreeNode = {
-  ref: string
   kind: string
   title: string
   status: string
-  depth: number
-  doneCount: number
-  reviewCount: number
-  totalCount: number
-  disagrees: boolean
 }
 
-export type Tree = { ref: string; title: string; nodes: TreeNode[] }
+export type Rollup = {
+  total: number
+  done: number
+  inProgress: number
+  review: number
+  blocked: number
+  open: number
+  cancelled: number
+  superseded: number
+}
 
-export type JournalEntry = {
+export type Session = {
+  id: string
+  name: string
+  role: string
+  tree: string | null
+  lastSeenAt: string
+}
+
+export type Claim = {
+  item: ItemRef
+  run: ItemRef | null
+  session: Session | null
+  agent: string
+  role: string
+  tree: string | null
+  acquiredAt: string
+  heartbeatAt: string
+  expiresAt: string
+  expired: boolean
+}
+
+export type JournalEvent = {
   seq: number
-  ref: string | null
   at: string
+  item: ItemRef | null
+  run: ItemRef | null
+  session: Session | null
   actor: string
   role: string
   kind: string
   summary: string | null
 }
 
-export type Journal = { cursor: number; hasMore: boolean; events: JournalEntry[] }
+export type Honesty = { doneUnverified: number; forced: number; ungated: number; followupsOpen: number }
+
+export type RunOverview = {
+  item: ItemRef
+  rollup: Rollup
+  branch: string | null
+  worktree: string | null
+  activeClaims: number
+  lastEventAt: string | null
+  inboxCount: number
+  lastVerification: { passed: boolean; at: string } | null
+}
+
+export type ProjectOverview = { item: ItemRef; rollup: Rollup; runs: RunOverview[] }
+
+export type Overview = {
+  asOf: string
+  seq: number
+  projects: ProjectOverview[]
+  workingNow: Claim[]
+  inboxCount: number
+  honesty: Honesty
+}
+
+export type Verification = { passed: boolean; runBy: string; at: string }
+
+export type BoardRow = {
+  item: ItemRef
+  parentId: string | null
+  depth: number
+  seq: string
+  hasChildren: boolean
+  resolution: string | null
+  priority: number
+  severity: string | null
+  criteria: { checked: number; total: number }
+  rollup: Rollup | null
+  claim: Claim | null
+  commit: string | null
+  verification: Verification | null
+  blockedBy: ItemRef[]
+  flags: string[]
+  openedAt: string
+  startedAt: string | null
+  closedAt: string | null
+}
+
+export type Board = {
+  asOf: string
+  seq: number
+  run: ItemRef
+  project: ItemRef | null
+  intent: string | null
+  branch: string | null
+  worktree: string | null
+  rollup: Rollup
+  rows: BoardRow[]
+}
+
+export type Report = {
+  attempt: number
+  session: Session | null
+  agent: string | null
+  startedAt: string
+  endedAt: string | null
+  status: string
+  files: string[]
+  verify: string | null
+  redCheck: string | null
+  deviations: string | null
+  risks: string | null
+  notDone: string | null
+  at: string
+}
+
+export type VerificationRecord = {
+  command: string | null
+  resultLine: string
+  passed: boolean
+  runBy: string
+  session: Session | null
+  redCheck: string | null
+  at: string
+}
+
+export type Note = {
+  id: string
+  kind: string
+  body: string
+  from: ItemRef | null
+  to: ItemRef | null
+  consumedAt: string | null
+  createdAt: string
+  session: Session | null
+}
+
+export type ItemPage = {
+  asOf: string
+  seq: number
+  item: ItemRef
+  path: ItemRef[]
+  intent: string | null
+  verifyCmd: string | null
+  riskTags: string[]
+  priority: number
+  severity: string | null
+  source: string | null
+  resolution: string | null
+  closedBy: string | null
+  openedAt: string
+  startedAt: string | null
+  closedAt: string | null
+  criteria: { id: string; text: string; checked: boolean; evidence: string | null; checkedAt: string | null }[]
+  claim: Claim | null
+  reports: Report[]
+  verifications: VerificationRecord[]
+  artifacts: { kind: string; value: string; at: string }[]
+  children: { item: ItemRef; criteria: { checked: number; total: number } }[]
+  findings: { item: ItemRef; severity: string | null; source: string | null }[]
+  notes: Note[]
+  links: { out: { type: string; item: ItemRef }[]; in: { type: string; item: ItemRef }[] }
+  assumptions: { ref: string; text: string; status: string; revisitWhen: ItemRef | null }[]
+  events: JournalEvent[]
+  eventsHasMore: boolean
+}
+
+export type InboxRow = {
+  key: string
+  kind: string
+  item: ItemRef
+  run: ItemRef | null
+  what: string
+  since: string
+  call: string
+}
+
+export type Inbox = { asOf: string; seq: number; rows: InboxRow[] }
+
+export type JournalPage = { asOf: string; seq: number; cursor: number; hasMore: boolean; events: JournalEvent[] }
+
+export type Backlog = {
+  asOf: string
+  seq: number
+  run: ItemRef | null
+  groups: { origin: ItemRef | null; items: ItemRef[] }[]
+}
 
 /**
  * Whether the cookie is good. Flipped by any 401, which is the only signal the API gives: the
@@ -73,6 +214,12 @@ export class Unauthorized extends Error {
   }
 }
 
+export class NotFound extends Error {
+  constructor(path: string) {
+    super(`${path} → 404`)
+  }
+}
+
 async function get(path: string): Promise<Response> {
   const response = await fetch(path, { credentials: 'same-origin' })
 
@@ -81,9 +228,8 @@ async function get(path: string): Promise<Response> {
     throw new Unauthorized()
   }
 
-  if (!response.ok) {
-    throw new Error(`${path} → ${response.status}`)
-  }
+  if (response.status === 404) throw new NotFound(path)
+  if (!response.ok) throw new Error(`${path} → ${response.status}`)
 
   setSignedIn(true)
   return response
@@ -91,24 +237,23 @@ async function get(path: string): Promise<Response> {
 
 const json = async <T,>(path: string): Promise<T> => (await get(path)).json() as Promise<T>
 
-export const projects = () => json<Project[]>('/api/projects')
+const id = (value: string) => encodeURIComponent(value)
 
-export const watch = (project?: string) =>
-  json<Watch>(project ? `/api/watch?project=${encodeURIComponent(project)}` : '/api/watch')
+export const overview = () => json<Overview>('/api/v1/overview')
 
-export const tree = (run: string) => json<Tree>(`/api/runs/${encodeURIComponent(run)}/tree`)
+export const board = (run: string) => json<Board>(`/api/v1/runs/${id(run)}/board`)
+
+export const item = (item: string) => json<ItemPage>(`/api/v1/items/${id(item)}`)
 
 /** `text/plain`, and it stays text all the way to the `<pre>`. Never parsed, never re-encoded. */
-export const brief = async (run: string): Promise<string> =>
-  (await get(`/api/runs/${encodeURIComponent(run)}/brief`)).text()
+export const brief = async (item: string): Promise<string> =>
+  (await get(`/api/v1/items/${id(item)}/brief?for=resume`)).text()
 
-export const journal = (run: string, since?: number, limit?: number) => {
-  const query = new URLSearchParams()
-  if (since !== undefined && since > 0) query.set('since', String(since))
-  if (limit !== undefined) query.set('limit', String(limit))
-  const suffix = query.size > 0 ? `?${query}` : ''
-  return json<Journal>(`/api/runs/${encodeURIComponent(run)}/journal${suffix}`)
-}
+export const inbox = () => json<Inbox>('/api/v1/inbox')
+
+export const journal = (limit: number) => json<JournalPage>(`/api/v1/journal?limit=${limit}`)
+
+export const backlog = (project: string) => json<Backlog>(`/api/v1/backlog?project=${id(project)}`)
 
 export async function signIn(username: string, password: string): Promise<boolean> {
   const response = await fetch('/api/session', {
@@ -124,9 +269,4 @@ export async function signIn(username: string, password: string): Promise<boolea
   }
 
   return false
-}
-
-export async function signOut(): Promise<void> {
-  await fetch('/api/session', { method: 'DELETE', credentials: 'same-origin' })
-  setSignedIn(false)
 }
