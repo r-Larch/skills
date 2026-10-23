@@ -87,7 +87,8 @@ public sealed record ItemFacts(
     bool RequiresVerify,
     string? Severity,
     string? ParentRef,
-    DateTimeOffset? StartedAt);
+    DateTimeOffset? StartedAt,
+    bool Moved);
 
 public sealed record BlockerRow(
     string FindingRef,

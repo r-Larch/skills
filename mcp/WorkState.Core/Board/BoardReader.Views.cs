@@ -520,7 +520,7 @@ public sealed partial class BoardReader
             flags.Add(Flag.BlockedBy(string.Join(" ", blockers.Take(2))));
         }
 
-        if (facts is { RequiresVerify: true, OrchestratorVerifications: 0 }
+        if (facts is { RequiresVerify: true, OrchestratorVerifications: 0, Moved: false }
             && status is ItemStatus.Done or ItemStatus.Review)
         {
             flags.Add(Flag.NoVerify);

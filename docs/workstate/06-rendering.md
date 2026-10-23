@@ -56,7 +56,7 @@ A6    assum   open      Docker can run pgvector             probed    revisit: 1
 
 | Flag | Means | The call that resolves it |
 |---|---|---|
-| `⚠ no verify` | `done`-eligible but no orchestrator verification | `work_verify` |
+| `⚠ no verify` | `done`-eligible but no orchestrator verification (never on a deferred, `obsolete` item) | `work_verify` |
 | `← 2.4` | blocked by `2.4` | finish `2.4` |
 | `review-req` | `risk_tags` non-empty | spend a review before closing |
 | `BLOCKER → 2.4` | a blocker finding targeting `2.4` | close or defer the finding |
@@ -242,6 +242,16 @@ run** → items done-but-unverified → assumptions past revisit → unconsumed 
 > phase whose tasks are done is *ready to be gated*, not done. It outranks done-but-unverified
 > because what goes unexamined is the composition across every task in the phase, not one task's
 > missing evidence.
+
+**A moved item is not done-but-unverified.** A deferral closes its item `done` with resolution
+`obsolete`, because the work moved rather than finished (doc 07 §4). That item is left out of the
+attention line, `work_audit`'s `done-unverified` check, the `⚠ no verify` row flag and the honesty
+strip's count, so all four numbers agree. `wontfix` and `duplicate` closures stay in: they pass the
+same done guard as `accepted`, so they cannot close without an orchestrator verification unless
+`force:true` is used, and a forced close is the case the count exists to show.
+
+> **Changed 2026-10-23 (defer-verify).** A deferred item raised `<ref> is done with no orchestrator
+> verification — work_verify(…)`, which invites a verification of work that was never done here.
 
 **The unconsumed-note line is one line per addressee**: `N note(s) addressed to <ref> unconsumed —
 work_brief(scope:"<ref>", for:"worker")`, where `<ref>` is bare unless another item in the workspace

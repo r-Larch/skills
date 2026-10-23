@@ -436,7 +436,8 @@ public sealed class BoardQueries(NpgsqlDataSource dataSource)
                    k.requires_verify            AS "RequiresVerify",
                    i.severity                   AS "Severity",
                    p.ref                        AS "ParentRef",
-                   i.started_at                 AS "StartedAt"
+                   i.started_at                 AS "StartedAt",
+                   coalesce(i.resolution = 'obsolete', false) AS "Moved"
             FROM   item i
             JOIN   item_kind k ON k.key = i.kind
             LEFT   JOIN item s ON s.id = i.ref_scope_id AND s.id <> i.id
@@ -644,6 +645,11 @@ public sealed class BoardQueries(NpgsqlDataSource dataSource)
     /// <summary>
     /// Closed without the orchestrator verification doc 07 §3 condition 2 demands. U4 makes this
     /// unwritable; until then it is the highest-value thing an audit can say about finished work.
+    /// <para>
+    /// A deferral closes its item <c>done/obsolete</c> without the guard, because the work moved
+    /// rather than finished (doc 07 §4). Verifying it would be a false claim, so it is not counted.
+    /// <see cref="ItemFacts.Moved"/> applies the same rule to the row flag.
+    /// </para>
     /// </summary>
     public async Task<IReadOnlyList<UnverifiedRow>> DoneUnverifiedAsync(
         Guid scopeItemId,
@@ -658,6 +664,7 @@ public sealed class BoardQueries(NpgsqlDataSource dataSource)
              JOIN   item_kind k ON k.key = i.kind
              LEFT   JOIN item s ON s.id = i.ref_scope_id AND s.id <> i.id
              WHERE  i.status = 'done'
+               AND  i.resolution <> 'obsolete'
                AND  k.requires_verify
                AND  {InScope}
                AND  NOT EXISTS (SELECT 1 FROM verification v
