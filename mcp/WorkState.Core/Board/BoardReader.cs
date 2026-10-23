@@ -116,7 +116,9 @@ public sealed partial class BoardReader(WorkStateQueries queries, BoardQueries b
             Head: Short(header?.Head),
             Goal: header?.Goal ?? item.Intent,
             Where: Where(item, subtree),
-            Next: IsWorkerVariant(variant) ? WorkerNext(callable) : Next(item, frontier, subtree),
+            Next: IsWorkerVariant(variant)
+                ? WorkerNext(callable)
+                : Next(item, frontier, subtree, await board.OpenDerivedAsync(item.Id, cancellationToken)),
             Binding: [.. constraints.Take(IsWorkerVariant(variant) ? constraints.Count : BriefBindingCap).Select(ToBinding)],
             BindingTotal: constraints.Count,
             Assumptions: [.. assumptions.Take(BriefAssumptionCap).Select(ToAssumption)],
@@ -385,7 +387,8 @@ public sealed partial class BoardReader(WorkStateQueries queries, BoardQueries b
     private static string Next(
         ScopeRef item,
         IReadOnlyList<ReadyItem> frontier,
-        IReadOnlyList<SubtreeNode> subtree)
+        IReadOnlyList<SubtreeNode> subtree,
+        IReadOnlyList<ItemFacts> derived)
     {
         if (frontier.Count > 0)
         {
@@ -408,9 +411,21 @@ public sealed partial class BoardReader(WorkStateQueries queries, BoardQueries b
         }
 
         var open = subtree.Any(n => n.Id != item.Id && n.Status is ItemStatus.Open or ItemStatus.Ready);
-        return open
-            ? $"work_next(scope:\"{item.Ref}\")"
-            : $"work_status(ref:\"{item.Ref}\", to:\"done\") — every child is closed";
+        if (open)
+        {
+            return $"work_next(scope:\"{item.Ref}\")";
+        }
+
+        if (item.Status is ItemStatus.Done or ItemStatus.Cancelled or ItemStatus.Superseded)
+        {
+            var status = item.Status.ToString().ToLowerInvariant();
+            return derived is [var first, ..]
+                ? $"work_get(refs:[\"{Callable(first.Ref, first)}\"]) — {item.Ref} is {status}; "
+                  + $"{Callable(first.Ref, first)} derived from it is still open"
+                : $"nothing left — {item.Ref} is {status}";
+        }
+
+        return $"work_status(ref:\"{item.Ref}\", to:\"done\") — every child is closed";
     }
 
     /// <summary>

@@ -122,6 +122,17 @@ LAST VERIFY  dotnet test --filter Importer → 181/181, by orchestrator, 6m ago
 **`NEXT` is a literal, callable line.** An agent that only ever does what `NEXT` says is running the
 system correctly — that is the tutorial channel of doc 04 §4, and it is why this line is never prose.
 
+**A closed scope's `NEXT` never closes it again.** When no child is open, an open scope's `NEXT` is
+`work_status(ref:"<ref>", to:"done") — every child is closed`. A `done`, `cancelled` or `superseded`
+scope instead names the first open item derived from it or from anything beneath it (a
+`derived_from` link, which is what a deferral writes), wherever that item now sits:
+`work_get(refs:["<ref>"]) — m1 is done; <ref> derived from it is still open`. With no such item the
+line is `nothing left — m1 is done`.
+
+> **Changed 2026-10-23 (donenext).** `work_brief(scope:"autowork/m1")` said
+> `NEXT work_status(ref:"m1", to:"done")` while m1 was done, and that call was refused "m1 is done".
+> The last branch checked only the children and never the scope's own status.
+
 **A BINDING line carries its ref**, between the marker and the rule, in the same four-wide handle
 column the assumption rows below it use. The marker still opens the line, so the `!` column stays
 scannable at a glance; the ref is what makes the rule addressable, which is what `work_constrain`

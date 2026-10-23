@@ -941,6 +941,38 @@ public sealed class BoardQueries(NpgsqlDataSource dataSource)
         return await SingleAsync<int>(sql, new { scope = scopeItemId }, cancellationToken);
     }
 
+    /// <summary>
+    /// Open items derived from the scope or anything beneath it, wherever they now sit: a deferral
+    /// moves work out of the subtree (doc 07 §4), and the backlog is usually under the project.
+    /// </summary>
+    public async Task<IReadOnlyList<ItemFacts>> OpenDerivedAsync(
+        Guid scopeItemId,
+        CancellationToken cancellationToken = default)
+    {
+        const string sql =
+            $"""
+             SELECT DISTINCT d.id, d.seq
+             FROM   item_link l
+             JOIN   item i ON i.id = l.to_item_id
+             JOIN   item d ON d.id = l.from_item_id
+             WHERE  l.type = 'derived_from'
+               AND  d.status NOT IN ('done','cancelled','superseded')
+               AND  {InScope}
+             ORDER  BY d.seq, d.id;
+             """;
+
+        var ids = await ListAsync<DerivedId>(sql, new { scope = scopeItemId }, cancellationToken);
+        if (ids.Count == 0)
+        {
+            return [];
+        }
+
+        var facts = (await FactsAsync([.. ids.Select(i => i.Id)], cancellationToken)).ToDictionary(f => f.Id);
+        return [.. ids.Select(i => facts[i.Id])];
+    }
+
+    private sealed record DerivedId(Guid Id, decimal Seq);
+
     private async Task<T?> SingleAsync<T>(string sql, object parameters, CancellationToken cancellationToken)
     {
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
