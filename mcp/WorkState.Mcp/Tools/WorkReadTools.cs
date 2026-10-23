@@ -19,7 +19,11 @@ namespace WorkState.Mcp.Tools;
 /// </para>
 /// </summary>
 [McpServerToolType]
-public sealed class WorkReadTools(BoardReader reader, WorkspaceOptions workspace, Housekeeping housekeeping)
+public sealed class WorkReadTools(
+    BoardReader reader,
+    WorkspaceOptions workspace,
+    Housekeeping housekeeping,
+    CallerIdentity caller)
 {
     [Authorize(Policy = WorkStatePolicies.Worker)]
     [McpServerTool(Name = "work_brief", Title = "Orient: the recovery payload", ReadOnly = true)]
@@ -48,7 +52,8 @@ public sealed class WorkReadTools(BoardReader reader, WorkspaceOptions workspace
         // The sweep of doc 07 §5 and the note consumption of doc 01 §3.4 both live in
         // BriefSessionAsync, because GET /api/runs/{ref}/brief must perform the identical writes in
         // the identical order or the two surfaces return different bytes for the same scope.
-        return Text(await reader.BriefSessionAsync(found, @for ?? "resume", housekeeping, cancellationToken));
+        return Text(await reader.BriefSessionAsync(
+            found, @for ?? "resume", housekeeping, cancellationToken, signed: caller.Actor.SessionId is not null));
     }
 
     [Authorize(Policy = WorkStatePolicies.Orchestrator)]

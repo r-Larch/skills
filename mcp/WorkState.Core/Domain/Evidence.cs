@@ -30,6 +30,7 @@ public class Report
     public string? NotDone { get; set; }
     public string? Raw { get; set; }
     public DateTimeOffset At { get; set; }
+    public Guid? SessionId { get; set; }
 }
 
 public class Verification
@@ -55,6 +56,7 @@ public class Verification
     public VerifyRunner RunBy { get; set; }
     public string? RedCheck { get; set; }
     public DateTimeOffset At { get; set; }
+    public Guid? SessionId { get; set; }
 }
 
 public class Artifact
@@ -80,4 +82,7 @@ public class Event
     public string Kind { get; set; } = "";
     public string Payload { get; set; } = "{}";
     public string? Summary { get; set; }
+
+    /// <summary>Null on everything written before doc 11, and on the system's own writes.</summary>
+    public Guid? SessionId { get; set; }
 }

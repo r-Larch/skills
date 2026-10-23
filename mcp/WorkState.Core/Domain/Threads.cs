@@ -36,6 +36,7 @@ public class Assumption
     public string? ResolutionNote { get; set; }
     public DateTimeOffset? ResolvedAt { get; set; }
     public DateTimeOffset CreatedAt { get; set; }
+    public Guid? SessionId { get; set; }
 }
 
 public class ConstraintRule
@@ -85,6 +86,7 @@ public class Note
     public Guid? ConsumedBy { get; set; }
     public DateTimeOffset CreatedAt { get; set; }
     public string? CreatedBy { get; set; }
+    public Guid? SessionId { get; set; }
 }
 
 public class Claim
@@ -118,6 +120,13 @@ public class Claim
     public DateTimeOffset ExpiresAt { get; set; }
     public DateTimeOffset? ReleasedAt { get; set; }
     public string? ReleaseReason { get; set; }
+
+    /// <summary>
+    /// The holder. One session may hold several items of one tree; a second session may not —
+    /// <c>claim_one_session_per_tree</c>. A null session is a claim from before doc 11, and still
+    /// holds its tree alone (<c>claim_one_writer_per_tree</c>).
+    /// </summary>
+    public Guid? SessionId { get; set; }
 }
 
 public class AgentToken

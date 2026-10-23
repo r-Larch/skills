@@ -179,7 +179,8 @@ public sealed partial class BoardReader(WorkStateQueries queries, BoardQueries b
         ScopeResult.Found scope,
         string variant,
         Housekeeping housekeeping,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        bool signed = false)
     {
         await housekeeping.SweepAsync(scope.WorkspaceId, cancellationToken);
 
@@ -190,7 +191,21 @@ public sealed partial class BoardReader(WorkStateQueries queries, BoardQueries b
             await housekeeping.ConsumeNotesAsync(scope.Item.Id, rendered, cancellationToken);
         }
 
-        return brief;
+        return signed ? brief : Unsigned(brief);
+    }
+
+    /// <summary>
+    /// doc 11 — a caller with no session writes as its role alone, and two of them on one token
+    /// cannot be told apart. Said under the header, where every session looks first, and only here:
+    /// a write tool answers an unnamed caller without comment.
+    /// </summary>
+    private static string Unsigned(string brief)
+    {
+        var lines = brief.Split('\n').ToList();
+        lines.Insert(
+            Math.Min(1, lines.Count),
+            "session  unnamed — register WorkState with header X-WorkState-Agent:<name> to sign your work");
+        return string.Join("\n", lines);
     }
 
     public static bool IsWorkerVariant(string? variant)
@@ -318,11 +333,17 @@ public sealed partial class BoardReader(WorkStateQueries queries, BoardQueries b
         CancellationToken cancellationToken)
     {
         var criteria = await board.CriteriaAsync([item.Id], cancellationToken);
+        var facts = (await board.FactsAsync([item.Id], cancellationToken)).FirstOrDefault();
         var lines = new List<string> { $"YOUR TASK  {item.Ref} — {Glyph.Flat(item.Title)}" };
 
         if (item.Intent is { Length: > 0 })
         {
             lines.AddRange(BriefRenderer.Wrap("  intent    ", item.Intent, 12));
+        }
+
+        if (item.Status == ItemStatus.InProgress && facts?.HeldBy is { Length: > 0 } holder)
+        {
+            lines.Add($"  held by   {Glyph.Clip(holder, 86)}");
         }
 
         lines.Add(criteria.Count == 0
@@ -333,6 +354,13 @@ public sealed partial class BoardReader(WorkStateQueries queries, BoardQueries b
         {
             var label = $"    {(c.Checked ? "✓" : "✗")} c{c.Seq} ";
             lines.AddRange(BriefRenderer.Wrap(label, c.Text, label.Length));
+        }
+
+        // Never clipped: the done guard compares the command recorded by work_verify to this one
+        // character for character, and a mismatch used to be invisible until the refusal.
+        if (facts?.VerifyCmd is { Length: > 0 } verifyCmd)
+        {
+            lines.Add($"  verify    {verifyCmd}");
         }
 
         lines.Add("  report    status / files / verify / red_check / deviations / assumptions / risks / not_done");

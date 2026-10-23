@@ -25,11 +25,11 @@ public sealed partial class WorkWriter
     /// concurrently; two sharing a working tree do not — that is the whole parallel-orchestrator
     /// rule, and the refusal names the call that gets on with something else instead.
     /// <para>
-    /// Every unreleased claim that <c>claim_one_live_per_item</c> or <c>claim_one_writer_per_tree</c>
-    /// would collide with is read here — the holder's own name included, since one agent holding
-    /// two items of one tree is exactly what the index refuses, and lapsed-but-unswept ones too,
-    /// since the index does not know about leases. Only the holder re-taking its own item passes:
-    /// that extends the lease.
+    /// Every unreleased claim that <c>claim_one_live_per_item</c>, <c>claim_one_writer_per_tree</c>
+    /// or <c>claim_one_session_per_tree</c> would collide with is read here, lapsed-but-unswept ones
+    /// too, since a constraint does not know about leases. Two things pass: the holder re-taking its
+    /// own item, which extends the lease, and the session that holds a tree claiming another item of
+    /// it (doc 11). A claim with no session — one from before doc 11 — still holds its tree alone.
     /// </para>
     /// </summary>
     private async Task<string?> ClaimRefusalAsync(
@@ -53,10 +53,13 @@ public sealed partial class WorkWriter
                    i.ref               AS "ItemRef",
                    CASE WHEN s.ref IS NULL THEN i.ref ELSE s.ref || '/' || i.ref END
                                        AS "QualifiedRef",
-                   i.workspace_id = @workspace AS "SameWorkspace"
+                   i.workspace_id = @workspace AS "SameWorkspace",
+                   c.session_id        AS "SessionId",
+                   coalesce(hs.name, c.agent_name) AS "Holder"
             FROM   claim c
             JOIN   item i ON i.id = c.item_id
             LEFT   JOIN item s ON s.id = i.ref_scope_id AND s.id <> i.id
+            LEFT   JOIN agent_session hs ON hs.id = c.session_id
             WHERE  c.released_at IS NULL
               AND  (c.item_id = @id
                     OR (c.writes AND c.serialization_key = @key
@@ -70,19 +73,21 @@ public sealed partial class WorkWriter
             transaction,
             cancellationToken: cancellationToken))).AsList();
 
-        var live = held.FirstOrDefault(h => h.ItemId != item.Id || h.AgentName != actor.Name);
+        var live = held.FirstOrDefault(h => h.ItemId == item.Id ? !Retakes(h, actor) : !SameSession(h, actor));
         if (live is null)
         {
             return null;
         }
 
-        var you = live.AgentName == actor.Name ? " — that is you" : string.Empty;
+        var you = live.SessionId is null && actor.SessionId is null && live.AgentName == actor.Name
+            ? " — that is you"
+            : string.Empty;
 
         if (live.ItemId == item.Id)
         {
             return Refusal.Blocked(
                 $"work_status({item.Ref} → in_progress). {item.Ref} is already claimed.",
-                $"{live.AgentName} holds a live claim on {item.Ref}; {Lease(live)}",
+                $"{live.Holder} holds a live claim on {item.Ref}; {Lease(live)}",
                 "work_next() for something else that is ready",
                 $"{retake} once that lease lapses — "
                 + "the sweep releases it and returns the item to ready");
@@ -93,7 +98,7 @@ public sealed partial class WorkWriter
             return Refusal.Blocked(
                 $"work_status({item.Ref} → in_progress). Another workspace's writer holds this working tree.",
                 $"{live.QualifiedRef} in another workspace holds the write claim on "
-                + $"\"{Glyph.Clip(live.SerializationKey, 40)}\" (agent {live.AgentName}{you}); {Lease(live)}",
+                + $"\"{Glyph.Clip(live.SerializationKey, 40)}\" (held by {live.Holder}{you}); {Lease(live)}",
                 $"{retake} once that lease lapses and that "
                 + "workspace's next work_brief, work_next or work_status sweeps it",
                 "work_next(scope:\"<another run>\") — two runs in different worktrees proceed in "
@@ -119,9 +124,22 @@ public sealed partial class WorkWriter
         return Refusal.Blocked(
             $"work_status({item.Ref} → in_progress). Another writer holds this working tree.",
             $"{live.QualifiedRef} holds the write claim on \"{Glyph.Clip(live.SerializationKey, 40)}\" "
-            + $"(agent {live.AgentName}{you}); {Lease(live)}",
+            + $"(held by {live.Holder}{you}); {Lease(live)}",
             [.. routes]);
     }
+
+    /// <summary>The holder re-taking its own item: the same session, or the same name where neither has one.</summary>
+    private static bool Retakes(ClaimHolder holder, Actor actor)
+        => holder.SessionId is { } session
+            ? session == actor.SessionId
+            : holder.AgentName == actor.Name;
+
+    /// <summary>
+    /// doc 11 — one writer per tree is one session per tree. Only a session can share a tree with
+    /// itself; a claim from before sessions holds its tree alone, as it always did.
+    /// </summary>
+    private static bool SameSession(ClaimHolder holder, Actor actor)
+        => holder.SessionId is { } session && session == actor.SessionId;
 
     private static string Retake(string reference, string? tree)
         => tree is null
@@ -152,28 +170,32 @@ public sealed partial class WorkWriter
         const string extend =
             """
             UPDATE claim
-               SET heartbeat_at = now(), expires_at = now() + make_interval(mins => @ttl)
-             WHERE item_id = @item AND released_at IS NULL AND agent_name = @agent;
+               SET heartbeat_at = now(), expires_at = now() + make_interval(mins => @ttl),
+                   session_id = coalesce(@session, session_id)
+             WHERE item_id = @item AND released_at IS NULL
+               AND (session_id = @session OR (session_id IS NULL AND agent_name = @agent));
             """;
 
         var extended = await connection.ExecuteAsync(new CommandDefinition(
             extend,
-            new { item = item.Id, agent = actor.Name, ttl },
+            new { item = item.Id, agent = actor.Name, session = actor.SessionId, ttl },
             transaction,
             cancellationToken: cancellationToken));
 
+        await SessionTreeAsync(connection, transaction, actor, treeLock.Tree, cancellationToken);
+
         if (extended > 0)
         {
-            return $"extended, {ttl}m left, held by {actor.Name}";
+            return $"extended, {ttl}m left, held by {actor.Label}";
         }
 
         const string acquire =
             """
             INSERT INTO claim
                 (id, item_id, serialization_key, key_workspace_id, tree, writes, agent_name, role,
-                 acquired_at, heartbeat_at, expires_at)
+                 acquired_at, heartbeat_at, expires_at, session_id)
             VALUES (@id, @item, @key, @keyWorkspace, @tree, true, @agent, @role::actor_role,
-                    now(), now(), now() + make_interval(mins => @ttl));
+                    now(), now(), now() + make_interval(mins => @ttl), @session);
             """;
 
         await connection.ExecuteAsync(new CommandDefinition(
@@ -188,6 +210,7 @@ public sealed partial class WorkWriter
                 agent = actor.Name,
                 role = Pg.Label(actor.Role),
                 ttl,
+                session = actor.SessionId,
             },
             transaction,
             cancellationToken: cancellationToken));
@@ -199,11 +222,31 @@ public sealed partial class WorkWriter
             item.Id,
             actor,
             "claim_acquired",
-            $"{item.Ref} claimed by {actor.Name} for {ttl}m",
-            new { agent = actor.Name, serialization_key = treeLock.Key, tree = treeLock.Tree, ttl_minutes = ttl },
+            $"{item.Ref} claimed by {actor.Label} for {ttl}m",
+            new { agent = actor.Name, session = actor.Session, serialization_key = treeLock.Key, tree = treeLock.Tree, ttl_minutes = ttl },
             cancellationToken);
 
-        return $"acquired by {actor.Name}, {ttl}m lease on \"{Glyph.Clip(treeLock.Key, 40)}\"";
+        return $"acquired by {actor.Label}, {ttl}m lease on \"{Glyph.Clip(treeLock.Key, 40)}\"";
+    }
+
+    /// <summary>doc 11 — the tree a session last claimed on, and its first one as its cwd if no header named one.</summary>
+    private static async Task SessionTreeAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        Actor actor,
+        string? tree,
+        CancellationToken cancellationToken)
+    {
+        if (actor.SessionId is not { } session || tree is null)
+        {
+            return;
+        }
+
+        await connection.ExecuteAsync(new CommandDefinition(
+            "UPDATE agent_session SET tree = @tree, cwd = coalesce(cwd, @tree) WHERE id = @session;",
+            new { session, tree },
+            transaction,
+            cancellationToken: cancellationToken));
     }
 
     /// <summary>Leaving <c>in_progress</c> by any route releases the claim — doc 07 §2.</summary>
@@ -248,13 +291,13 @@ public sealed partial class WorkWriter
               FROM item i
              WHERE i.id = @item
                AND c.released_at IS NULL
-               AND c.agent_name = @agent
+               AND (c.session_id = @session OR (c.session_id IS NULL AND c.agent_name = @agent))
                AND (c.item_id = i.id OR c.item_id = ANY(i.ancestors));
             """;
 
         await connection.ExecuteAsync(new CommandDefinition(
             sql,
-            new { item = itemId, agent = actor.Name, ttl },
+            new { item = itemId, agent = actor.Name, session = actor.SessionId, ttl },
             transaction,
             cancellationToken: cancellationToken));
     }

@@ -41,7 +41,7 @@ public sealed record StatusArgs(
 public sealed partial class WorkWriter(NpgsqlDataSource dataSource, BoardQueries board, Housekeeping housekeeping)
 {
     /// <summary>doc 07 §5 — 30 minutes unless <c>workspace.settings</c> says otherwise.</summary>
-    private const int DefaultTtlMinutes = 30;
+    internal const int DefaultTtlMinutes = 30;
 
     private sealed record ItemRow(
         Guid Id,
@@ -67,7 +67,9 @@ public sealed partial class WorkWriter(NpgsqlDataSource dataSource, BoardQueries
         DateTimeOffset HeartbeatAt,
         string ItemRef,
         string QualifiedRef,
-        bool SameWorkspace);
+        bool SameWorkspace,
+        Guid? SessionId,
+        string Holder);
 
     /// <summary>
     /// doc 07 §2 and §3. The transition table decides what is reachable, the five conditions decide
@@ -132,7 +134,8 @@ public sealed partial class WorkWriter(NpgsqlDataSource dataSource, BoardQueries
         PostgresException refused,
         CancellationToken cancellationToken)
     {
-        if (refused.ConstraintName is "claim_one_live_per_item" or "claim_one_writer_per_tree")
+        if (refused.ConstraintName is "claim_one_live_per_item" or "claim_one_writer_per_tree"
+            or "claim_one_session_per_tree")
         {
             await using var reread = await connection.BeginTransactionAsync(cancellationToken);
             var held = await ClaimRefusalAsync(connection, reread, item, actor, args.Tree, cancellationToken);
@@ -641,8 +644,8 @@ public sealed partial class WorkWriter(NpgsqlDataSource dataSource, BoardQueries
     {
         const string sql =
             """
-            INSERT INTO event (workspace_id, item_id, actor, role, kind, payload, summary)
-            VALUES (@workspace, @item, @actor, @role::actor_role, @kind, @payload::jsonb, @summary);
+            INSERT INTO event (workspace_id, item_id, actor, role, kind, payload, summary, session_id)
+            VALUES (@workspace, @item, @actor, @role::actor_role, @kind, @payload::jsonb, @summary, @session);
             """;
 
         await connection.ExecuteAsync(new CommandDefinition(
@@ -652,6 +655,7 @@ public sealed partial class WorkWriter(NpgsqlDataSource dataSource, BoardQueries
                 workspace = workspaceId,
                 item = itemId,
                 actor = actor.Name,
+                session = actor.SessionId,
                 role = Pg.Label(actor.Role),
                 kind,
                 payload = JsonSerializer.Serialize(payload),

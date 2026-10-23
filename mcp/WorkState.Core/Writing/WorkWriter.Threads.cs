@@ -80,8 +80,8 @@ public sealed partial class WorkWriter
 
         const string sql =
             """
-            INSERT INTO note (id, workspace_id, from_item_id, kind, body, to_item_id, to_selector, created_by)
-            VALUES (@id, @workspace, @from, @kind::note_kind, @body, @to, @selector::jsonb, @actor);
+            INSERT INTO note (id, workspace_id, from_item_id, kind, body, to_item_id, to_selector, created_by, session_id)
+            VALUES (@id, @workspace, @from, @kind::note_kind, @body, @to, @selector::jsonb, @actor, @session);
             """;
 
         await connection.ExecuteAsync(new CommandDefinition(
@@ -89,6 +89,7 @@ public sealed partial class WorkWriter
             new
             {
                 id = Guid.CreateVersion7(),
+                session = actor.SessionId,
                 workspace = workspaceId,
                 from = fromItemId,
                 kind = Pg.Label(noteKind),
@@ -483,9 +484,9 @@ public sealed partial class WorkWriter
         const string sql =
             """
             INSERT INTO assumption
-                (id, workspace_id, scope_item_id, ref, statement, evidence, reversal, revisit_item_id)
+                (id, workspace_id, scope_item_id, ref, statement, evidence, reversal, revisit_item_id, session_id)
             VALUES (@id, @workspace, @scope, @ref, @statement,
-                    @evidence::evidence_level, @reversal::reversal_cost, @revisit);
+                    @evidence::evidence_level, @reversal::reversal_cost, @revisit, @session);
             """;
 
         await connection.ExecuteAsync(new CommandDefinition(
@@ -493,6 +494,7 @@ public sealed partial class WorkWriter
             new
             {
                 id = Guid.CreateVersion7(),
+                session = actor.SessionId,
                 workspace = item.WorkspaceId,
                 scope = item.Id,
                 @ref = reference,

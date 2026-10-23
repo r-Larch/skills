@@ -437,7 +437,9 @@ public sealed class BoardQueries(NpgsqlDataSource dataSource)
                    i.severity                   AS "Severity",
                    p.ref                        AS "ParentRef",
                    i.started_at                 AS "StartedAt",
-                   coalesce(i.resolution = 'obsolete', false) AS "Moved"
+                   coalesce(i.resolution = 'obsolete', false) AS "Moved",
+                   h.label                      AS "HeldBy",
+                   i.verify_cmd                 AS "VerifyCmd"
             FROM   item i
             JOIN   item_kind k ON k.key = i.kind
             LEFT   JOIN item s ON s.id = i.ref_scope_id AND s.id <> i.id
@@ -453,6 +455,11 @@ public sealed class BoardQueries(NpgsqlDataSource dataSource)
                      SELECT aa.value FROM artifact aa
                      WHERE  aa.item_id = i.id AND aa.kind = 'commit'
                      ORDER  BY aa.at DESC LIMIT 1) a ON true
+            LEFT   JOIN LATERAL (
+                     SELECT coalesce(hs.name, cc.agent_name) AS label
+                     FROM   claim cc LEFT JOIN agent_session hs ON hs.id = cc.session_id
+                     WHERE  cc.item_id = i.id AND cc.released_at IS NULL AND cc.expires_at >= now()
+                     LIMIT  1) h ON true
             LEFT   JOIN item_rollup r ON r.id = i.id
             WHERE  i.id = ANY(@ids);
             """;
@@ -526,13 +533,14 @@ public sealed class BoardQueries(NpgsqlDataSource dataSource)
                       i.ref        AS "ItemRef",
                       CASE WHEN s.ref IS NULL THEN i.ref ELSE s.ref || '/' || i.ref END
                                    AS "QualifiedRef",
-                      c.agent_name AS "AgentName",
+                      coalesce(hs.name, c.agent_name) AS "AgentName",
                       c.expires_at AS "ExpiresAt",
                       c.tree       AS "Tree",
                       c.item_id
                FROM   claim c
                JOIN   item i ON i.id = c.item_id
                LEFT   JOIN item s ON s.id = i.ref_scope_id AND s.id <> i.id
+               LEFT   JOIN agent_session hs ON hs.id = c.session_id
                WHERE  c.expires_at < now()
                  AND  (c.released_at IS NULL OR c.release_reason = 'expired')
                  AND  i.status NOT IN ('done','cancelled','superseded')
@@ -568,12 +576,13 @@ public sealed class BoardQueries(NpgsqlDataSource dataSource)
                       CASE WHEN s.ref IS NULL THEN i.ref ELSE s.ref || '/' || i.ref END
                                    AS "QualifiedRef",
                       i.title      AS "Title",
-                      c.agent_name AS "AgentName",
+                      coalesce(hs.name, c.agent_name) AS "AgentName",
                       c.expires_at AS "ExpiresAt",
                       c.item_id
                FROM   claim c
                JOIN   item i ON i.id = c.item_id
                LEFT   JOIN item s ON s.id = i.ref_scope_id AND s.id <> i.id
+               LEFT   JOIN agent_session hs ON hs.id = c.session_id
                WHERE  (c.released_at IS NULL OR c.release_reason = 'expired')
                  AND  i.status NOT IN ('done','cancelled','superseded')
                  AND  {InScope}
@@ -695,12 +704,13 @@ public sealed class BoardQueries(NpgsqlDataSource dataSource)
              SELECT e.seq     AS "Seq",
                     i.ref     AS "ItemRef",
                     e.at      AS "At",
-                    e.actor   AS "Actor",
+                    coalesce(es.name, e.actor) AS "Actor",
                     e.role    AS "Role",
                     e.kind    AS "Kind",
                     e.summary AS "Summary"
              FROM   event e
              LEFT   JOIN item i ON i.id = e.item_id
+             LEFT   JOIN agent_session es ON es.id = e.session_id
              WHERE  e.workspace_id = @workspace
                AND  e.seq > @since
                AND  (@scope IS NULL
