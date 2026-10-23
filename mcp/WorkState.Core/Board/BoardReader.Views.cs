@@ -431,7 +431,7 @@ public sealed partial class BoardReader
             $"{Glyph.Pad(e.Seq.ToString(), 7)}  "
             + $"{Glyph.Pad(Glyph.Clip(e.ItemRef ?? Glyph.None, 6), 6)}  "
             + $"{Glyph.Pad(Glyph.Clip(e.Kind, 18), 18)}  "
-            + $"{Glyph.Pad(Glyph.Clip(e.Actor, 12), 12)}  "
+            + $"{Glyph.Pad(Glyph.Clip(e.Actor, 18), 18)}  "
             + Glyph.Clip(e.Summary ?? string.Empty, 40)));
 
         lines.Add(string.Empty);
@@ -513,6 +513,12 @@ public sealed partial class BoardReader
         ILookup<Guid, string> blockedBy)
     {
         var flags = new List<string>();
+
+        // doc 11 — who holds it, by session, so two controllers on one token are told apart.
+        if (status == ItemStatus.InProgress && facts?.HeldBy is { Length: > 0 } holder)
+        {
+            flags.Add($"held by {holder}");
+        }
 
         var blockers = blockedBy[itemId].ToList();
         if (blockers.Count > 0)

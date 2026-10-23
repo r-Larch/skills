@@ -88,7 +88,8 @@ public sealed record ItemFacts(
     string? Severity,
     string? ParentRef,
     DateTimeOffset? StartedAt,
-    bool Moved);
+    bool Moved,
+    string? HeldBy);
 
 public sealed record BlockerRow(
     string FindingRef,

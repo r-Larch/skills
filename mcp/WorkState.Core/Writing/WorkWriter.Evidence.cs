@@ -65,9 +65,9 @@ public sealed partial class WorkWriter
         const string sql =
             """
             INSERT INTO verification
-                (id, workspace_id, item_id, command, result_line, passed, counts, run_by, red_check)
+                (id, workspace_id, item_id, command, result_line, passed, counts, run_by, red_check, session_id)
             VALUES (@id, @workspace, @item, @command, @result, @passed, @counts::jsonb,
-                    @runBy::verify_runner, @redCheck::jsonb);
+                    @runBy::verify_runner, @redCheck::jsonb, @session);
             """;
 
         await connection.ExecuteAsync(new CommandDefinition(
@@ -75,6 +75,7 @@ public sealed partial class WorkWriter
             new
             {
                 id = Guid.CreateVersion7(),
+                session = actor.SessionId,
                 workspace = item.WorkspaceId,
                 item = item.Id,
                 command = Blank(command) ? item.VerifyCmd : command!.Trim(),
@@ -189,8 +190,8 @@ public sealed partial class WorkWriter
 
         const string reportSql =
             """
-            INSERT INTO report (id, attempt_id, status, files, deviations, risks, not_done, raw)
-            VALUES (@id, @attempt, @status, @files::jsonb, @deviations, @risks, @notDone, @raw);
+            INSERT INTO report (id, attempt_id, status, files, deviations, risks, not_done, raw, session_id)
+            VALUES (@id, @attempt, @status, @files::jsonb, @deviations, @risks, @notDone, @raw, @session);
             """;
 
         await connection.ExecuteAsync(new CommandDefinition(
@@ -198,6 +199,7 @@ public sealed partial class WorkWriter
             new
             {
                 id = Guid.CreateVersion7(),
+                session = actor.SessionId,
                 attempt = attemptId,
                 status = args.Status.Trim(),
                 files = JsonSerializer.Serialize(args.Files ?? []),
@@ -239,7 +241,7 @@ public sealed partial class WorkWriter
             item.Id,
             actor,
             "reported",
-            $"{item.Ref} attempt {n} reported {args.Status.Trim()} by {actor.Name}",
+            $"{item.Ref} attempt {n} reported {args.Status.Trim()} by {actor.Label}",
             new { attempt = n, status = args.Status.Trim(), assumptions = opened },
             cancellationToken);
 

@@ -100,7 +100,11 @@ public static class ApiHost
 
             // After the authorization filters, so a call a token may not make is still refused as
             // forbidden and never answered with the shape of that tool's arguments (doc 01 §3.6).
-            .WithRequestFilters(filters => filters.AddCallToolFilter(ToolArguments.Filter))
+            // The session after the arguments, so a call refused for its shape renews nothing.
+            .WithRequestFilters(filters => filters
+                .AddCallToolFilter(ToolArguments.Filter)
+                .AddCallToolFilter(CallerSession.Filter)
+                .AddReadResourceFilter(CallerSession.ResourceFilter))
             .WithToolsFromAssembly(typeof(WorkReadTools).Assembly)
             .WithResourcesFromAssembly(typeof(WorkResources).Assembly);
 
@@ -174,6 +178,7 @@ public static class ApiHost
             sp.GetRequiredService<BoardQueries>(),
             sp.GetRequiredService<Housekeeping>()));
         builder.Services.AddSingleton<CallerIdentity>();
+        builder.Services.AddSingleton(sp => new SessionStore(sp.GetRequiredService<NpgsqlDataSource>()));
     }
 
     /// <summary>

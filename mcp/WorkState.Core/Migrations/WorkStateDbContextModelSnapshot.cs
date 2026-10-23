@@ -33,8 +33,82 @@ namespace WorkState.Core.Migrations
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "reversal_cost", new[] { "high", "irreversible", "low", "medium", "trivial" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "verify_runner", new[] { "ci", "human", "orchestrator", "worker" });
             NpgsqlModelBuilderExtensions.HasPostgresExtension(modelBuilder, "btree_gin");
+            NpgsqlModelBuilderExtensions.HasPostgresExtension(modelBuilder, "btree_gist");
             NpgsqlModelBuilderExtensions.HasPostgresExtension(modelBuilder, "pg_trgm");
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
+
+            modelBuilder.Entity("WorkState.Core.Domain.AgentSession", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("ClaudeSessionId")
+                        .HasColumnType("text")
+                        .HasColumnName("claude_session_id");
+
+                    b.Property<string>("ClientName")
+                        .HasColumnType("text")
+                        .HasColumnName("client_name");
+
+                    b.Property<string>("ClientVersion")
+                        .HasColumnType("text")
+                        .HasColumnName("client_version");
+
+                    b.Property<string>("Cwd")
+                        .HasColumnType("text")
+                        .HasColumnName("cwd");
+
+                    b.Property<string>("ExternalRole")
+                        .HasColumnType("text")
+                        .HasColumnName("external_role");
+
+                    b.Property<DateTimeOffset>("FirstSeenAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("first_seen_at")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<DateTimeOffset>("LastSeenAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_seen_at")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<string>("LaunchedBy")
+                        .HasColumnType("text")
+                        .HasColumnName("launched_by");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("name");
+
+                    b.Property<string>("Origin")
+                        .HasColumnType("text")
+                        .HasColumnName("origin");
+
+                    b.Property<ActorRole>("Role")
+                        .HasColumnType("actor_role")
+                        .HasColumnName("role");
+
+                    b.Property<string>("Tree")
+                        .HasColumnType("text")
+                        .HasColumnName("tree");
+
+                    b.Property<Guid>("WorkspaceId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("workspace_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_agent_session");
+
+                    b.HasIndex("WorkspaceId", "Name")
+                        .IsUnique()
+                        .HasDatabaseName("agent_session_name_unique");
+
+                    b.ToTable("agent_session", (string)null);
+                });
 
             modelBuilder.Entity("WorkState.Core.Domain.AgentToken", b =>
                 {
@@ -194,6 +268,10 @@ namespace WorkState.Core.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("scope_item_id");
 
+                    b.Property<Guid?>("SessionId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("session_id");
+
                     b.Property<AssumptionState>("State")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("assumption_state")
@@ -220,6 +298,9 @@ namespace WorkState.Core.Migrations
 
                     b.HasIndex("ScopeItemId")
                         .HasDatabaseName("ix_assumption_scope_item_id");
+
+                    b.HasIndex("SessionId")
+                        .HasDatabaseName("ix_assumption_session_id");
 
                     b.HasIndex("WorkspaceId")
                         .HasDatabaseName("assumption_open_idx")
@@ -344,6 +425,10 @@ namespace WorkState.Core.Migrations
                         .HasColumnType("text")
                         .HasColumnName("serialization_key");
 
+                    b.Property<Guid?>("SessionId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("session_id");
+
                     b.Property<string>("Tree")
                         .HasColumnType("text")
                         .HasColumnName("tree");
@@ -365,10 +450,13 @@ namespace WorkState.Core.Migrations
                         .HasDatabaseName("claim_one_live_per_item")
                         .HasFilter("released_at IS NULL");
 
+                    b.HasIndex("SessionId")
+                        .HasDatabaseName("ix_claim_session_id");
+
                     b.HasIndex("SerializationKey", "KeyWorkspaceId")
                         .IsUnique()
                         .HasDatabaseName("claim_one_writer_per_tree")
-                        .HasFilter("released_at IS NULL AND writes");
+                        .HasFilter("released_at IS NULL AND writes AND session_id IS NULL");
 
                     NpgsqlIndexBuilderExtensions.AreNullsDistinct(b.HasIndex("SerializationKey", "KeyWorkspaceId"), false);
 
@@ -677,6 +765,10 @@ namespace WorkState.Core.Migrations
                         .HasColumnType("actor_role")
                         .HasColumnName("role");
 
+                    b.Property<Guid?>("SessionId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("session_id");
+
                     b.Property<string>("Summary")
                         .HasColumnType("text")
                         .HasColumnName("summary");
@@ -687,6 +779,9 @@ namespace WorkState.Core.Migrations
 
                     b.HasKey("Seq")
                         .HasName("pk_event");
+
+                    b.HasIndex("SessionId")
+                        .HasDatabaseName("ix_event_session_id");
 
                     b.HasIndex("ItemId", "Seq")
                         .IsDescending(false, true)
@@ -1084,6 +1179,10 @@ namespace WorkState.Core.Migrations
                         .HasColumnType("note_kind")
                         .HasColumnName("kind");
 
+                    b.Property<Guid?>("SessionId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("session_id");
+
                     b.Property<Guid?>("ToItemId")
                         .HasColumnType("uuid")
                         .HasColumnName("to_item_id");
@@ -1110,6 +1209,9 @@ namespace WorkState.Core.Migrations
 
                     b.HasIndex("FromItemId")
                         .HasDatabaseName("ix_note_from_item_id");
+
+                    b.HasIndex("SessionId")
+                        .HasDatabaseName("ix_note_session_id");
 
                     b.HasIndex("ToItemId")
                         .HasDatabaseName("ix_note_to_item_id");
@@ -1198,6 +1300,10 @@ namespace WorkState.Core.Migrations
                         .HasColumnType("text")
                         .HasColumnName("risks");
 
+                    b.Property<Guid?>("SessionId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("session_id");
+
                     b.Property<string>("Status")
                         .IsRequired()
                         .HasColumnType("text")
@@ -1209,6 +1315,9 @@ namespace WorkState.Core.Migrations
                     b.HasIndex("AttemptId")
                         .IsUnique()
                         .HasDatabaseName("ix_report_attempt_id");
+
+                    b.HasIndex("SessionId")
+                        .HasDatabaseName("ix_report_session_id");
 
                     b.ToTable("report", (string)null);
                 });
@@ -1314,6 +1423,10 @@ namespace WorkState.Core.Migrations
                         .HasColumnType("jsonb")
                         .HasColumnName("samples");
 
+                    b.Property<Guid?>("SessionId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("session_id");
+
                     b.Property<Guid>("WorkspaceId")
                         .HasColumnType("uuid")
                         .HasColumnName("workspace_id");
@@ -1323,6 +1436,9 @@ namespace WorkState.Core.Migrations
 
                     b.HasIndex("AttemptId")
                         .HasDatabaseName("ix_verification_attempt_id");
+
+                    b.HasIndex("SessionId")
+                        .HasDatabaseName("ix_verification_session_id");
 
                     b.HasIndex("ItemId", "At")
                         .IsDescending(false, true)
@@ -1368,6 +1484,16 @@ namespace WorkState.Core.Migrations
                         .HasDatabaseName("ix_workspace_slug");
 
                     b.ToTable("workspace", (string)null);
+                });
+
+            modelBuilder.Entity("WorkState.Core.Domain.AgentSession", b =>
+                {
+                    b.HasOne("WorkState.Core.Domain.Workspace", null)
+                        .WithMany()
+                        .HasForeignKey("WorkspaceId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_agent_session_workspace_workspace_id");
                 });
 
             modelBuilder.Entity("WorkState.Core.Domain.AgentToken", b =>
@@ -1416,6 +1542,12 @@ namespace WorkState.Core.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .HasConstraintName("fk_assumption_item_scope_item_id");
 
+                    b.HasOne("WorkState.Core.Domain.AgentSession", null)
+                        .WithMany()
+                        .HasForeignKey("SessionId")
+                        .OnDelete(DeleteBehavior.SetNull)
+                        .HasConstraintName("fk_assumption_agent_session_session_id");
+
                     b.HasOne("WorkState.Core.Domain.Workspace", null)
                         .WithMany()
                         .HasForeignKey("WorkspaceId")
@@ -1454,6 +1586,12 @@ namespace WorkState.Core.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("fk_claim_item_item_id");
+
+                    b.HasOne("WorkState.Core.Domain.AgentSession", null)
+                        .WithMany()
+                        .HasForeignKey("SessionId")
+                        .OnDelete(DeleteBehavior.SetNull)
+                        .HasConstraintName("fk_claim_agent_session_session_id");
                 });
 
             modelBuilder.Entity("WorkState.Core.Domain.ConstraintRule", b =>
@@ -1521,6 +1659,12 @@ namespace WorkState.Core.Migrations
                         .HasForeignKey("ItemId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .HasConstraintName("fk_event_item_item_id");
+
+                    b.HasOne("WorkState.Core.Domain.AgentSession", null)
+                        .WithMany()
+                        .HasForeignKey("SessionId")
+                        .OnDelete(DeleteBehavior.SetNull)
+                        .HasConstraintName("fk_event_agent_session_session_id");
 
                     b.HasOne("WorkState.Core.Domain.Workspace", null)
                         .WithMany()
@@ -1631,6 +1775,12 @@ namespace WorkState.Core.Migrations
                         .OnDelete(DeleteBehavior.SetNull)
                         .HasConstraintName("fk_note_item_from_item_id");
 
+                    b.HasOne("WorkState.Core.Domain.AgentSession", null)
+                        .WithMany()
+                        .HasForeignKey("SessionId")
+                        .OnDelete(DeleteBehavior.SetNull)
+                        .HasConstraintName("fk_note_agent_session_session_id");
+
                     b.HasOne("WorkState.Core.Domain.Item", null)
                         .WithMany()
                         .HasForeignKey("ToItemId")
@@ -1663,6 +1813,12 @@ namespace WorkState.Core.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("fk_report_attempt_attempt_id");
+
+                    b.HasOne("WorkState.Core.Domain.AgentSession", null)
+                        .WithMany()
+                        .HasForeignKey("SessionId")
+                        .OnDelete(DeleteBehavior.SetNull)
+                        .HasConstraintName("fk_report_agent_session_session_id");
                 });
 
             modelBuilder.Entity("WorkState.Core.Domain.RunConfig", b =>
@@ -1696,6 +1852,12 @@ namespace WorkState.Core.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("fk_verification_item_item_id");
+
+                    b.HasOne("WorkState.Core.Domain.AgentSession", null)
+                        .WithMany()
+                        .HasForeignKey("SessionId")
+                        .OnDelete(DeleteBehavior.SetNull)
+                        .HasConstraintName("fk_verification_agent_session_session_id");
 
                     b.HasOne("WorkState.Core.Domain.Workspace", null)
                         .WithMany()
