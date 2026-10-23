@@ -44,6 +44,13 @@ installed user. Upgrading: **[upgrade_guide.md](upgrade_guide.md#upgrading-from-
   PowerShell ones. Both twins take a dry-run switch (`-DryRun` / `--dry-run`) that validates and
   prints the exact command without running `claude`. The launcher defaults to auto mode, and
   `-Watch` picks the right form for the OS.
+- **The `agents` MCP server** (plugin stdio server, Node 18+, no dependencies): `agent_launch`,
+  `agent_stop`, `agent_list`. The caller sets the permission mode, toolset, extra tools and dirs,
+  model, effort, settings and system-prompt suffix per launch; the argv is built in code with every
+  variadic flag closed and the prompt last. The scripts remain as the fallback.
+  See [docs/workstate/14-agent-launch.md](docs/workstate/14-agent-launch.md).
+- **Per-session WorkState tokens** (`/api/agent-sessions`): `agent_launch` mints each agent its own
+  token and role, and `agent_stop` revokes it — no token ever appears in a tool result or a brief.
 
 ### Changed
 

@@ -118,8 +118,19 @@ second unit of the queue is refused while the first is in progress.
 - Collect on an integration branch and land once, or land each as it passes — either is fine, but
   decide up front and tell the human which.
 
-**Launch every agent in auto mode** — the default of `Start-NestedAgent.ps1`'s `-PermissionMode` (and of
-`--permission-mode` in its macOS/Linux twin `start-nested-agent.sh`), i.e.
+**Launch with the `agent_launch` tool** (`/rlarch:nested-claude` §1; the scripts are its fallback when
+the agents server is unavailable). Per unit:
+
+- `permission_mode` — `auto` by default; `acceptEdits` for a unit where the classifier keeps refusing
+  routine work. It is set per launch, so choose it per unit.
+- `workstate.role: "worker"` for every unit. The agent then writes under its own minted token, its
+  evidence is a **worker's**, and it can never close the unit — the close stays yours.
+- `workstate.env_file` — the PATH of the WorkState clone's `mcp/.env`. A path, never a value: the
+  server reads the controller token from it in code, and neither token reaches your transcript.
+- `agent_stop` when the unit is done; it revokes the token.
+
+**Launch every agent in auto mode** unless the unit needs otherwise — the default of `agent_launch`'s
+`permission_mode` and of the scripts' `-PermissionMode`, i.e.
 `claude --bg --permission-mode auto`. Under `acceptEdits` every shell shape the allow-list did not foresee
 parks the agent until a human attaches: in one three-unit run that was five parks — a `;` inside a build
 argument, a commit-message file under `.claude/`, `New-Item` for a folder, a PowerShell byte read, a

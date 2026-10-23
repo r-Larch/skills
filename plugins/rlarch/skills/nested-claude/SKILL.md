@@ -9,6 +9,9 @@ The scripts referenced below live with this skill. Installed as a plugin they ar
 `"$CLAUDE_PLUGIN_ROOT/skills/nested-claude/assets/"` — run `echo "$CLAUDE_PLUGIN_ROOT"` to confirm.
 A project may vendor a copy, but then the copy is the one that drifts; prefer calling these.
 
+**The primary path is the `agent_launch` / `agent_stop` / `agent_list` tools** of the plugin's
+`agents` MCP server (§1), which need **Node 18+** on PATH. The scripts are the fallback.
+
 **Platforms.** Windows: `Start-NestedAgent.ps1` / `Stop-NestedAgent.ps1`, under `pwsh` or Windows
 PowerShell. macOS/Linux: the bash twins `start-nested-agent.sh` / `stop-nested-agent.sh`, same flags
 in `--kebab-case` (`-PromptFile` is `--prompt-file`; repeat `--allowed-tools` / `--add-dir` once per
@@ -33,6 +36,53 @@ Otherwise use the `Agent` tool.
 ---
 
 ## 1. Launch — always `--bg`
+
+**Use the `agent_launch` tool** (`mcp__plugin_rlarch_agents__agent_launch`). It is the plugin's
+`agents` MCP server — Node 18+, no dependencies — and it does what the scripts below do, plus the one
+thing they cannot: it mints the agent **its own WorkState token**, so the child's writes are recorded
+under its name and role instead of yours. It builds the argv in code (no shell, so no quoting traps),
+prepends the same protocol header, grants the same `toolset` profiles, and returns `name`, `id`,
+`sessionId`, `brief` and the WorkState session — never a token.
+
+| Param | Default | Maps to |
+|---|---|---|
+| `name` | required | `--name`; the `SendMessage` address |
+| `brief` | required | a file inside `repo_root`; header prepended, written to `.claude/briefs/brief-<name>.txt` |
+| `repo_root` | required | absolute path of a git working tree (refused otherwise); the agent's cwd |
+| `controller` | required | your address from `ListAgents`, ref included: `'name [6-hex]'` |
+| `permission_mode` | `auto` | `--permission-mode`: `acceptEdits` `auto` `bypassPermissions` `manual` `dontAsk` `plan` |
+| `toolset` | `fix` | the §3 profile: `none` `readonly` `fix` |
+| `allowed_tools` / `disallowed_tools` | `[]` | merged into `--allowedTools` / `--disallowedTools` |
+| `add_dirs` | `[]` | `--add-dir` |
+| `model`, `effort`, `settings`, `append_system_prompt` | — | `--model`, `--effort` (`low`…`max`), `--settings` (path or JSON), `--append-system-prompt` |
+| `workstate` | `{role: "worker"}` | `role` (`worker` `orchestrator` `controller` `none`), `env_file` (the PATH of the WorkState clone's `mcp/.env`, never its contents), `url` (default `http://127.0.0.1:5290`), `ttl_hours` |
+| `dry_run` | `false` | validate and return the argv; mints and spawns nothing (the token shows as `<minted>`) |
+
+An auto-mode worker — the usual case:
+
+```
+agent_launch(name: "fix-B-07", brief: ".claude/briefs/B-07.md", repo_root: "P:/repo.worktrees/b-07",
+             controller: "prod-log-triage [9825b9]",
+             workstate: {role: "worker", env_file: "P:/WorkState/mcp/.env"})
+```
+
+An `acceptEdits` worker, for a unit where auto mode's classifier keeps refusing routine work:
+
+```
+agent_launch(name: "fix-B-08", brief: ".claude/briefs/B-08.md", repo_root: "P:/repo.worktrees/b-08",
+             controller: "prod-log-triage [9825b9]", permission_mode: "acceptEdits", toolset: "fix",
+             add_dirs: ["P:/packages/nuget"], workstate: {role: "worker", env_file: "P:/WorkState/mcp/.env"})
+```
+
+With `workstate.role` other than `none`, the token goes into `.claude/briefs/mcp-<name>.json` (refused
+unless git says that path is ignored) and reaches the agent through `--mcp-config`. **If minting
+fails the launch is refused** — it never falls back to your own registration. `role: "none"` mints
+nothing and passes no `--mcp-config`. `agent_list` joins `claude agents --json` with what was launched.
+
+### Fallback: the scripts
+
+When the agents server is not available — no Node, or no plugin — the launchers do the same launch
+without the WorkState token (the agent inherits your registration):
 
 ```powershell
 $a = & "$env:CLAUDE_PLUGIN_ROOT/skills/nested-claude/assets/Start-NestedAgent.ps1" `
@@ -421,7 +471,12 @@ hang — all three look exactly like "still working". Cover the failures first a
 1. `SendMessage(to: <name>, message: "WRAP UP")`
 2. Wait for `DONE`.
 3. Verify its claims yourself — never take an agent's word for green.
-4. Stop it.
+4. Stop it: `agent_stop(name: "fix-B-07")` (or `id:`; `remove: true` also deletes the session,
+   `keep_brief: true` keeps the brief). It runs `claude stop`, **revokes the agent's WorkState token**
+   and deletes `mcp-<name>.json` — always, even with `keep_brief`, because that file holds the secret.
+   A revoke that fails is reported as an error; run `agent_stop` again.
+
+For an agent started by the scripts:
 
 ```powershell
 & "$env:CLAUDE_PLUGIN_ROOT/skills/nested-claude/assets/Stop-NestedAgent.ps1" -Id $a.Id -Name $a.Name
