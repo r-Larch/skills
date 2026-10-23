@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.DataProtection.Repositories;
 using ModelContextProtocol.Protocol;
 using Npgsql;
 using WorkState.Api.App;
+using WorkState.Api.App.V1;
 using WorkState.Api.Auth;
 using WorkState.Core.Board;
 using WorkState.Core.Data;
@@ -51,6 +52,7 @@ public static class ApiHost
                 options.WorkerToken = builder.Configuration["WorkState:Auth:WorkerToken"];
                 options.OrchestratorToken = builder.Configuration["WorkState:Auth:OrchestratorToken"];
                 options.ControllerToken = builder.Configuration["WorkState:Auth:ControllerToken"];
+                options.ReaderToken = builder.Configuration["WorkState:Auth:ReaderToken"];
             })
             .AddCookie(DashboardAuth.SchemeName, options => DashboardAuth.Configure(options, dashboard));
 
@@ -58,9 +60,11 @@ public static class ApiHost
         // cannot satisfy is hidden from tools/list rather than refused on call (PROBE Q6) — so
         // these three policies are the entire role mechanism.
         builder.Services.AddAuthorizationBuilder()
+            // Every agent token carries the worker role; a reader token carries none of the three.
             .AddPolicy(WorkStatePolicies.Any, policy => policy
                 .AddAuthenticationSchemes(StaticTokenHandler.SchemeName)
-                .RequireAuthenticatedUser())
+                .RequireAuthenticatedUser()
+                .RequireRole(WorkStatePolicies.Worker))
             .AddPolicy(WorkStatePolicies.Worker, policy => policy
                 .AddAuthenticationSchemes(StaticTokenHandler.SchemeName)
                 .RequireAuthenticatedUser()
@@ -80,7 +84,14 @@ public static class ApiHost
             .AddPolicy(DashboardAuth.Policy, policy => policy
                 .AddAuthenticationSchemes(DashboardAuth.SchemeName)
                 .RequireAuthenticatedUser()
-                .RequireRole(DashboardAuth.Role));
+                .RequireRole(DashboardAuth.Role))
+
+            // doc 10 rule 5: the read API is the one surface both audiences share, so it is the one
+            // policy that names both schemes. It still grants nothing either scheme lacks on its own.
+            .AddPolicy(ApiV1.Policy, policy => policy
+                .AddAuthenticationSchemes(DashboardAuth.SchemeName, StaticTokenHandler.SchemeName)
+                .RequireAuthenticatedUser()
+                .RequireRole(DashboardAuth.Role, WorkStatePolicies.Worker, WorkStatePolicies.Reader));
 
         AddWorkState(builder);
 
@@ -112,6 +123,7 @@ public static class ApiHost
 
         app.Services.GetService<SchemaOwner>()?.Apply();
 
+        app.UseApiVersionHeader();
         app.UseAuthentication();
         app.UseAuthorization();
 
@@ -161,6 +173,7 @@ public static class ApiHost
 
         builder.Services.AddSingleton(sp => new WorkStateQueries(sp.GetRequiredService<NpgsqlDataSource>()));
         builder.Services.AddSingleton(sp => new BoardQueries(sp.GetRequiredService<NpgsqlDataSource>()));
+        builder.Services.AddSingleton(sp => new ApiQueries(sp.GetRequiredService<NpgsqlDataSource>()));
         builder.Services.AddSingleton(sp => new BoardReader(
             sp.GetRequiredService<WorkStateQueries>(),
             sp.GetRequiredService<BoardQueries>()));

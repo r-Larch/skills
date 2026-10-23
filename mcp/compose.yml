@@ -35,6 +35,8 @@ services:
       WorkState__Auth__WorkerToken: ${WORKSTATE_WORKER_TOKEN:?set WORKSTATE_WORKER_TOKEN in .env}
       WorkState__Auth__OrchestratorToken: ${WORKSTATE_ORCHESTRATOR_TOKEN:?set WORKSTATE_ORCHESTRATOR_TOKEN in .env}
       WorkState__Auth__ControllerToken: ${WORKSTATE_CONTROLLER_TOKEN:?set WORKSTATE_CONTROLLER_TOKEN in .env}
+      # Optional, unlike the three above: empty means no reader token exists (doc 10 rule 5).
+      WorkState__Auth__ReaderToken: ${WORKSTATE_READER_TOKEN:-}
       WorkState__Dashboard__Username: ${WORKSTATE_DASHBOARD_USERNAME:?set WORKSTATE_DASHBOARD_USERNAME in .env}
       WorkState__Dashboard__Password: ${WORKSTATE_DASHBOARD_PASSWORD:?set WORKSTATE_DASHBOARD_PASSWORD in .env}
       ConnectionStrings__WorkState: >-

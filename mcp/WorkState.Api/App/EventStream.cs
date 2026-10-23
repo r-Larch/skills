@@ -8,7 +8,10 @@ using WorkState.Mcp;
 namespace WorkState.Api.App;
 
 /// <summary>What the trigger of migration <c>EvidenceAndJournal</c> puts on the wire.</summary>
-internal sealed record StreamEvent(long Seq, string Kind, Guid Workspace);
+internal sealed record StreamEvent(long Seq, string Kind, Guid Workspace, Guid? Item);
+
+/// <summary>doc 10: an event means "re-read"; the ids say what to re-read. Additive over seq and kind.</summary>
+internal sealed record StreamFrame(long Seq, Guid? RunId, Guid? ItemId, string Kind);
 
 /// <summary>
 /// The live board, fed by the <c>pg_notify('workstate', …)</c> trigger that already exists on
@@ -34,6 +37,8 @@ public sealed class EventStream(NpgsqlDataSource dataSource, ILogger<EventStream
     /// sends it back through the journal with its last cursor.
     /// </summary>
     private const int SubscriberBacklog = 256;
+
+    private static readonly JsonSerializerOptions FrameJson = new(JsonSerializerDefaults.Web);
 
     private readonly ConcurrentDictionary<Guid, Subscriber> _subscribers = new();
 
@@ -130,7 +135,10 @@ public sealed class EventStream(NpgsqlDataSource dataSource, ILogger<EventStream
             return new StreamEvent(
                 root.GetProperty("seq").GetInt64(),
                 root.GetProperty("kind").GetString() ?? "unknown",
-                Guid.Parse(root.GetProperty("ws").GetString()!));
+                Guid.Parse(root.GetProperty("ws").GetString()!),
+                root.TryGetProperty("item", out var item) && item.ValueKind == JsonValueKind.String
+                    ? Guid.Parse(item.GetString()!)
+                    : null);
         }
         catch (Exception failure) when (failure is JsonException or KeyNotFoundException or FormatException)
         {
@@ -140,14 +148,14 @@ public sealed class EventStream(NpgsqlDataSource dataSource, ILogger<EventStream
     }
 
     /// <summary>
-    /// <c>GET /api/stream</c>. Server-Sent Events, cookie-guarded like every other <c>/api</c>
-    /// route: the operator's board and the agents' transport are two audiences on one process, and
-    /// a bearer token has no way in here (doc 08 §4).
+    /// <c>GET /api/stream</c>. Server-Sent Events, under the read API's policy (doc 10 rule 5): the
+    /// dashboard cookie, an agent token or a reader token — it carries ids and kinds, never content.
     /// </summary>
     internal static async Task HandleAsync(
         HttpContext context,
         EventStream stream,
         BoardQueries board,
+        ApiQueries api,
         WorkspaceOptions workspace,
         CancellationToken cancellationToken)
     {
@@ -191,7 +199,12 @@ public sealed class EventStream(NpgsqlDataSource dataSource, ILogger<EventStream
 
         try
         {
-            await PumpAsync(context, channel, AdmitsAsync, cancellationToken);
+            async Task<Guid?> RunOfAsync(Guid? item)
+                => item is { } id
+                    ? (await api.PlacementsAsync([id], cancellationToken)).FirstOrDefault()?.RunId
+                    : null;
+
+            await PumpAsync(context, channel, AdmitsAsync, RunOfAsync, cancellationToken);
         }
         catch (OperationCanceledException)
         {
@@ -207,6 +220,7 @@ public sealed class EventStream(NpgsqlDataSource dataSource, ILogger<EventStream
         HttpContext context,
         Channel<StreamEvent> channel,
         Func<StreamEvent, Task<bool>> admits,
+        Func<Guid?, Task<Guid?>> runOf,
         CancellationToken cancellationToken)
     {
         while (!cancellationToken.IsCancellationRequested)
@@ -239,8 +253,10 @@ public sealed class EventStream(NpgsqlDataSource dataSource, ILogger<EventStream
                 continue;
             }
 
+            var frame = new StreamFrame(message.Seq, await runOf(message.Item), message.Item, message.Kind);
+
             await context.Response.WriteAsync(
-                $"id: {message.Seq}\nevent: work\ndata: {{\"seq\":{message.Seq},\"kind\":\"{message.Kind}\"}}\n\n",
+                $"id: {message.Seq}\nevent: work\ndata: {JsonSerializer.Serialize(frame, FrameJson)}\n\n",
                 cancellationToken);
 
             await context.Response.Body.FlushAsync(cancellationToken);

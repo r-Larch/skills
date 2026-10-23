@@ -17,6 +17,15 @@ public static class WorkStatePolicies
     public const string Orchestrator = "orchestrator";
     public const string Controller = "controller";
 
-    /// <summary>Any recognised token. <c>/mcp</c> requires it, so an unknown token never reaches a tool.</summary>
+    /// <summary>
+    /// doc 10 rule 5. Not nested with the three above: a reader token satisfies none of them, so it
+    /// reaches <c>GET /api/v1/*</c> and <c>/api/stream</c> and no MCP tool at all.
+    /// </summary>
+    public const string Reader = "reader";
+
+    /// <summary>
+    /// Any agent token. <c>/mcp</c> requires it, so an unknown token never reaches a tool — and
+    /// neither does a reader token, which authenticates but holds no agent role.
+    /// </summary>
     public const string Any = "workstate-any";
 }
