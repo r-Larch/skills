@@ -46,8 +46,8 @@ public sealed class AppAuthTests(PostgresFixture fixture)
         var client = await server.SignInAsync(Ct);
 
         // The cookie is real: it opens the App API on this very client.
-        var watch = await client.GetAsync("/api/watch", Ct);
-        Assert.Equal(HttpStatusCode.OK, watch.StatusCode);
+        var overview = await client.GetAsync("/api/v1/overview", Ct);
+        Assert.Equal(HttpStatusCode.OK, overview.StatusCode);
 
         var refused = await client.SendAsync(AppServer.McpInitialize(), Ct);
         Assert.Equal(HttpStatusCode.Unauthorized, refused.StatusCode);
@@ -96,17 +96,17 @@ public sealed class AppAuthTests(PostgresFixture fixture)
 
         var wrong = await AppServer.SignInAsync(client, AppServer.Username, "not-the-password", Ct);
         Assert.Equal(HttpStatusCode.Unauthorized, wrong.StatusCode);
-        Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync("/api/watch", Ct)).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync("/api/v1/overview", Ct)).StatusCode);
 
         var right = await AppServer.SignInAsync(client, AppServer.Username, AppServer.Password, Ct);
         Assert.Equal(HttpStatusCode.NoContent, right.StatusCode);
-        Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/api/watch", Ct)).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/api/v1/overview", Ct)).StatusCode);
 
         Assert.Equal(
             HttpStatusCode.NoContent,
             (await client.DeleteAsync("/api/session", Ct)).StatusCode);
 
-        Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync("/api/watch", Ct)).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync("/api/v1/overview", Ct)).StatusCode);
     }
 
     private Task<AppServer> StartAsync(bool dashboardConfigured = true)

@@ -263,7 +263,7 @@ public sealed class AppReadTests(PostgresFixture fixture)
         Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/runs/run-a", Ct)).StatusCode);
 
         // But the two APIs keep their own answers.
-        Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync("/api/watch", Ct)).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync("/api/v1/overview", Ct)).StatusCode);
         Assert.Equal(HttpStatusCode.NotFound, (await client.GetAsync("/api/no-such-route", Ct)).StatusCode);
         Assert.Equal(HttpStatusCode.NotFound, (await client.GetAsync("/mcp/no-such-route", Ct)).StatusCode);
 

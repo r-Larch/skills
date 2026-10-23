@@ -42,9 +42,9 @@ public sealed class DeferredUnverifiedTests(PostgresFixture fixture)
 
         await using var server = await AppServer.StartAsync(fixture.ConnectionString, world.Slug, Ct);
         var client = await server.SignInAsync(Ct);
-        var watch = await AppServer.ReadJsonAsync(client, "/api/watch", Ct);
+        var overview = await AppServer.ReadJsonAsync(client, "/api/v1/overview", Ct);
 
-        Assert.Equal(1, watch.GetProperty("honesty").GetProperty("doneUnverified").GetInt32());
+        Assert.Equal(1, overview.GetProperty("honesty").GetProperty("doneUnverified").GetInt32());
     }
 
     /// <summary>1.1 deferred to the backlog through work_status; 1.2 done with no verification at all.</summary>

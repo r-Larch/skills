@@ -66,7 +66,7 @@ public sealed class AppStreamTests(PostgresFixture fixture)
         Assert.Equal("note", delivered.GetProperty("kind").GetString());
 
         // And the seq is a real cursor into the journal, not a number the stream invented.
-        var caughtUp = await AppServer.ReadJsonAsync(client, $"/api/runs/run-a/journal?since={seq - 1}", Ct);
+        var caughtUp = await AppServer.ReadJsonAsync(client, $"/api/v1/journal?scope={world.RunId}&since={seq - 1}", Ct);
         Assert.Contains(
             caughtUp.GetProperty("events").EnumerateArray(),
             e => e.GetProperty("seq").GetInt64() == seq);
@@ -158,7 +158,7 @@ public sealed class AppStreamTests(PostgresFixture fixture)
             await NoteAsync(world, $"before the operator looked away {i}");
         }
 
-        var first = await AppServer.ReadJsonAsync(client, "/api/runs/run-a/journal", Ct);
+        var first = await AppServer.ReadJsonAsync(client, $"/api/v1/journal?scope={world.RunId}", Ct);
         var seen = Seqs(first);
         var cursor = first.GetProperty("cursor").GetInt64();
 
@@ -174,7 +174,7 @@ public sealed class AppStreamTests(PostgresFixture fixture)
 
         // Paged deliberately: a descending page under a LIMIT would return the newest two and drop
         // the one between them, which is precisely the gap this cursor exists to close.
-        var page = await AppServer.ReadJsonAsync(client, $"/api/runs/run-a/journal?since={cursor}&limit=2", Ct);
+        var page = await AppServer.ReadJsonAsync(client, $"/api/v1/journal?scope={world.RunId}&since={cursor}&limit=2", Ct);
         var missed = Seqs(page);
 
         Assert.Equal(2, missed.Count);
@@ -182,7 +182,7 @@ public sealed class AppStreamTests(PostgresFixture fixture)
         Assert.All(missed, seq => Assert.True(seq > cursor, $"seq {seq} is not after the cursor {cursor}"));
 
         var rest = await AppServer.ReadJsonAsync(
-            client, $"/api/runs/run-a/journal?since={page.GetProperty("cursor").GetInt64()}&limit=2", Ct);
+            client, $"/api/v1/journal?scope={world.RunId}&since={page.GetProperty("cursor").GetInt64()}&limit=2", Ct);
 
         missed = [.. missed, .. Seqs(rest)];
 
@@ -196,7 +196,7 @@ public sealed class AppStreamTests(PostgresFixture fixture)
 
         // And asking again from the far end returns nothing rather than repeating the last row.
         var caughtUp = await AppServer.ReadJsonAsync(
-            client, $"/api/runs/run-a/journal?since={missed[^1]}", Ct);
+            client, $"/api/v1/journal?scope={world.RunId}&since={missed[^1]}", Ct);
 
         Assert.Empty(Seqs(caughtUp));
         Assert.Equal(missed[^1], caughtUp.GetProperty("cursor").GetInt64());
