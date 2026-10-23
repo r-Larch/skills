@@ -37,7 +37,9 @@ than the skills.** Registration is fine — do §2 to find the repo, then rebuil
 `docker compose -f mcp/compose.yml up -d --build` (after `git pull`, if the checkout is old too), then
 §6 and §7.
 
-Otherwise run these two — separately, and read both before deciding:
+Otherwise run these two — separately, and read both before deciding. Run every `curl` in this skill
+in the **Bash tool** (Git Bash on Windows): `-o /dev/null` and the quoting in §6 are bash, and Windows
+PowerShell 5.1's `curl` is an alias for `Invoke-WebRequest`, which takes none of these flags.
 
 ```
 claude mcp get workstate
@@ -103,13 +105,16 @@ WORKSTATE_DASHBOARD_USERNAME=operator
 WORKSTATE_DASHBOARD_PASSWORD=local-dashboard-<random>
 
 WORKSTATE_API_PORT=5290
+WORKSTATE_BIND=127.0.0.1
 
 POSTGRES_DB=workstate
 POSTGRES_USER=workstate
 POSTGRES_PASSWORD=local-<random>
 ```
 
-**Say plainly what these are:** throwaway values for a service bound to localhost. They are not
+**Say plainly what these are:** throwaway values for a service bound to localhost — `compose.yml`
+publishes the API on `127.0.0.1` only (`WORKSTATE_BIND`; leave it unless the user means to expose the
+server to their network), and the Postgres is not published at all. They are not
 secrets and they do not need a password manager. They exist because the stack is fail-closed by
 design, not because anything here is exposed.
 
@@ -133,7 +138,9 @@ docker compose -f mcp/compose.yml up -d
 
 First run builds the API image and takes a few minutes. If it answers *cannot connect to the Docker
 daemon*, Docker itself is not running — **ask the user to start Docker Desktop** and try again; that
-is not something to work around.
+is not something to work around. On Linux without Desktop that is `sudo systemctl start docker`; on
+macOS with Colima or OrbStack instead of Desktop, `colima start` or opening OrbStack. The images are
+multi-arch, so Apple Silicon needs nothing special.
 
 Then check it came up healthy:
 
@@ -189,9 +196,10 @@ Ask the server what it will actually give that token:
 curl -s -m 10 -X POST http://localhost:5290/mcp -H "Content-Type: application/json" -H "Accept: application/json, text/event-stream" -H "Authorization: Bearer <token>" -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' -o tools.json
 ```
 
-**Keep the body in single quotes.** The `-d "{\"jsonrpc\":…}"` form you would reach for on Windows
-fails in PowerShell — the argument is split and curl exits 3, *URL malformed*, which reads like a
-server problem and is not one. Single quotes are correct in both bash and PowerShell.
+**Run it in the Bash tool and keep the body in single quotes.** The `-d "{\"jsonrpc\":…}"` form you
+would reach for on Windows fails in PowerShell — the argument is split and curl exits 3, *URL
+malformed*, which reads like a server problem and is not one. Bash passes the single-quoted body
+intact; PowerShell only does so from 7.3 on, and 5.1's `curl` is not curl at all.
 
 The response is one very long line, so do not read it. Count what came back with `Grep`
 (pattern `"name":"work_[a-z_]+"`, `-o`, output mode `content`) — one line per tool, so the line
@@ -208,8 +216,9 @@ count is the answer. **Report the number to the user.**
 A tool an agent may not call is simply **absent** from this list rather than refused, so the count
 *is* the role check.
 
-`tools.json` is scratch and it is **not** gitignored. Never `git add` it. Say it is there so the user
-can delete it; do not delete files on their behalf.
+`tools.json` is scratch. This repo's `.gitignore` ignores it, but only by that name — run the command
+from the repo root as written, and never `git add` it. Say it is there so the user can delete it; do
+not delete files on their behalf.
 
 ---
 

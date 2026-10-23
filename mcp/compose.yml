@@ -40,7 +40,7 @@ services:
       ConnectionStrings__WorkState: >-
         Host=db;Port=5432;Database=${POSTGRES_DB:-workstate};Username=${POSTGRES_USER:-workstate};Password=${POSTGRES_PASSWORD}
     ports:
-      - "${WORKSTATE_API_PORT:-5290}:8080"
+      - "${WORKSTATE_BIND:-127.0.0.1}:${WORKSTATE_API_PORT:-5290}:8080"
     restart: unless-stopped
 
 volumes:
