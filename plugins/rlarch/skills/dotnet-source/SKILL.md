@@ -32,9 +32,12 @@ your OS. Everything below is written as `ds <command>`; substitute accordingly.
 - A **local skill** or repo checkout: the folder containing this SKILL.md.
 
 ```bash
-# Windows (PowerShell)          # macOS / Linux
-./ds.ps1 <command> …            ./ds.sh <command> …
+# Windows (pwsh 7+)             # macOS / Linux
+./ds.ps1 <command> …            bash ./ds.sh <command> …
 ```
+
+`bash ./ds.sh` works even where the exec bit was lost (zip downloads, some plugin caches). The
+`.ps1` needs **PowerShell 7+** (`pwsh`), not Windows PowerShell 5.1.
 
 The **first** call builds the tool once (a few seconds) into a hash-keyed cache and every later
 call reuses the compiled binary (**~100 ms startup**). Needs the **.NET 10 SDK**.
@@ -135,7 +138,8 @@ additionally shows the declaration, which IL structurally cannot.)
 
 Two layers, because the two tiers have different costs:
 
-- **The tool binary** is compiled once into `$TEMP/dotnet-source/tool/<hash>/` and reused. The hash
+- **The tool binary** is compiled once into `<tmp>/dotnet-source/tool/<hash>/` (`<tmp>` = `%TEMP%`
+  on Windows, `$TMPDIR` — else `/tmp` — on macOS/Linux) and reused. The hash
   covers the tool sources, the pinned Roslyn versions, and the installed runtime — so an SDK bump
   or a plugin update rebuilds, and nothing else does.
 - **Tier 1** keeps an on-disk **parse index** (`path + mtime + size` → declaration records). Only
@@ -249,6 +253,6 @@ binds it.
 (implemented over unix domain sockets on macOS/Linux); cache paths honour `DOTNET_SOURCE_CACHE`,
 else the OS temp dir.
 
-To force a clean rebuild of the tool: delete `$TEMP/dotnet-source/tool/` (Windows:
-`%TEMP%\dotnet-source\tool\`) and re-run. To drop a stale parse index, delete
-`$TEMP/dotnet-source/index/`.
+To force a clean rebuild of the tool: delete `$TMPDIR/dotnet-source/tool/` on macOS/Linux
+(`/tmp/dotnet-source/tool/` if `TMPDIR` is unset; Windows: `%TEMP%\dotnet-source\tool\`) and
+re-run. To drop a stale parse index, delete `dotnet-source/index/` under the same temp dir.
