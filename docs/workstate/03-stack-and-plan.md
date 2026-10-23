@@ -93,7 +93,7 @@ app.MapFallbackToFile("index.html");                              // SPA
 Client registration:
 
 ```bash
-claude mcp add --transport http workstate http://localhost:5290/mcp \
+claude mcp add --transport http workstate http://127.0.0.1:5290/mcp \
   --header "Authorization: Bearer $WORKSTATE_TOKEN"
 ```
 
