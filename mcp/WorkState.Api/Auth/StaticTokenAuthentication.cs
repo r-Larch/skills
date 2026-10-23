@@ -16,6 +16,9 @@ public sealed class StaticTokenOptions : AuthenticationSchemeOptions
 
     public string? OrchestratorToken { get; set; }
     public string? ControllerToken { get; set; }
+
+    /// <summary>doc 10 rule 5. Optional; blank means no reader token exists.</summary>
+    public string? ReaderToken { get; set; }
 }
 
 /// <summary>
@@ -54,6 +57,7 @@ public sealed class StaticTokenHandler(
             : Matches(Options.OrchestratorToken, presented)
                 ? [WorkStatePolicies.Worker, WorkStatePolicies.Orchestrator]
             : Matches(Options.WorkerToken, presented) ? [WorkStatePolicies.Worker]
+            : Matches(Options.ReaderToken, presented) ? [WorkStatePolicies.Reader]
             : [];
 
         if (roles.Length == 0)

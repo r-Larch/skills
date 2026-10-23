@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Mvc;
+using WorkState.Api.App.V1;
 using WorkState.Api.Auth;
 using WorkState.Core.Board;
 using WorkState.Core.Domain;
@@ -36,7 +37,10 @@ public static class AppEndpoints
         guarded.MapGet("/runs/{reference}/tree", TreeAsync);
         guarded.MapGet("/runs/{reference}/brief", BriefAsync);
         guarded.MapGet("/runs/{reference}/journal", JournalAsync);
-        guarded.MapGet("/stream", EventStream.HandleAsync);
+
+        // doc 10 rule 5: the stream and the v1 reads take a cookie, an agent token or a reader token.
+        api.MapGet("/stream", EventStream.HandleAsync).RequireAuthorization(ApiV1.Policy);
+        api.MapApiV1();
     }
 
     private static void MapSession(RouteGroupBuilder api)
@@ -47,6 +51,11 @@ public static class AppEndpoints
             DashboardOptions dashboard,
             HttpContext context) =>
         {
+            if (ApiV1.IsReader(context.User))
+            {
+                return Results.Forbid();
+            }
+
             if (!dashboard.Matches(request.Username, request.Password))
             {
                 return Results.Unauthorized();
@@ -61,6 +70,11 @@ public static class AppEndpoints
 
         api.MapDelete("/session", async (HttpContext context) =>
         {
+            if (ApiV1.IsReader(context.User))
+            {
+                return Results.Forbid();
+            }
+
             await context.SignOutAsync(DashboardAuth.SchemeName);
             return Results.NoContent();
         }).AllowAnonymous();

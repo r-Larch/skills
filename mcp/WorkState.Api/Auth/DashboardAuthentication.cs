@@ -55,10 +55,11 @@ public static class DashboardAuth
     public const string CookieName = "workstate.dashboard";
 
     /// <summary>
-    /// The policy every <c>/api</c> route carries. It names the cookie scheme and only the cookie
-    /// scheme, which is the whole of doc 08 §4's "two auth schemes that never cross": a bearer
-    /// token presented to <c>/api</c> is not evaluated by a handler that could accept it, and the
-    /// three bearer policies likewise name only <see cref="StaticTokenHandler.SchemeName"/>.
+    /// The policy every pre-v1 <c>/api</c> route carries. It names the cookie scheme and only the
+    /// cookie scheme, which is the whole of doc 08 §4's "two auth schemes that never cross": a bearer
+    /// token presented to those routes is not evaluated by a handler that could accept it, and the
+    /// three bearer policies likewise name only <see cref="StaticTokenHandler.SchemeName"/>. The
+    /// read-only <c>/api/v1</c> and <c>/api/stream</c> are the deliberate exception (doc 10 rule 5).
     /// </summary>
     public const string Policy = "dashboard";
 

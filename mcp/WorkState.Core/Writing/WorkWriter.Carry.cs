@@ -6,7 +6,7 @@ namespace WorkState.Core.Writing;
 
 public sealed partial class WorkWriter
 {
-    private const string BacklogRunTitle = "Backlog — work deferred out of the project's runs";
+    public const string BacklogRunTitle = "Backlog — work deferred out of the project's runs";
 
     private sealed record Carried(Guid Id, string Ref);
 

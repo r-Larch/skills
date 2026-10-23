@@ -183,6 +183,27 @@ public sealed class BoardQueries(NpgsqlDataSource dataSource)
     }
 
     /// <summary>
+    /// The ref to print where it will be called or read back (ws/10, ws/13, doc 10 rule 2): bare
+    /// while no other item shares it, else run-qualified — and for a run or project, which numbers
+    /// its own refs, the form <see cref="UniqueRefAsync"/> checked to resolve to it alone.
+    /// </summary>
+    public async Task<string> CallableRefAsync(
+        ScopeRef item,
+        bool refShared,
+        CancellationToken cancellationToken = default)
+    {
+        if (!refShared)
+        {
+            return item.Ref;
+        }
+
+        var qualified = item.QualifiedRef ?? item.Ref;
+        return item.RefScopeId == item.Id
+            ? await UniqueRefAsync(item.WorkspaceId, item, cancellationToken) ?? qualified
+            : qualified;
+    }
+
+    /// <summary>
     /// The scope's own identity plus the run and project it sits under. Both ancestors are looked up
     /// by <em>kind</em> rather than taken from the parent row: a task's parent is a phase, and
     /// printing that phase as the project is how <c>work_brief</c> came to render
@@ -283,7 +304,8 @@ public sealed class BoardQueries(NpgsqlDataSource dataSource)
                    a.state          AS "State",
                    r.ref            AS "RevisitRef",
                    r.status         AS "RevisitStatus",
-                   r.closed_at      AS "RevisitClosedAt"
+                   r.closed_at      AS "RevisitClosedAt",
+                   a.scope_item_id  AS "ScopeItemId"
             FROM   assumption a
             LEFT   JOIN item s ON s.id = a.ref_scope_id
             LEFT   JOIN item r ON r.id = a.revisit_item_id
@@ -329,7 +351,8 @@ public sealed class BoardQueries(NpgsqlDataSource dataSource)
                           AS "ToQualifiedRef",
                    f.ref   AS "FromRef",
                    n.id    AS "Id",
-                   n.to_item_id AS "ToItemId"
+                   n.to_item_id AS "ToItemId",
+                   n.created_at AS "CreatedAt"
             FROM   note n
             LEFT   JOIN item t  ON t.id  = n.to_item_id
             LEFT   JOIN item ts ON ts.id = t.ref_scope_id AND ts.id <> t.id
@@ -477,7 +500,8 @@ public sealed class BoardQueries(NpgsqlDataSource dataSource)
                     CASE WHEN s.ref IS NULL THEN i.ref ELSE s.ref || '/' || i.ref END
                            AS "QualifiedRef",
                     i.title AS "FindingTitle",
-                    t.ref   AS "TargetRef"
+                    t.ref   AS "TargetRef",
+                    i.id    AS "FindingId"
              FROM   item i
              LEFT   JOIN item s ON s.id = i.ref_scope_id AND s.id <> i.id
              LEFT   JOIN item t ON t.id = i.parent_id
@@ -528,7 +552,7 @@ public sealed class BoardQueries(NpgsqlDataSource dataSource)
     {
         const string sql =
             $"""
-             SELECT "ItemRef", "QualifiedRef", "AgentName", "ExpiresAt", "Tree" FROM (
+             SELECT "ItemRef", "QualifiedRef", "AgentName", "ExpiresAt", "Tree", item_id AS "ItemId" FROM (
                SELECT DISTINCT ON (c.item_id)
                       i.ref        AS "ItemRef",
                       CASE WHEN s.ref IS NULL THEN i.ref ELSE s.ref || '/' || i.ref END
@@ -605,7 +629,8 @@ public sealed class BoardQueries(NpgsqlDataSource dataSource)
              SELECT i.ref        AS "Ref",
                     CASE WHEN s.ref IS NULL THEN i.ref ELSE s.ref || '/' || i.ref END
                                  AS "QualifiedRef",
-                    i.started_at AS "StartedAt"
+                    i.started_at AS "StartedAt",
+                    i.id         AS "Id"
              FROM   item i
              LEFT   JOIN item s ON s.id = i.ref_scope_id AND s.id <> i.id
              WHERE  i.status = 'in_progress'
@@ -668,7 +693,9 @@ public sealed class BoardQueries(NpgsqlDataSource dataSource)
             $"""
              SELECT i.ref AS "Ref",
                     CASE WHEN s.ref IS NULL THEN i.ref ELSE s.ref || '/' || i.ref END
-                         AS "QualifiedRef"
+                         AS "QualifiedRef",
+                    i.id        AS "Id",
+                    i.closed_at AS "ClosedAt"
              FROM   item i
              JOIN   item_kind k ON k.key = i.kind
              LEFT   JOIN item s ON s.id = i.ref_scope_id AND s.id <> i.id
@@ -923,7 +950,7 @@ public sealed class BoardQueries(NpgsqlDataSource dataSource)
     /// record constructor by the reader's field types — so without this, every record carrying a
     /// <see cref="DateTimeOffset"/> fails to materialise at all rather than converting.
     /// </summary>
-    private sealed class TimestampHandler : SqlMapper.TypeHandler<DateTimeOffset>
+    internal sealed class TimestampHandler : SqlMapper.TypeHandler<DateTimeOffset>
     {
         public override DateTimeOffset Parse(object value) => value switch
         {

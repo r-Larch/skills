@@ -492,10 +492,8 @@ public sealed partial class BoardReader
     /// <c>QualifiedRef</c> is its bare ref; the form printed is one checked to resolve to it alone
     /// (<c>autowork/backlog</c>), which is what the ambiguous-ref refusal suggests too (ws/13).
     /// </summary>
-    private async Task<string> CallableAsync(ScopeRef item, ItemFacts? facts, CancellationToken cancellationToken)
-        => facts is { RefShared: true } && item.RefScopeId == item.Id
-            ? await board.UniqueRefAsync(item.WorkspaceId, item, cancellationToken) ?? facts.QualifiedRef
-            : Callable(item.Ref, facts);
+    private Task<string> CallableAsync(ScopeRef item, ItemFacts? facts, CancellationToken cancellationToken)
+        => board.CallableRefAsync(item, facts is { RefShared: true }, cancellationToken);
 
     private static string EvidenceOf(ItemFacts? facts) => facts switch
     {
