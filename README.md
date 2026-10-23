@@ -39,6 +39,21 @@ skills.
 | `code-comments` | your code | a **subtractive comment pass** — the default verdict is DELETE; only a constraint the code can't state itself survives |
 | [`workstate-setup`](#workstate) | Docker + `claude mcp add` | getting the **WorkState** server running and registered, so the `work_*` tools are callable |
 
+### Prerequisites and platforms
+
+Every skill runs on Windows, macOS and Linux; what differs is what has to be installed.
+
+| Skill | Needs | Platform notes |
+|---|---|---|
+| `dotnet-reflect` | **.NET 10 SDK** | file-based C# scripts, same command everywhere |
+| `dotnet-source` | **.NET 10 SDK** | Windows: `ds.ps1` needs **pwsh 7+**; macOS/Linux: `bash ./ds.sh` |
+| `ts-source` | **Node 18+** | Windows: `tss.ps1` (pwsh 7+ or Windows PowerShell); macOS/Linux: `bash ./tss.sh` |
+| `nested-claude` | Claude Code CLI; Python 3 for the optional watchdog | Windows: PowerShell launchers; macOS/Linux: bash launchers |
+| `controller` | **WorkState**; `nested-claude`'s launchers | Windows (PowerShell) or macOS/Linux (bash) |
+| `orchestrate` | **WorkState** | — |
+| `code-comments` | nothing | — |
+| `workstate-setup` | **Docker** (multi-arch images — Apple Silicon is fine) | Docker Desktop, or on Linux the Docker engine; macOS also Colima/OrbStack |
+
 The two .NET skills are complementary, not competing: reflect reads *metadata* (public surface only,
 needs a built DLL), source reads *your source* (sees private, works unbuilt). `ts-source` is
 `dotnet-source`'s twin on the other side of the stack — same commands, same tiering, same output
@@ -153,13 +168,24 @@ guts of the god-class you're actually untangling.
 **Tier 1** (`search`/`outline`/`tree`/`metrics`) needs **no build at all**.
 **Tier 2** (the semantic four) needs a `dotnet restore` — still **not** a build.
 
-```bash
-# from $CLAUDE_PLUGIN_ROOT/skills/dotnet-source   (Windows: ./ds.ps1, unix: ./ds.sh)
+From `$CLAUDE_PLUGIN_ROOT/skills/dotnet-source`, with the launcher for your OS:
+
+```powershell
+# Windows — pwsh 7+
 ./ds.ps1 metrics --sort methods --top 20      # find the god-classes
 ./ds.ps1 outline AknPersistenceService        # 30 members — 19 of them private
 ./ds.ps1 find-usages WhereTenantRead          # 62 call-sites + the declaration
 ./ds.ps1 impls ITenantContext
 ./ds.ps1 discover --semantic                  # project set + reference health
+```
+
+```bash
+# macOS / Linux — bash
+bash ./ds.sh metrics --sort methods --top 20
+bash ./ds.sh outline AknPersistenceService
+bash ./ds.sh find-usages WhereTenantRead
+bash ./ds.sh impls ITenantContext
+bash ./ds.sh discover --semantic
 ```
 
 ### Keeping the compilation alive
@@ -223,13 +249,24 @@ Built for Vite + SolidJS/React apps and pnpm/npm workspaces.
 **Tier 1** (`search`/`outline`/`tree`/`metrics`/`graph`/`dead`) needs **no build and no typecheck**.
 **Tier 2** (`find-usages`/`impls`/`calls`) needs `node_modules` installed — still **not** a build.
 
-```bash
-# from $CLAUDE_PLUGIN_ROOT/skills/ts-source   (Windows: ./tss.ps1, unix: ./tss.sh)
+From `$CLAUDE_PLUGIN_ROOT/skills/ts-source`, with the launcher for your OS:
+
+```powershell
+# Windows — pwsh or Windows PowerShell
 ./tss.ps1 metrics --sort loc --top 20         # find the files that got out of hand
 ./tss.ps1 outline --file src/utils/http.ts    # 42 declarations, most of them not exported
 ./tss.ps1 find-usages Badge                   # 106 JSX usages + 25 imports + the declaration
 ./tss.ps1 graph src/utils/http.ts --importers # blast radius of a change
 ./tss.ps1 dead                                # what can I delete?
+```
+
+```bash
+# macOS / Linux — bash
+bash ./tss.sh metrics --sort loc --top 20
+bash ./tss.sh outline --file src/utils/http.ts
+bash ./tss.sh find-usages Badge
+bash ./tss.sh graph src/utils/http.ts --importers
+bash ./tss.sh dead
 ```
 
 ### Dead code, in three levels
@@ -443,7 +480,9 @@ plugins/rlarch/                          # the plugin
     SKILL.md
   skills/nested-claude/
     SKILL.md
-    assets/{Start,Stop}-NestedAgent.ps1 + watch-nested-agent.py
+    assets/{Start,Stop}-NestedAgent.ps1  # Windows launchers
+    assets/{start,stop}-nested-agent.sh  # their macOS/Linux bash twins
+    assets/watch-nested-agent.py         # the watchdog (stdlib Python 3)
   skills/code-comments/
     SKILL.md
   skills/workstate-setup/
