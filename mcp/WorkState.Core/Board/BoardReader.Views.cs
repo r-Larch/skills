@@ -179,7 +179,7 @@ public sealed partial class BoardReader
         foreach (var item in resolved)
         {
             facts.TryGetValue(item.Id, out var fact);
-            var callable = Callable(item.Ref, fact);
+            var callable = await CallableAsync(item, fact, cancellationToken);
 
             lines.Add(BoardRenderer.Row(new BoardItem(
                 item.Ref,
@@ -224,7 +224,7 @@ public sealed partial class BoardReader
         }
 
         facts.TryGetValue(resolved[0].Id, out var head);
-        var next = Callable(resolved[0].Ref, head);
+        var next = await CallableAsync(resolved[0], head, cancellationToken);
 
         lines.Add(string.Empty);
         lines.Add($"Next: work_status(ref:\"{next}\", to:\"in_progress\") to start it, "
@@ -486,6 +486,16 @@ public sealed partial class BoardReader
     /// </summary>
     private static string Callable(string reference, ItemFacts? facts)
         => facts is { RefShared: true } ? facts.QualifiedRef : reference;
+
+    /// <summary>
+    /// <see cref="Callable"/> for an item that may be a run. A run numbers its own refs, so its
+    /// <c>QualifiedRef</c> is its bare ref; the form printed is one checked to resolve to it alone
+    /// (<c>autowork/backlog</c>), which is what the ambiguous-ref refusal suggests too (ws/13).
+    /// </summary>
+    private async Task<string> CallableAsync(ScopeRef item, ItemFacts? facts, CancellationToken cancellationToken)
+        => facts is { RefShared: true } && item.RefScopeId == item.Id
+            ? await board.UniqueRefAsync(item.WorkspaceId, item, cancellationToken) ?? facts.QualifiedRef
+            : Callable(item.Ref, facts);
 
     private static string EvidenceOf(ItemFacts? facts) => facts switch
     {

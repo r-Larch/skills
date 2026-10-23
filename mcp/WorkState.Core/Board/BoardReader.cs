@@ -309,7 +309,7 @@ public sealed partial class BoardReader(WorkStateQueries queries, BoardQueries b
     private async Task<string> CallableAsync(ScopeRef item, CancellationToken cancellationToken)
     {
         var facts = await board.FactsAsync([item.Id], cancellationToken);
-        return facts is [{ RefShared: true } own] ? own.QualifiedRef : item.Ref;
+        return await CallableAsync(item, facts.FirstOrDefault(), cancellationToken);
     }
 
     private async Task<string> WorkerSectionAsync(
