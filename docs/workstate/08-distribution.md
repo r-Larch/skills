@@ -109,7 +109,7 @@ The plugin and the server now **version separately**: the plugin updates through
 server when you rebuild it. A skill that assumes `work_status` exists breaks against an older server,
 **silently**, because a missing tool is simply absent from `tools/list` (measured — doc 01 §6).
 
-`McpServerOptions.ServerInfo.Version` is already set (`0.3.0`). **Bump it deliberately**, and have
+`McpServerOptions.ServerInfo.Version` is already set (`0.4.0` as of rlarch 2.2.0). **Bump it deliberately**, and have
 the rewritten skills state the minimum they need, so the failure is a sentence rather than a mystery.
 
 ---
