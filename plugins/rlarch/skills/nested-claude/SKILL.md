@@ -5,9 +5,15 @@ description: Run Claude Code inside Claude Code — spawn nested `claude` sessio
 
 # Nested Claude
 
-The three scripts referenced below live with this skill. Installed as a plugin they are at
+The scripts referenced below live with this skill. Installed as a plugin they are at
 `"$CLAUDE_PLUGIN_ROOT/skills/nested-claude/assets/"` — run `echo "$CLAUDE_PLUGIN_ROOT"` to confirm.
 A project may vendor a copy, but then the copy is the one that drifts; prefer calling these.
+
+**Platforms.** Windows: `Start-NestedAgent.ps1` / `Stop-NestedAgent.ps1`, under `pwsh` or Windows
+PowerShell. macOS/Linux: the bash twins `start-nested-agent.sh` / `stop-nested-agent.sh`, same flags
+in `--kebab-case` (`-PromptFile` is `--prompt-file`; repeat `--allowed-tools` / `--add-dir` once per
+value); `pwsh` is optional there. Both twins take a dry-run switch (`-DryRun` / `--dry-run`) that does
+everything except run `claude` and prints the exact argv — use it to check a launch before spending one.
 
 You are about to become a **controller**: a Claude Code session that starts other Claude Code
 sessions, addresses them, answers them, and stops them.
@@ -29,7 +35,7 @@ Otherwise use the `Agent` tool.
 ## 1. Launch — always `--bg`
 
 ```powershell
-$a = & "$CLAUDE_PLUGIN_ROOT/skills/nested-claude/assets"/Start-NestedAgent.ps1 `
+$a = & "$env:CLAUDE_PLUGIN_ROOT/skills/nested-claude/assets/Start-NestedAgent.ps1" `
         -Name       fix-B-07 `
         -PromptFile .\brief-B-07.txt `
         -Controller 'prod-log-triage [9825b9]' `   # your address, from ListAgents, ref included
@@ -38,8 +44,21 @@ $a = & "$CLAUDE_PLUGIN_ROOT/skills/nested-claude/assets"/Start-NestedAgent.ps1 `
         -Watch                                      # optional: open a window attached to it
 ```
 
+```bash
+bash "$CLAUDE_PLUGIN_ROOT/skills/nested-claude/assets/start-nested-agent.sh" \
+        --name        fix-B-07 \
+        --prompt-file ./brief-B-07.txt \
+        --controller  'prod-log-triage [9825b9]' \
+        --repo-root   ../repo.worktrees/b-07 \
+        --toolset     fix \
+        --watch
+```
+
 Returns immediately, before the agent has done anything: `Name` (the address), `Id` (the short id
-claude's own commands take), `Brief`, `Started`.
+claude's own commands take), `Brief`, `Started` — an object from the `.ps1`, `Key=value` lines from
+the `.sh`. `-Watch` picks the terminal by OS (Windows: `pwsh`, else `powershell.exe`; macOS: Terminal
+via `osascript`; Linux: `gnome-terminal`, else `x-terminal-emulator`). If no window can be opened the
+launch still succeeds: you get a warning naming `claude attach <id>`, and the Id is returned.
 
 `claude --bg` is the right primitive and the alternatives are not:
 
@@ -78,7 +97,7 @@ sessions register under *your* name and are indistinguishable from each other.
 **Your own address needs its `[ref]`.** Remote Control mirrors your session under your own name, so a
 bare name matches several rows and `SendMessage` stops to ask which one — halting the agent on a human,
 the exact thing this protocol exists to prevent. Take the first line of `ListAgents` verbatim.
-`Start-NestedAgent.ps1` refuses a `-Controller` without a ref.
+`Start-NestedAgent.ps1` (and `start-nested-agent.sh`) refuses a `-Controller` without a ref.
 
 **Replying works too:** every incoming message carries
 `from="uds:\\.\pipe\LOCAL\cc-msg-…"`, and copying that as your `to` always reaches the sender. Use it
@@ -345,6 +364,12 @@ Get-Content $t -Wait -Tail 0 | ForEach-Object {
 }
 ```
 
+```bash
+# needs jq
+tail -n 0 -f "$t" | jq -r --unbuffered '.message as $m | ($m.content | arrays)[]?
+  | select(.type == "text") | "\($m.role): \(.text)"'
+```
+
 Do not poll in a loop and do not send *"are you done?"*. `SendMessage` takes `notify_when_idle: true`
 for exactly that, one-shot — omit `message` and it is a pure subscription that costs the agent nothing.
 
@@ -356,10 +381,19 @@ goes idle, so the subscription never fires, and `status: waiting` is only visibl
 
 Arm a watchdog instead. It runs in the background and speaks only when something has happened:
 
-%spowershell
-Monitor(command: 'python -u "$CLAUDE_PLUGIN_ROOT/skills/nested-claude/assets/watch-nested-agent.py" cffcbd64 --beat 12 --stall 8',
+```
+# macOS / Linux
+Monitor(command: 'python3 -u "$CLAUDE_PLUGIN_ROOT/skills/nested-claude/assets/watch-nested-agent.py" cffcbd64 --beat 12 --stall 8',
         persistent: true, description: 'fix-B-02 watchdog')
-%s
+
+# Windows — `py` (the Python launcher), or `python` if that is what is on PATH
+Monitor(command: 'py -u "$CLAUDE_PLUGIN_ROOT/skills/nested-claude/assets/watch-nested-agent.py" cffcbd64 --beat 12 --stall 8',
+        persistent: true, description: 'fix-B-02 watchdog')
+```
+
+The command is shell syntax, as for the Bash tool (Git Bash on Windows), so `$CLAUDE_PLUGIN_ROOT` is
+written in its bash form on every OS. The script is stdlib-only and resolves `claude` with `shutil.which`, so an npm `claude.cmd` on Windows is
+found too.
 
 | It emits | When | What you do |
 |---|---|---|
@@ -390,8 +424,13 @@ hang — all three look exactly like "still working". Cover the failures first a
 4. Stop it.
 
 ```powershell
-& "$CLAUDE_PLUGIN_ROOT/skills/nested-claude/assets"/Stop-NestedAgent.ps1 -Id $a.Id -Name $a.Name
-& "$CLAUDE_PLUGIN_ROOT/skills/nested-claude/assets"/Stop-NestedAgent.ps1 -Id $a.Id -Name $a.Name -Remove   # and delete the session
+& "$env:CLAUDE_PLUGIN_ROOT/skills/nested-claude/assets/Stop-NestedAgent.ps1" -Id $a.Id -Name $a.Name
+& "$env:CLAUDE_PLUGIN_ROOT/skills/nested-claude/assets/Stop-NestedAgent.ps1" -Id $a.Id -Name $a.Name -Remove   # and delete the session
+```
+
+```bash
+bash "$CLAUDE_PLUGIN_ROOT/skills/nested-claude/assets/stop-nested-agent.sh" --id c88dd0c8 --name fix-B-07
+bash "$CLAUDE_PLUGIN_ROOT/skills/nested-claude/assets/stop-nested-agent.sh" --id c88dd0c8 --name fix-B-07 --remove
 ```
 
 `claude stop` **keeps the conversation** — `claude attach <id>` reopens it and `claude --resume` works

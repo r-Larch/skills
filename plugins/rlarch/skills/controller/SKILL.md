@@ -118,7 +118,8 @@ second unit of the queue is refused while the first is in progress.
 - Collect on an integration branch and land once, or land each as it passes — either is fine, but
   decide up front and tell the human which.
 
-**Launch every agent in auto mode** — the default of `Start-NestedAgent.ps1`'s `-PermissionMode`, i.e.
+**Launch every agent in auto mode** — the default of `Start-NestedAgent.ps1`'s `-PermissionMode` (and of
+`--permission-mode` in its macOS/Linux twin `start-nested-agent.sh`), i.e.
 `claude --bg --permission-mode auto`. Under `acceptEdits` every shell shape the allow-list did not foresee
 parks the agent until a human attaches: in one three-unit run that was five parks — a `;` inside a build
 argument, a commit-message file under `.claude/`, `New-Item` for a folder, a PowerShell byte read, a

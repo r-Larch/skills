@@ -1,9 +1,12 @@
+#!/usr/bin/env python3
 """
 Watchdog for a nested agent, shaped for the Monitor tool: every line it prints on stdout becomes one
-notification, so it prints ONLY on a signal - never a running commentary.
+notification, so it prints ONLY on a signal - never a running commentary. Stdlib only.
 
-    Monitor(command: "python -u <this>/watch-nested-agent.py e62a5e14", persistent: true,
+    Monitor(command: "python3 -u <this>/watch-nested-agent.py e62a5e14", persistent: true,
             description: "fix-B-02 watchdog")
+
+The interpreter is `python3` on macOS/Linux and `py` (or `python`) on Windows.
 
 Signals, each emitted once per occurrence rather than once per poll:
 
@@ -20,11 +23,16 @@ Signals, each emitted once per occurrence rather than once per poll:
 Coverage is the point: a watch that only greps for success is silent through a crashloop, and
 silence is indistinguishable from progress.
 """
-import argparse, glob, io, json, os, subprocess, sys, time
+import argparse, glob, io, json, os, shutil, subprocess, sys, time
+
+# A full path, not "claude": on Windows the CLI can be claude.cmd (an npm install), which CreateProcess
+# will not find by its bare name - every poll would fail, be read as transient, and the watch would go
+# silent forever.
+CLAUDE = shutil.which("claude")
 
 def rows():
     try:
-        out = subprocess.run(["claude", "agents", "--json"], capture_output=True, text=True, timeout=60)
+        out = subprocess.run([CLAUDE, "agents", "--json"], capture_output=True, text=True, timeout=60)
         return json.loads(out.stdout or "[]")
     except Exception:
         return None          # a transient failure is not a dead agent; keep watching
@@ -67,6 +75,8 @@ def main():
     ap.add_argument("--beat",  type=int, default=10,  help="heartbeat minutes; 0 disables")
     ap.add_argument("--stall", type=int, default=8,   help="minutes of transcript silence before STALL")
     a = ap.parse_args()
+    if not CLAUDE:
+        sys.exit("watch-nested-agent: claude is not on PATH")
 
     started = time.time()
     name, tx = a.agent_id, None
