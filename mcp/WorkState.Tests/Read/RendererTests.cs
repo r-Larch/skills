@@ -121,7 +121,7 @@ public sealed class RendererTests
         var text = BriefRenderer.Render(Sample([]));
 
         Assert.Contains("RUN entity-store", text, StringComparison.Ordinal);
-        Assert.Matches(@"(?m)^NEXT   work_get\(ref:""2\.8""\)", text);
+        Assert.Matches(@"(?m)^NEXT   work_get\(refs:\[""2\.8""\]\)", text);
         Assert.DoesNotContain("--- attention", text, StringComparison.Ordinal);
         Assert.DoesNotMatch(Uuid, text);
     }
@@ -238,7 +238,7 @@ public sealed class RendererTests
             Head: "7cd34161",
             Goal: "The voice agent answers from a curated entity store instead of page-chunked PDFs.",
             Where: "phase 2 of 9 — Ingestion. 6 of 8 tasks done.",
-            Next: "work_get(ref:\"2.8\")  then  work_status(ref:\"2.8\", to:\"in_progress\")",
+            Next: "work_get(refs:[\"2.8\"])  then  work_status(ref:\"2.8\", to:\"in_progress\")",
             Binding: [new BindingLine("C1", "never modify Gaia.Web/Core/Rag/**", true, "ask the owner")],
             BindingTotal: 1,
             Assumptions: [new AssumptionLine("A3", "DSS jsonexport reachable", "probed", "medium", "3.1")],

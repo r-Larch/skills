@@ -129,7 +129,7 @@ Names are `work_*`-prefixed so they survive aggregation across servers.
 | **`work_brief`** | `scope` (workspace or item ref), `for` = `resume\|handoff\|phase` | The recovery payload: goal chain, current position, next action, branch/HEAD, mode, binding constraints in scope, open assumptions, unconsumed notes, deferred follow-ups, last verification. | The `LEDGER.md` header block — **generated, therefore never stale**. The first call of every session. |
 | **`work_next`** | `scope`, `limit`, `kind?` | The ready frontier: items whose blocking dependencies are all `done`, in `seq` order, with their `verify_cmd` and risk flags. | "read PLAN.md and work out what's next" |
 | **`work_tree`** | `scope`, `depth`, `status in[]`, `include_counts` | Indented tree with per-node rollups (`open/doing/blocked/review/done`). | `PLAN.md` § Phases, and the checkbox list that never gets checked |
-| **`work_get`** | `ref[]` (batch), `include` = `body\|criteria\|deps\|attempts\|findings\|notes` | Full item(s). Body returned as `resource_link` unless `include: body` is asked for. | reading a section of the ledger |
+| **`work_get`** | `refs[]` (batch), `include` = `body\|criteria\|deps\|attempts\|findings\|notes` | Full item(s). Body returned as `resource_link` unless `include: body` is asked for. | reading a section of the ledger |
 | **`work_search`** | `q`, `scope?`, `in` = `items\|blocks\|events\|notes\|reports`, `limit` | FTS + trigram hits with `ref` + snippet. | `Grep` over the run directory — which is what agents do today |
 | **`work_threads`** | `scope`, `include` = `assumptions\|findings\|followups\|notes\|stale\|deps` | **Everything unclosed that is not a task.** The single query the user asked for. A note is a thread only while it is addressed to an item and unconsumed; a note with no `to:` is a record (doc 06 §4) and is not listed. | `grep -c '⚠'` |
 | **`work_audit`** | `scope`, `checks[]` | Mechanical integrity report (§5). | the cheap 60% of a 60–150k-token plan audit |
@@ -147,7 +147,7 @@ Names are `work_*`-prefixed so they survive aggregation across servers.
 | Tool | Notes |
 |---|---|
 | **`work_create`** | **Batch**: takes an array. Decomposition creates 6–20 items in one call. Refuses a `task` without `verify_cmd` and without ≥1 done-criterion — the skill's *"a brief that omits done-criteria or a verification command is a defect"*, made unwritable. Accepts an agent-chosen `ref` (`2.1b`, `3.R1` — the corpus uses these constantly) or derives one; `UNIQUE(ref_scope_id, ref)` makes duplicate task numbers impossible **within a run**, while leaving parallel runs free to use the same numbering. |
-| **`work_update`** | Field-level patch of `title`/`intent`/`verify_cmd`/`risk`/`criteria`/`priority`. Takes `expected_revision`; a mismatch returns the current revision and what changed. **Criteria:** `{id:"c2", …}` patches criterion 2, which must exist — an id never creates one; `{text:"…"}` with no id appends as the next number. A row that would write nothing (an unknown id, an id with nothing to set, neither id nor text) refuses the **whole** call before anything is written, naming the ids that exist and the append form. The `OK` line counts exactly the criteria written. |
+| **`work_update`** | Field-level patch of `title`/`intent`/`verify_cmd`/`risk`/`criteria`/`priority`. Takes `expected_revision`; a mismatch returns the current revision and what changed. **Criteria:** `{id:"c2", …}` patches criterion 2, which must exist — an id never creates one; `{text:"…"}` with no id appends as the next number. A row that would write nothing (an unknown id, an id with nothing to set, neither id nor text) refuses the **whole** call before anything is written, naming the ids that exist and the append form. The `OK` line counts exactly the criteria written. A call that sets no field and no criterion (every field absent or blank) is refused with `nothing changed`, and writes no revision, no heartbeat and no event. |
 | **`work_move`** | Reparent / reorder. Separate from `update` because it is the risky one. Fractional `seq` means inserting `2.1b` between `2.1` and `2.2` rewrites **one row**. |
 | **`work_link`** | `blocks`, `supersedes`, `duplicates`, `derived_from`, `verifies`. Cycle-checked on write. `supersedes` sets the target to `superseded` — which is the skill's *"a superseded task is deleted, not annotated"*, enforced. |
 | **`work_status`** | The guarded transition (§4). `destructiveHint: true` for `cancel`. |
@@ -189,6 +189,47 @@ suggested; the refusal routes to `work_tree` or `work_threads` instead.
 |---|---|
 | **`work_init`** | Create/configure a workspace: repo root, default branch, item-kind ladder, verification command catalogue. |
 | **`work_import`** | Parse an existing `.claude/orchestration/<slug>/` directory into items + docs, best-effort, preserving every original line verbatim as blocks. 181 files exist; this is how they arrive. |
+
+### 3.6 Arguments that cannot bind
+
+The SDK binds a call's arguments before the tool body runs, so an argument the method cannot take
+never reaches the tool's own refusals. A call-tool request filter (`ToolArguments.Filter`, wired in
+`ApiHost` after `AddAuthorizationFilters`) judges the arguments against the tool's published
+`inputSchema` first. A call that fails is a tool result with `isError: true`, text starting
+`REFUSED`, one `✗` per problem, and a `→` that is a call which binds. Nothing runs.
+
+- **An argument the tool does not declare** is refused, never dropped. The refusal names it and the
+  closest declared parameter (the same name spelled differently, as in `include_counts` for
+  `includeCounts`, a prefix, as in `ref` for `refs`, or one a small edit away). When none is close
+  it lists every parameter the tool takes: `work_link(links:[…])` gets `from, to, type, remove`.
+  A required parameter the refusal already suggests is not listed again as missing.
+- **A missing required argument** is named, with its description and an example call:
+  `work_get(ref:"m2/1")` is refused with `✗ refs is required and was not sent` and
+  `→ work_get(refs:["…"])`.
+- **A container of the wrong shape** (an array where a string is expected, an object where an array
+  is expected, or the reverse) is refused naming what the parameter takes and what was sent.
+- **One lenient reading:** a lone string where a list of strings is expected binds as a list of
+  one, so `work_get(refs:"2.3")` is `work_get(refs:["2.3"])`. It has no other reading.
+- **A scalar of the wrong kind** (`limit:"ten"`) is left to the binder, whose serializer is more
+  lenient than a schema check, and what it still rejects comes back as the same refusal shape.
+- Authorization runs first: a token that cannot see a tool is forbidden it, never taught its
+  arguments.
+- Every `work_xxx(name:…)` written in WorkState.Core and WorkState.Mcp names only parameters that
+  tool declares. `RenderedCallTests` scans the source for it, because a NEXT line or a route the
+  server cannot bind teaches the wrong call.
+
+> **Changed 2026-10-23 (ws/m1).** A Foreman session called `work_get(ref:"m2/1")` and
+> `work_link(links:[…])` and got the SDK's generic `An error occurred invoking 'work_get'`, with
+> `ArgumentException … missing a value for the required parameter 'refs'` in the server log. The
+> session had copied `work_get(ref:…)` from the server's own NEXT line and from `work_next`, which
+> both printed it. Both now print `work_get(refs:["…"])`, and the `work_create` refusal headlines
+> that printed `work_create(kind:…)` now print `work_create(items:[{kind:…}])`.
+>
+> The same session called `work_update(ref:"m2/1", check_all:true, evidence:"…")`. Neither name
+> exists, and the binder dropped both without a word. The call answered `OK updated (revision 3)`
+> and wrote nothing, so the close guard refused next and the agent could not see why. Undeclared
+> names are now refused, and a `work_update` that sets nothing is refused as `nothing changed`
+> (§3.2).
 
 ---
 
@@ -480,7 +521,7 @@ with no fighting the framework.
 
 | Symbol | Use here |
 |---|---|
-| `WithRequestFilters` / `WithMessageFilters` | The **attention block**, actor resolution from the token, and OpenTelemetry spans — all as filters, so no tool body repeats them. |
+| `WithRequestFilters` / `WithMessageFilters` | The **attention block**, actor resolution from the token, and OpenTelemetry spans — all as filters, so no tool body repeats them. **In use** for argument binding (§3.6): `AddCallToolFilter(McpRequestFilter<CallToolRequestParams, CallToolResult>)`; `RequestContext.MatchedPrimitive` is the `McpServerTool`, whose `ProtocolTool.InputSchema` is the schema judged. Authorization runs in `CallToolWithAlternateFilters`, ahead of every ordinary call-tool filter. |
 | ~~`WithListToolsHandler`~~ | **Exists, NOT used.** `[Authorize]` narrows `tools/list` unaided (measured, §6). |
 | ~~`WithCompleteHandler`~~ | **Exists, NOT used.** The client offers no completion mechanism at all (measured, §8). |
 | `WithSubscriptionsListenHandler` | SEP-2575 subscription stream, if we later push `resources/updated` to a watching controller. |

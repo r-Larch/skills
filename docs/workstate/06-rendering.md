@@ -271,6 +271,19 @@ REFUSED  work_status(2.4 → done). 3 conditions unmet.
   is three times the cost and reads as an adversarial system.
 - **Name the override, and name its cost.** An escape hatch that is hidden gets worked around; one
   that leaves a permanent mark gets used honestly. Never hide `force`.
+- **A route is a call that binds.** Every named argument in a `→` line or a `NEXT` line is one the
+  tool declares, in the shape it declares (doc 01 §3.6). A call the server would refuse, printed as
+  the fix, teaches the wrong call permanently.
+
+A call whose arguments cannot bind is refused before the tool runs, in the same shape, with no
+override because nothing ran:
+
+```
+REFUSED  work_get — 1 argument cannot bind. Nothing ran.
+
+  ✗ refs is required and was not sent — One or more refs, e.g. ["2.3", "F-07"]. Qualify across…
+      → work_get(refs:["…"])
+```
 
 ---
 
