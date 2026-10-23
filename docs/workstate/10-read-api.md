@@ -4,8 +4,10 @@ Owner: skills-5d. Reviewed by autowork-7c (Foreman), 2026-10-22. Unit `workstate
 **Frozen at v1**: from here, additive only (rule 4).
 
 One JSON contract for two clients: the :5290 dashboard and Foreman (native gpui). Read-only — the
-MCP tools stay the only write path. The pre-v1 routes (`/api/watch`, `/api/runs/{ref}/tree|brief|journal`)
-are removed in the same release as the new dashboard; nothing else calls them.
+MCP tools stay the only write path. The pre-v1 routes (`/api/projects`, `/api/watch`,
+`/api/runs/{ref}/tree|brief|journal`) were removed once the new dashboard stopped calling them (unit
+`mature/prev1-removal`). Outside v1, `/api` keeps only `POST|DELETE /api/session` (sign-in) and
+`/api/stream`.
 
 ## Rules
 
@@ -37,6 +39,8 @@ are removed in the same release as the new dashboard; nothing else calls them.
 ItemRef = { "id": "uuid", "ref": "2.3", "qualifiedRef": "m1/2.3", "kind": "task", "title": "…", "status": "done" }
 Rollup  = { "total": 14, "done": 10, "inProgress": 1, "review": 0, "blocked": 0, "open": 3,
             "cancelled": 0, "superseded": 0 }      // leaves only: task, followup, subtask, spike, question, incident
+          // total = every leaf below, cancelled and superseded included (the sum of the seven counts);
+          // the MCP text's "n/m done" denominator is total − cancelled − superseded
 Session = { "id": "uuid", "name": "aw-m1", "role": "worker", "externalRole": "repo" | null,
             "origin": "foreman/nomos/Nomos" | null, "launchedBy": "skills-5d" | null,
             "claudeSessionId": "…" | null, "cwd": "…" | null, "tree": "…" | null,

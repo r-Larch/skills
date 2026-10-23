@@ -41,7 +41,7 @@ public sealed class KeyRingTests(PostgresFixture fixture)
         await using var second = await AppServer.StartAsync(fixture.ConnectionString, slug, Ct);
 
         var client = second.NewClient();
-        var request = new HttpRequestMessage(HttpMethod.Get, "/api/watch");
+        var request = new HttpRequestMessage(HttpMethod.Get, "/api/v1/overview");
         request.Headers.Add("Cookie", cookie);
 
         var response = await client.SendAsync(request, Ct);

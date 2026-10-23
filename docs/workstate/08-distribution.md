@@ -185,12 +185,12 @@ never reach `/mcp`.
 
 **The read API is the one shared door (doc 10 rule 5).** `GET /api/v1/*` and `/api/stream` are
 read-only, so they take either audience: the dashboard cookie, any agent token, or a **reader token**.
-The pre-v1 `/api/*` routes stay cookie-only until the UI unit removes them.
+The pre-v1 cookie-only `/api/*` routes are removed; `/api/session` is the only other `/api` route.
 
 | Token | Config / env | Reaches |
 |---|---|---|
 | worker · orchestrator · controller | `WorkState:Auth:{Worker,Orchestrator,Controller}Token` · `WORKSTATE_{WORKER,ORCHESTRATOR,CONTROLLER}_TOKEN` (required in compose) | `/mcp` by role, and `GET /api/v1/*` + `/api/stream` |
-| reader | `WorkState:Auth:ReaderToken` · `WORKSTATE_READER_TOKEN` (**optional**: compose passes `${WORKSTATE_READER_TOKEN:-}`, and empty means no reader token exists) | `GET /api/v1/*` and `/api/stream` only — `/mcp` refuses it (403), and so do `/api/session` and the pre-v1 routes |
+| reader | `WorkState:Auth:ReaderToken` · `WORKSTATE_READER_TOKEN` (**optional**: compose passes `${WORKSTATE_READER_TOKEN:-}`, and empty means no reader token exists) | `GET /api/v1/*` and `/api/stream` only — `/mcp` refuses it (403), and so does `/api/session` |
 
 Foreman authenticates with the reader token: it watches every project and can write nothing.
 

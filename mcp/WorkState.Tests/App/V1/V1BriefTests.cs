@@ -2,7 +2,7 @@ using System.Net;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using Microsoft.EntityFrameworkCore;
-using WorkState.Api.App;
+using WorkState.Api.App.V1;
 using WorkState.Core.Board;
 using WorkState.Core.Domain;
 using WorkState.Core.Queries;
@@ -14,23 +14,22 @@ using WorkState.Tests.Store;
 using Xunit;
 using static WorkState.Tests.Store.Tokens;
 
-namespace WorkState.Tests.App;
+namespace WorkState.Tests.App.V1;
 
 /// <summary>
 /// "One query layer, two presentations" (doc 09 §8), made into a test rather than an intention. If
 /// the human and the agent are ever shown different bytes for the same scope, the dashboard is
-/// lying about what the agent sees.
+/// lying about what the agent sees. <c>GET /api/v1/items/{id}/brief</c> is the dashboard's one brief.
 /// </summary>
 [Collection(StoreCollection.Name)]
-public sealed class AppBriefTests(PostgresFixture fixture)
+public sealed class V1BriefTests(PostgresFixture fixture)
 {
     private const string ParkedAgent = "worker-parked";
 
     /// <summary>
     /// <c>work_brief</c> is not a pure read — it sweeps lapsed leases before rendering and consumes
     /// addressed notes after a worker brief, and both writes change the bytes the <em>next</em> call
-    /// produces. So a naive "call both, compare" passes or fails on call order, and the most
-    /// valuable test in this unit would have passed for the wrong reason.
+    /// produces. So a naive "call both, compare" passes or fails on call order.
     /// <para>
     /// Both orders are therefore run against <b>one</b> world, restored to its seeded state in
     /// between, and the two surfaces are compared position by position: what the API returns going
@@ -40,7 +39,7 @@ public sealed class AppBriefTests(PostgresFixture fixture)
     [Theory]
     [InlineData("resume")]
     [InlineData("worker")]
-    public async Task The_brief_endpoint_is_byte_identical_to_work_brief_in_either_call_order(string variant)
+    public async Task The_v1_brief_is_byte_identical_to_work_brief_in_either_call_order(string variant)
     {
         var run = await ImportAsync();
         var lease = await ExpireALeaseAsync(run);
@@ -52,7 +51,7 @@ public sealed class AppBriefTests(PostgresFixture fixture)
 
         async Task<string> ApiAsync()
         {
-            var response = await client.GetAsync($"/api/runs/sample-run/brief?for={variant}", Ct);
+            var response = await client.GetAsync($"/api/v1/items/{run.RunItemId}/brief?for={variant}", Ct);
             Assert.Equal(HttpStatusCode.OK, response.StatusCode);
             return await response.Content.ReadAsStringAsync(Ct);
         }
@@ -76,10 +75,8 @@ public sealed class AppBriefTests(PostgresFixture fixture)
         Assert.Equal(apiLeading, toolLeading);
         Assert.Equal(toolFollowing, apiFollowing);
 
-        // And whichever surface went first did the housekeeping, so the equality above is a claim
-        // about two surfaces rather than about a fixture with nothing to disturb: the lapsed lease
-        // is released by both, and the addressed note is consumed by both — but only on the worker
-        // variant, which is the one call that is supposed to consume it.
+        // Whichever surface went first did the housekeeping, so the equality above is a claim about
+        // two surfaces rather than about a fixture with nothing to disturb.
         foreach (var leader in (AfterFirst[])[afterApiLed, afterToolLed])
         {
             Assert.Equal("expired", leader.LeaseReleaseReason);
@@ -100,10 +97,10 @@ public sealed class AppBriefTests(PostgresFixture fixture)
         var consume = Method(typeof(Housekeeping), nameof(Housekeeping.ConsumeNotesAsync));
 
         var tool = Method(typeof(WorkReadTools), nameof(WorkReadTools.BriefAsync));
-        var endpoint = Method(typeof(AppEndpoints), "BriefAsync");
+        var endpoint = Method(typeof(ApiV1), "BriefAsync");
 
         Assert.True(Calls(tool, shared), "work_brief must render through BoardReader.BriefSessionAsync");
-        Assert.True(Calls(endpoint, shared), "GET /api/runs/{ref}/brief must render through BoardReader.BriefSessionAsync");
+        Assert.True(Calls(endpoint, shared), "GET /api/v1/items/{id}/brief must render through BoardReader.BriefSessionAsync");
 
         Assert.False(Calls(tool, sweep), "work_brief must not sweep itself");
         Assert.False(Calls(tool, consume), "work_brief must not consume notes itself");
@@ -112,27 +109,13 @@ public sealed class AppBriefTests(PostgresFixture fixture)
     }
 
     [Fact]
-    public async Task The_brief_endpoint_serves_text_plain_rather_than_a_string_inside_json()
+    public async Task An_unknown_id_is_a_404_rather_than_an_empty_brief()
     {
         var run = await ImportAsync();
         await using var server = await StartAsync(run.WorkspaceSlug);
         var client = await server.SignInAsync(Ct);
 
-        var response = await client.GetAsync("/api/runs/sample-run/brief", Ct);
-
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        Assert.Equal("text/plain", response.Content.Headers.ContentType?.MediaType);
-        Assert.StartsWith("RUN sample-run", await response.Content.ReadAsStringAsync(Ct), StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public async Task An_unknown_ref_is_a_404_rather_than_an_empty_brief()
-    {
-        var run = await ImportAsync();
-        await using var server = await StartAsync(run.WorkspaceSlug);
-        var client = await server.SignInAsync(Ct);
-
-        var response = await client.GetAsync("/api/runs/no-such-run/brief", Ct);
+        var response = await client.GetAsync($"/api/v1/items/{Guid.CreateVersion7()}/brief", Ct);
 
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
     }

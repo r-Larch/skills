@@ -23,10 +23,10 @@ internal static class SpaFallback
         <title>WorkState</title>
         </head>
         <body>
-        <p>The WorkState dashboard is not built yet; the App API it reads is live at
-        <code>/api</code> (sign in with <code>POST /api/session</code>, then
-        <code>/api/projects</code>, <code>/api/watch</code>, <code>/api/runs/{ref}/tree</code>,
-        <code>/api/runs/{ref}/brief</code>, <code>/api/runs/{ref}/journal</code> and
+        <p>The WorkState dashboard is not built yet; the read API it uses is live at
+        <code>/api/v1</code> (sign in with <code>POST /api/session</code>, then
+        <code>/api/v1/overview</code>, <code>/api/v1/runs/{id}/board</code>,
+        <code>/api/v1/items/{id}</code>, <code>/api/v1/inbox</code>, <code>/api/v1/journal</code> and
         <code>/api/stream</code>), and agents reach <code>/mcp</code> on this same host with a
         bearer token.</p>
         </body>

@@ -91,16 +91,27 @@ public sealed class AttentionRefTests(PostgresFixture fixture)
         await using var server = await AppServer.StartAsync(fixture.ConnectionString, world.Slug, Ct);
         var client = await server.SignInAsync(Ct);
 
-        var watch = await AppServer.ReadJsonAsync(client, "/api/watch", Ct);
-        var needsYou = watch.GetProperty("needsYou").EnumerateArray().ToList();
+        // The v1 inbox carries done_unverified but has no phase-gate kind, so the gate rows are read
+        // from the attention block itself — the very rows /api/watch serialised as needsYou.
+        var inbox = await AppServer.ReadJsonAsync(client, "/api/v1/inbox", Ct);
+        var reader = Reader();
+        var attention = await reader.AttentionAsync(await ScopeAsync(reader, world.Slug, "proj-q"), Ct);
+
+        var needsYou = attention
+            .Where(a => a.Rank == AttentionRank.PhaseGateNotRun)
+            .Select(a => (Ref: a.Ref, Rank: "phase_gate_not_run", QualifiedRef: a.QualifiedRef))
+            .Concat(inbox.GetProperty("rows").EnumerateArray().Select(r => (
+                Ref: r.GetProperty("item").GetProperty("ref").GetString(),
+                Rank: r.GetProperty("kind").GetString()!,
+                QualifiedRef: r.GetProperty("item").GetProperty("qualifiedRef").GetString())))
+            .ToList();
 
         foreach (var (reference, rank) in ((string Ref, string Rank)[])
                  [("phase-4", "phase_gate_not_run"), ("4.1", "done_unverified")])
         {
             var rows = needsYou
-                .Where(a => a.GetProperty("ref").GetString() == reference
-                            && a.GetProperty("rank").GetString() == rank)
-                .Select(a => a.GetProperty("qualifiedRef").GetString() ?? "(null)")
+                .Where(a => a.Ref == reference && a.Rank == rank)
+                .Select(a => a.QualifiedRef ?? "(null)")
                 .ToList();
 
             Assert.Equal(2, rows.Count);
@@ -171,10 +182,10 @@ public sealed class AttentionRefTests(PostgresFixture fixture)
         await using var server = await AppServer.StartAsync(fixture.ConnectionString, world.Slug, Ct);
         var client = await server.SignInAsync(Ct);
 
-        var watch = await AppServer.ReadJsonAsync(client, "/api/watch", Ct);
+        var overview = await AppServer.ReadJsonAsync(client, "/api/v1/overview", Ct);
 
         Assert.Equal(2, expected);
-        Assert.Equal(expected, watch.GetProperty("honesty").GetProperty("doneUnverified").GetInt32());
+        Assert.Equal(expected, overview.GetProperty("honesty").GetProperty("doneUnverified").GetInt32());
     }
 
     private BoardReader Reader()
@@ -279,7 +290,7 @@ public sealed class AttentionRefTests(PostgresFixture fixture)
 
     /// <summary>
     /// The live corpus in miniature: the same <c>phase-4</c>, and the same <c>4.1</c> beneath it, in
-    /// two runs under one project — which is the scope <c>/api/watch</c> reads.
+    /// two runs under one project — which is the scope <c>/api/v1/inbox</c> reads.
     /// </summary>
     private async Task<World> TwoRunsAsync(bool notesToDone = false)
     {

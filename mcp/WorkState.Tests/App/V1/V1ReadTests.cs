@@ -1,6 +1,8 @@
 using System.Net;
 using System.Text.Json;
+using WorkState.Core.Domain;
 using WorkState.Tests.Store;
+using WorkState.Tests.Write;
 using Xunit;
 using static WorkState.Tests.App.V1.V1Http;
 using static WorkState.Tests.Store.Tokens;
@@ -350,4 +352,143 @@ public sealed class V1ReadTests(PostgresFixture fixture)
         Assert.Empty(Array(await GetAsync(reader, "/api/v1/resolve?ref=no-such"), "matches"));
         Assert.Equal(HttpStatusCode.BadRequest, (await reader.GetAsync("/api/v1/resolve", Ct)).StatusCode);
     }
+
+    /// <summary>
+    /// doc 09 §5: a phase the store calls <c>done</c> over children that are not is the thing this
+    /// product exists to surface, so the world seeds exactly that and asserts the board flags it.
+    /// </summary>
+    [Fact]
+    public async Task The_board_flags_a_phase_that_disagrees_with_its_children()
+    {
+        var world = await WriteSeed.CreateAsync(fixture);
+
+        await WriteSeed.ChildAsync(world, world.PhaseId, "1.2");
+        await WriteSeed.ChildAsync(world, world.PhaseId, "1.3", status: ItemStatus.Done);
+        await WriteSeed.StatusAsync(world, world.TaskId, ItemStatus.Done);
+        await WriteSeed.StatusAsync(world, world.PhaseId, ItemStatus.Done);
+
+        await using var server = await StartAsync(fixture, world.Slug);
+        var rows = Array(await GetAsync(Reader(server), $"/api/v1/runs/{world.RunId}/board"), "rows");
+
+        var phase = ByRef(rows, "1");
+        Assert.Equal("done", phase.GetProperty("item").GetProperty("status").GetString());
+        Assert.Equal(2, phase.GetProperty("rollup").GetProperty("done").GetInt32());
+        Assert.Equal(3, phase.GetProperty("rollup").GetProperty("total").GetInt32());
+        Assert.Contains("disagrees", Flags(phase));
+        Assert.Equal("phase", phase.GetProperty("item").GetProperty("kind").GetString());
+        Assert.Equal(1, phase.GetProperty("depth").GetInt32());
+
+        // A phase whose children are all closed is not a disagreement, and a leaf is not one either.
+        var quiet = ByRef(rows, "2");
+        Assert.Equal(0, quiet.GetProperty("rollup").GetProperty("total").GetInt32());
+        Assert.DoesNotContain("disagrees", Flags(quiet));
+
+        var leaf = ByRef(rows, "1.3");
+        Assert.Equal("done", leaf.GetProperty("item").GetProperty("status").GetString());
+        Assert.DoesNotContain("disagrees", Flags(leaf));
+
+        Assert.Equal(0, ByRef(rows, "run-a").GetProperty("depth").GetInt32());
+    }
+
+    /// <summary>
+    /// <c>review</c> is unclosed work in flight, broken out so the dashboard can say "1 in review".
+    /// v1's <c>total</c> counts cancelled and superseded leaves too (doc 10), so the renderer's
+    /// denominator is <c>total − cancelled − superseded</c> — and the two agreeing is the contract.
+    /// </summary>
+    [Fact]
+    public async Task The_board_rollup_carries_review_inside_a_total_the_renderer_agrees_with()
+    {
+        var world = await WriteSeed.CreateAsync(fixture);
+
+        await WriteSeed.ChildAsync(world, world.PhaseId, "1.2", status: ItemStatus.InProgress);
+        await WriteSeed.ChildAsync(world, world.PhaseId, "1.3", status: ItemStatus.Blocked);
+        await WriteSeed.ChildAsync(world, world.PhaseId, "1.4", status: ItemStatus.Review);
+        await WriteSeed.ChildAsync(world, world.PhaseId, "1.5", status: ItemStatus.Done);
+        await WriteSeed.ChildAsync(world, world.PhaseId, "1.6", status: ItemStatus.Cancelled);
+
+        await using var server = await StartAsync(fixture, world.Slug);
+        var rows = Array(await GetAsync(Reader(server), $"/api/v1/runs/{world.RunId}/board"), "rows");
+        var rollup = ByRef(rows, "1").GetProperty("rollup");
+
+        Assert.Equal(1, rollup.GetProperty("review").GetInt32());
+        Assert.Equal(1, rollup.GetProperty("done").GetInt32());
+        Assert.Equal(
+            5,
+            rollup.GetProperty("total").GetInt32()
+            - rollup.GetProperty("cancelled").GetInt32()
+            - rollup.GetProperty("superseded").GetInt32());
+
+        var rendered = await world.Reader.TreeAsync(await world.ScopeAsync("run-a"), 3, [], true, Ct);
+        Assert.Contains("1/5 done", rendered, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The fourth honesty number counts what is still open, so a follow-up that was closed must
+    /// leave it — otherwise the number only ever grows and stops meaning anything.
+    /// </summary>
+    [Fact]
+    public async Task The_overview_honesty_counts_open_followups_and_not_closed_ones()
+    {
+        var world = await WriteSeed.CreateAsync(fixture);
+
+        await WriteSeed.ChildAsync(world, world.PhaseId, "F-1", kind: "followup");
+        await WriteSeed.ChildAsync(world, world.PhaseId, "F-2", kind: "followup");
+        await WriteSeed.ChildAsync(world, world.PhaseId, "F-3", kind: "followup", status: ItemStatus.Done);
+        await WriteSeed.ChildAsync(world, world.PhaseId, "F-4", kind: "followup", status: ItemStatus.Cancelled);
+
+        await using var server = await StartAsync(fixture, world.Slug);
+        var overview = await GetAsync(Reader(server), "/api/v1/overview");
+
+        Assert.Equal(2, overview.GetProperty("honesty").GetProperty("followupsOpen").GetInt32());
+    }
+
+    /// <summary>
+    /// A first load takes the newest page, so history can be cut off behind it, and saying so is
+    /// the whole job of <c>hasMore</c>: the pane cannot offer what it cannot know exists.
+    /// </summary>
+    [Fact]
+    public async Task A_truncated_first_journal_page_says_that_older_events_exist()
+    {
+        var world = await WriteSeed.CreateAsync(fixture);
+
+        // Real writes through the real writer: the journal is fed from `event`.
+        for (var n = 0; n < 6; n++)
+        {
+            var wrote = await world.Writer.NoteAsync(
+                world.WorkspaceId, WriteSeed.Orchestrator, "observation", $"note {n}", "1.1", null, Ct);
+            Assert.False(wrote.Refused, wrote.Text);
+        }
+
+        await using var server = await StartAsync(fixture, world.Slug);
+        var reader = Reader(server);
+
+        var full = await GetAsync(reader, $"/api/v1/journal?scope={world.RunId}&since=0");
+        var total = full.GetProperty("events").GetArrayLength();
+        Assert.True(total >= 3, $"fixture needs several events to truncate; it has {total}");
+
+        var page = await GetAsync(reader, $"/api/v1/journal?scope={world.RunId}&since=0&limit={total - 1}");
+
+        Assert.Equal(total - 1, page.GetProperty("events").GetArrayLength());
+        Assert.True(page.GetProperty("hasMore").GetBoolean(), "a cut-off first page must admit it");
+
+        var whole = await GetAsync(reader, $"/api/v1/journal?scope={world.RunId}&since=0&limit={total}");
+        Assert.False(whole.GetProperty("hasMore").GetBoolean());
+
+        var seqs = Array(page, "events").Select(e => e.GetProperty("seq").GetInt64()).ToList();
+        Assert.Equal(seqs.Order(), seqs);
+    }
+
+    [Fact]
+    public async Task An_unknown_project_is_a_404_rather_than_an_empty_inbox()
+    {
+        var world = await WriteSeed.CreateAsync(fixture);
+        await using var server = await StartAsync(fixture, world.Slug);
+
+        var response = await Reader(server).GetAsync($"/api/v1/inbox?project={Guid.CreateVersion7()}", Ct);
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    private static IEnumerable<string?> Flags(JsonElement row)
+        => row.GetProperty("flags").EnumerateArray().Select(f => f.GetString());
 }

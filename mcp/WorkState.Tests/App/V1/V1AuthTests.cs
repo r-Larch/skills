@@ -53,10 +53,13 @@ public sealed class V1AuthTests(PostgresFixture fixture)
         await using var server = await V1Http.StartAsync(fixture, $"reader-{Guid.CreateVersion7():n}");
         var reader = V1Http.Reader(server);
 
-        foreach (var route in (string[])["/api/projects", "/api/watch", "/api/runs/run-a/tree", "/api/runs/run-a/journal"])
-        {
-            Assert.Equal(HttpStatusCode.Unauthorized, (await reader.GetAsync(route, Ct)).StatusCode);
-        }
+        // Outside v1 and the stream, only /mcp and /api/session remain to refuse it.
+        var initialize = AppServer.McpInitialize();
+        initialize.Headers.Authorization = new AuthenticationHeaderValue("Bearer", V1World.ReaderToken);
+        var mcp = await reader.SendAsync(initialize, Ct);
+        Assert.True(
+            mcp.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden,
+            $"initialize with a reader token → {(int)mcp.StatusCode}");
 
         var signIn = await AppServer.SignInAsync(reader, AppServer.Username, AppServer.Password, Ct);
         Assert.Equal(HttpStatusCode.Forbidden, signIn.StatusCode);
