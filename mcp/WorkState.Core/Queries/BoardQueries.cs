@@ -438,7 +438,8 @@ public sealed class BoardQueries(NpgsqlDataSource dataSource)
                    p.ref                        AS "ParentRef",
                    i.started_at                 AS "StartedAt",
                    coalesce(i.resolution = 'obsolete', false) AS "Moved",
-                   h.label                      AS "HeldBy"
+                   h.label                      AS "HeldBy",
+                   i.verify_cmd                 AS "VerifyCmd"
             FROM   item i
             JOIN   item_kind k ON k.key = i.kind
             LEFT   JOIN item s ON s.id = i.ref_scope_id AND s.id <> i.id

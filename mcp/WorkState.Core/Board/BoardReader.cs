@@ -356,6 +356,13 @@ public sealed partial class BoardReader(WorkStateQueries queries, BoardQueries b
             lines.AddRange(BriefRenderer.Wrap(label, c.Text, label.Length));
         }
 
+        // Never clipped: the done guard compares the command recorded by work_verify to this one
+        // character for character, and a mismatch used to be invisible until the refusal.
+        if (facts?.VerifyCmd is { Length: > 0 } verifyCmd)
+        {
+            lines.Add($"  verify    {verifyCmd}");
+        }
+
         lines.Add("  report    status / files / verify / red_check / deviations / assumptions / risks / not_done");
         lines.Add($"  brief     {WorkUris.ItemBrief(callable)}");
         lines.Add($"  Next: work_report(ref:\"{callable}\", …) with the fields above; closing is the orchestrator's call.");
