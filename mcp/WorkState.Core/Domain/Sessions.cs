@@ -37,4 +37,19 @@ public class AgentSession
 
     public DateTimeOffset FirstSeenAt { get; set; }
     public DateTimeOffset LastSeenAt { get; set; }
+
+    /// <summary>
+    /// doc 14 §2 — SHA-256 (lowercase hex) of the session's minted <c>wss_</c> token. The token
+    /// itself is returned once and stored nowhere. Null for a session only ever named by header.
+    /// </summary>
+    public string? TokenHash { get; set; }
+
+    /// <summary>The role the minted token carries; unlike <see cref="Role"/>, this one is consulted.</summary>
+    public ActorRole? GrantedRole { get; set; }
+
+    public DateTimeOffset? TokenExpiresAt { get; set; }
+    public DateTimeOffset? RevokedAt { get; set; }
+
+    /// <summary>The minted session that minted this one; null when a static token did.</summary>
+    public Guid? MintedBySessionId { get; set; }
 }

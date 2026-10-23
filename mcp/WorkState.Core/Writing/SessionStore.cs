@@ -34,7 +34,7 @@ public sealed record SessionResolution(SessionRef? Session, string? Refused);
 /// resolves the caller's row by (workspace, name), touches <c>last_seen_at</c>, and renews the leases
 /// that session holds. A call with no name has no session and is attributed as it always was.
 /// </summary>
-public sealed class SessionStore(NpgsqlDataSource dataSource)
+public sealed partial class SessionStore(NpgsqlDataSource dataSource)
 {
     private sealed record Row(Guid Id, string? ClaudeSessionId, string? LaunchedBy);
 
@@ -82,35 +82,52 @@ public sealed class SessionStore(NpgsqlDataSource dataSource)
         }
 
         await TouchAsync(connection, transaction, row.Id, role, facts, cancellationToken);
-
-        if (claudeId is not null && row.ClaudeSessionId is { } previous
-            && !string.Equals(previous, claudeId, StringComparison.Ordinal))
-        {
-            // Kept as history rather than overwritten: two Claude sessions answering to one name is
-            // how a copy shows itself.
-            await connection.ExecuteAsync(new CommandDefinition(
-                """
-                INSERT INTO event (workspace_id, item_id, actor, role, kind, payload, summary, session_id)
-                VALUES (@workspace, NULL, @actor, @role::actor_role, 'session_claude_id_changed',
-                        @payload::jsonb, @summary, @session);
-                """,
-                new
-                {
-                    workspace = workspaceId,
-                    actor = Pg.Label(role),
-                    role = Pg.Label(role),
-                    payload = JsonSerializer.Serialize(new { from = previous, to = claudeId }),
-                    summary = Glyph.Clip($"session {name} is now Claude session {claudeId}", 120),
-                    session = row.Id,
-                },
-                transaction,
-                cancellationToken: cancellationToken));
-        }
+        await ClaudeIdChangedAsync(
+            connection, transaction, workspaceId, row.Id, name, row.ClaudeSessionId, claudeId, role, cancellationToken);
 
         await RenewAsync(connection, transaction, workspaceId, row.Id, cancellationToken);
         await transaction.CommitAsync(cancellationToken);
 
         return new SessionResolution(new SessionRef(row.Id, name), null);
+    }
+
+    /// <summary>
+    /// Kept as history rather than overwritten: two Claude sessions answering to one name is how a
+    /// copy shows itself.
+    /// </summary>
+    private static async Task ClaudeIdChangedAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        Guid workspaceId,
+        Guid sessionId,
+        string name,
+        string? previous,
+        string? claudeId,
+        ActorRole role,
+        CancellationToken cancellationToken)
+    {
+        if (claudeId is null || previous is null || string.Equals(previous, claudeId, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        await connection.ExecuteAsync(new CommandDefinition(
+            """
+            INSERT INTO event (workspace_id, item_id, actor, role, kind, payload, summary, session_id)
+            VALUES (@workspace, NULL, @actor, @role::actor_role, 'session_claude_id_changed',
+                    @payload::jsonb, @summary, @session);
+            """,
+            new
+            {
+                workspace = workspaceId,
+                actor = Pg.Label(role),
+                role = Pg.Label(role),
+                payload = JsonSerializer.Serialize(new { from = previous, to = claudeId }),
+                summary = Glyph.Clip($"session {name} is now Claude session {claudeId}", 120),
+                session = sessionId,
+            },
+            transaction,
+            cancellationToken: cancellationToken));
     }
 
     private static string Collision(string name, string? held, string? asked)

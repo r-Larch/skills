@@ -65,6 +65,10 @@ public class WorkStateDbContext(DbContextOptions<WorkStateDbContext> options) : 
             e.HasIndex(x => new { x.WorkspaceId, x.Name })
                 .HasDatabaseName("agent_session_name_unique")
                 .IsUnique();
+            e.HasIndex(x => x.TokenHash)
+                .HasDatabaseName("agent_session_token_hash_unique")
+                .IsUnique();
+            e.HasOne<AgentSession>().WithMany().HasForeignKey(x => x.MintedBySessionId).OnDelete(DeleteBehavior.SetNull);
         });
 
         // Additive: every row written before doc 11 keeps a null session, and nothing backfills one.

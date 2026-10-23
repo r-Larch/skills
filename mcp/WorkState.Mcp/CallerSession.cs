@@ -12,8 +12,9 @@ namespace WorkState.Mcp;
 /// doc 11 — resolves which session a call comes from, once per call and before the tool runs, and
 /// leaves it on the request for <see cref="CallerIdentity"/>. Resolving touches the row and renews
 /// the session's leases, which is why it runs for every tool call and resource read, not only
-/// writes. The headers are the only source: the transport is stateless, so neither a connection id
-/// nor a declaration made on one call survives to the next.
+/// writes. The source is the credential when it is a minted token (doc 14 §2), else the headers:
+/// the transport is stateless, so neither a connection id nor a declaration made on one call
+/// survives to the next.
 /// </summary>
 public static class CallerSession
 {
@@ -25,6 +26,11 @@ public static class CallerSession
     public const string OriginHeader = "X-WorkState-Origin";
     public const string CwdHeader = "X-WorkState-Cwd";
     public const string ForemanRoleHeader = "X-WorkState-Foreman-Role";
+
+    /// <summary>doc 14 §2 — on the principal of a minted token, and only there.</summary>
+    public const string SessionIdClaim = "workstate:session-id";
+
+    public const string SessionNameClaim = "workstate:session-name";
 
     public static McpRequestHandler<CallToolRequestParams, CallToolResult> Filter(
         McpRequestHandler<CallToolRequestParams, CallToolResult> next)
@@ -62,7 +68,31 @@ public static class CallerSession
         string? name = headers[AgentHeader];
         var role = caller.Actor.Role;
 
-        if (string.IsNullOrWhiteSpace(name) || role == ActorRole.System)
+        if (role == ActorRole.System)
+        {
+            return null;
+        }
+
+        // A minted token names its own session; X-WorkState-Agent and the launcher rule do not apply.
+        if (Guid.TryParse(http.User.FindFirst(SessionIdClaim)?.Value, out var bound))
+        {
+            var facts = new SessionFacts(
+                ClaudeSessionId: headers[SessionHeader],
+                Origin: headers[OriginHeader],
+                Cwd: headers[CwdHeader],
+                ExternalRole: headers[ForemanRoleHeader],
+                ClientName: context.Server.ClientInfo?.Name,
+                ClientVersion: context.Server.ClientInfo?.Version);
+
+            if (await store.ResolveBoundAsync(bound, role, facts, cancellationToken) is { } own)
+            {
+                http.Items[ItemKey] = own;
+            }
+
+            return null;
+        }
+
+        if (string.IsNullOrWhiteSpace(name))
         {
             return null;
         }
@@ -73,7 +103,7 @@ public static class CallerSession
             return null;
         }
 
-        var facts = new SessionFacts(
+        var named = new SessionFacts(
             Name: name,
             ClaudeSessionId: headers[SessionHeader],
             LaunchedBy: headers[LaunchedByHeader],
@@ -83,7 +113,7 @@ public static class CallerSession
             ClientName: context.Server.ClientInfo?.Name,
             ClientVersion: context.Server.ClientInfo?.Version);
 
-        var resolved = await store.ResolveAsync(workspaceId, role, facts, cancellationToken);
+        var resolved = await store.ResolveAsync(workspaceId, role, named, cancellationToken);
         if (resolved.Session is { } session)
         {
             http.Items[ItemKey] = session;

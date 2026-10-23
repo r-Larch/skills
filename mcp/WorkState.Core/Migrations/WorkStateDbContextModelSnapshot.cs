@@ -69,6 +69,10 @@ namespace WorkState.Core.Migrations
                         .HasColumnName("first_seen_at")
                         .HasDefaultValueSql("now()");
 
+                    b.Property<ActorRole?>("GrantedRole")
+                        .HasColumnType("actor_role")
+                        .HasColumnName("granted_role");
+
                     b.Property<DateTimeOffset>("LastSeenAt")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
@@ -79,6 +83,10 @@ namespace WorkState.Core.Migrations
                         .HasColumnType("text")
                         .HasColumnName("launched_by");
 
+                    b.Property<Guid?>("MintedBySessionId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("minted_by_session_id");
+
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasColumnType("text")
@@ -88,9 +96,21 @@ namespace WorkState.Core.Migrations
                         .HasColumnType("text")
                         .HasColumnName("origin");
 
+                    b.Property<DateTimeOffset?>("RevokedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("revoked_at");
+
                     b.Property<ActorRole>("Role")
                         .HasColumnType("actor_role")
                         .HasColumnName("role");
+
+                    b.Property<DateTimeOffset?>("TokenExpiresAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("token_expires_at");
+
+                    b.Property<string>("TokenHash")
+                        .HasColumnType("text")
+                        .HasColumnName("token_hash");
 
                     b.Property<string>("Tree")
                         .HasColumnType("text")
@@ -102,6 +122,13 @@ namespace WorkState.Core.Migrations
 
                     b.HasKey("Id")
                         .HasName("pk_agent_session");
+
+                    b.HasIndex("MintedBySessionId")
+                        .HasDatabaseName("ix_agent_session_minted_by_session_id");
+
+                    b.HasIndex("TokenHash")
+                        .IsUnique()
+                        .HasDatabaseName("agent_session_token_hash_unique");
 
                     b.HasIndex("WorkspaceId", "Name")
                         .IsUnique()
@@ -1488,6 +1515,12 @@ namespace WorkState.Core.Migrations
 
             modelBuilder.Entity("WorkState.Core.Domain.AgentSession", b =>
                 {
+                    b.HasOne("WorkState.Core.Domain.AgentSession", null)
+                        .WithMany()
+                        .HasForeignKey("MintedBySessionId")
+                        .OnDelete(DeleteBehavior.SetNull)
+                        .HasConstraintName("fk_agent_session_agent_session_minted_by_session_id");
+
                     b.HasOne("WorkState.Core.Domain.Workspace", null)
                         .WithMany()
                         .HasForeignKey("WorkspaceId")
