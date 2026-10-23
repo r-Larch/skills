@@ -56,7 +56,7 @@ A6    assum   open      Docker can run pgvector             probed    revisit: 1
 
 | Flag | Means | The call that resolves it |
 |---|---|---|
-| `⚠ no verify` | `done`-eligible but no orchestrator verification | `work_verify` |
+| `⚠ no verify` | `done`-eligible but no orchestrator verification (never on a deferred, `obsolete` item) | `work_verify` |
 | `← 2.4` | blocked by `2.4` | finish `2.4` |
 | `review-req` | `risk_tags` non-empty | spend a review before closing |
 | `BLOCKER → 2.4` | a blocker finding targeting `2.4` | close or defer the finding |
@@ -121,6 +121,17 @@ LAST VERIFY  dotnet test --filter Importer → 181/181, by orchestrator, 6m ago
 
 **`NEXT` is a literal, callable line.** An agent that only ever does what `NEXT` says is running the
 system correctly — that is the tutorial channel of doc 04 §4, and it is why this line is never prose.
+
+**A closed scope's `NEXT` never closes it again.** When no child is open, an open scope's `NEXT` is
+`work_status(ref:"<ref>", to:"done") — every child is closed`. A `done`, `cancelled` or `superseded`
+scope instead names the first open item derived from it or from anything beneath it (a
+`derived_from` link, which is what a deferral writes), wherever that item now sits:
+`work_get(refs:["<ref>"]) — m1 is done; <ref> derived from it is still open`. With no such item the
+line is `nothing left — m1 is done`.
+
+> **Changed 2026-10-23 (donenext).** `work_brief(scope:"autowork/m1")` said
+> `NEXT work_status(ref:"m1", to:"done")` while m1 was done, and that call was refused "m1 is done".
+> The last branch checked only the children and never the scope's own status.
 
 **A BINDING line carries its ref**, between the marker and the rule, in the same four-wide handle
 column the assumption rows below it use. The marker still opens the line, so the `!` column stays
@@ -232,6 +243,16 @@ run** → items done-but-unverified → assumptions past revisit → unconsumed 
 > because what goes unexamined is the composition across every task in the phase, not one task's
 > missing evidence.
 
+**A moved item is not done-but-unverified.** A deferral closes its item `done` with resolution
+`obsolete`, because the work moved rather than finished (doc 07 §4). That item is left out of the
+attention line, `work_audit`'s `done-unverified` check, the `⚠ no verify` row flag and the honesty
+strip's count, so all four numbers agree. `wontfix` and `duplicate` closures stay in: they pass the
+same done guard as `accepted`, so they cannot close without an orchestrator verification unless
+`force:true` is used, and a forced close is the case the count exists to show.
+
+> **Changed 2026-10-23 (defer-verify).** A deferred item raised `<ref> is done with no orchestrator
+> verification — work_verify(…)`, which invites a verification of work that was never done here.
+
 **The unconsumed-note line is one line per addressee**: `N note(s) addressed to <ref> unconsumed —
 work_brief(scope:"<ref>", for:"worker")`, where `<ref>` is bare unless another item in the workspace
 shares it, in which case it is qualified (`run-one/4.1`), the same rule as ws/10's calls and URIs.
@@ -239,6 +260,16 @@ shares it, in which case it is qualified (`run-one/4.1`), the same rule as ws/10
 > **Changed 2026-10-22 (ws/13).** The line grouped on the bare ref, so at project scope the notes to
 > `run-one/4.1` and `run-two/4.1` were one line whose `work_brief(scope:"4.1")` is refused as
 > ambiguous: a hint that could not fire, over two briefs that each consume only their own notes.
+
+**A closed addressee raises no line.** Only the addressee's worker brief consumes a note, and nobody
+briefs a `done`, `cancelled` or `superseded` item, so its notes leave attention. They stay unconsumed
+and readable in `work_threads(include:"notes")` and the history. When the item is superseded through
+`work_link(type:"supersedes")`, the link moves its unconsumed notes to the replacing item in the same
+transaction, because they are still somebody's obligation. The line then names the replacement.
+
+> **Changed 2026-10-23 (F-08).** A note addressed to a closed item repeated on every call:
+> `1 note(s) addressed to 8-d unconsumed` long after 8-d was superseded, and the same for `m2/1` after
+> it was done. The line's call was a brief nobody would run.
 
 ---
 

@@ -410,6 +410,13 @@ URI scheme `work://`. Read-only projections, `cacheScope: "private"`, short `ttl
   > `work_get(refs:["m0/2","ws/2"])` printed one merged block twice and `work_tree` gave every `m0`
   > task the commit and criteria rollup of its `ws` twin. Reads are keyed by item id; the URIs it
   > printed were bare and therefore ambiguous too.
+
+  A run numbers its own refs, so it has no run-qualified form. A shared run prints the first form
+  that resolves to it alone, which is its parent-qualified ref (`work://item/autowork/backlog`).
+  The ambiguous-ref refusal suggests the same form.
+  > **Changed 2026-10-23 (runref).** `work_get` on the run `autowork/backlog` printed
+  > `uri work://item/backlog` and a bare Next while `m0/backlog` is a phase: the rule above used the
+  > run's `QualifiedRef`, which for a run is its bare ref.
 - **`completions/complete` has no client mechanism at all.** ⛔ **The completion plan is dropped**, and
   `WithCompleteHandler` is not wired. The "live item picker for free" was wishful; there is no picker.
 - **Exact URIs win over templates.** Reading `work://probe/fixed` returned the *fixed* resource, not

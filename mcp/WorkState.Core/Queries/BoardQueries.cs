@@ -308,11 +308,17 @@ public sealed class BoardQueries(NpgsqlDataSource dataSource)
     /// it alone left the whole block tied and the first line arbitrary. The kind is the ranking a
     /// reader can act on — a correction retracts something they would otherwise believe — and the id
     /// makes what is left deterministic rather than whatever the scan returned.
+    /// <para>
+    /// F-08: <paramref name="openAddresseesOnly"/> drops notes addressed to a closed item. Only the
+    /// addressee's worker brief consumes a note and nobody briefs a closed item, so for attention
+    /// such a note would be an obligation nobody can discharge. It stays readable everywhere else.
+    /// </para>
     /// </summary>
     public async Task<IReadOnlyList<NoteRow>> UnconsumedNotesAsync(
         Guid workspaceId,
         Guid? scopeItemId,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        bool openAddresseesOnly = false)
     {
         const string sql =
             """
@@ -330,6 +336,9 @@ public sealed class BoardQueries(NpgsqlDataSource dataSource)
             LEFT   JOIN item f  ON f.id  = n.from_item_id
             WHERE  n.workspace_id = @workspace
               AND  n.consumed_at IS NULL
+              AND  (NOT @openOnly
+                    OR n.to_item_id IS NULL
+                    OR t.status NOT IN ('done','cancelled','superseded'))
               AND  (@scope IS NULL
                     OR n.to_item_id = @scope
                     OR n.from_item_id = @scope
@@ -351,7 +360,7 @@ public sealed class BoardQueries(NpgsqlDataSource dataSource)
 
         return await ListAsync<NoteRow>(
             sql,
-            new { workspace = workspaceId, scope = scopeItemId },
+            new { workspace = workspaceId, scope = scopeItemId, openOnly = openAddresseesOnly },
             cancellationToken);
     }
 
@@ -427,7 +436,8 @@ public sealed class BoardQueries(NpgsqlDataSource dataSource)
                    k.requires_verify            AS "RequiresVerify",
                    i.severity                   AS "Severity",
                    p.ref                        AS "ParentRef",
-                   i.started_at                 AS "StartedAt"
+                   i.started_at                 AS "StartedAt",
+                   coalesce(i.resolution = 'obsolete', false) AS "Moved"
             FROM   item i
             JOIN   item_kind k ON k.key = i.kind
             LEFT   JOIN item s ON s.id = i.ref_scope_id AND s.id <> i.id
@@ -635,6 +645,11 @@ public sealed class BoardQueries(NpgsqlDataSource dataSource)
     /// <summary>
     /// Closed without the orchestrator verification doc 07 §3 condition 2 demands. U4 makes this
     /// unwritable; until then it is the highest-value thing an audit can say about finished work.
+    /// <para>
+    /// A deferral closes its item <c>done/obsolete</c> without the guard, because the work moved
+    /// rather than finished (doc 07 §4). Verifying it would be a false claim, so it is not counted.
+    /// <see cref="ItemFacts.Moved"/> applies the same rule to the row flag.
+    /// </para>
     /// </summary>
     public async Task<IReadOnlyList<UnverifiedRow>> DoneUnverifiedAsync(
         Guid scopeItemId,
@@ -649,6 +664,7 @@ public sealed class BoardQueries(NpgsqlDataSource dataSource)
              JOIN   item_kind k ON k.key = i.kind
              LEFT   JOIN item s ON s.id = i.ref_scope_id AND s.id <> i.id
              WHERE  i.status = 'done'
+               AND  i.resolution <> 'obsolete'
                AND  k.requires_verify
                AND  {InScope}
                AND  NOT EXISTS (SELECT 1 FROM verification v
@@ -931,6 +947,38 @@ public sealed class BoardQueries(NpgsqlDataSource dataSource)
 
         return await SingleAsync<int>(sql, new { scope = scopeItemId }, cancellationToken);
     }
+
+    /// <summary>
+    /// Open items derived from the scope or anything beneath it, wherever they now sit: a deferral
+    /// moves work out of the subtree (doc 07 §4), and the backlog is usually under the project.
+    /// </summary>
+    public async Task<IReadOnlyList<ItemFacts>> OpenDerivedAsync(
+        Guid scopeItemId,
+        CancellationToken cancellationToken = default)
+    {
+        const string sql =
+            $"""
+             SELECT DISTINCT d.id, d.seq
+             FROM   item_link l
+             JOIN   item i ON i.id = l.to_item_id
+             JOIN   item d ON d.id = l.from_item_id
+             WHERE  l.type = 'derived_from'
+               AND  d.status NOT IN ('done','cancelled','superseded')
+               AND  {InScope}
+             ORDER  BY d.seq, d.id;
+             """;
+
+        var ids = await ListAsync<DerivedId>(sql, new { scope = scopeItemId }, cancellationToken);
+        if (ids.Count == 0)
+        {
+            return [];
+        }
+
+        var facts = (await FactsAsync([.. ids.Select(i => i.Id)], cancellationToken)).ToDictionary(f => f.Id);
+        return [.. ids.Select(i => facts[i.Id])];
+    }
+
+    private sealed record DerivedId(Guid Id, decimal Seq);
 
     private async Task<T?> SingleAsync<T>(string sql, object parameters, CancellationToken cancellationToken)
     {

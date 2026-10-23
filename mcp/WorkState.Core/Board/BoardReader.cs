@@ -116,7 +116,9 @@ public sealed partial class BoardReader(WorkStateQueries queries, BoardQueries b
             Head: Short(header?.Head),
             Goal: header?.Goal ?? item.Intent,
             Where: Where(item, subtree),
-            Next: IsWorkerVariant(variant) ? WorkerNext(callable) : Next(item, frontier, subtree),
+            Next: IsWorkerVariant(variant)
+                ? WorkerNext(callable)
+                : Next(item, frontier, subtree, await board.OpenDerivedAsync(item.Id, cancellationToken)),
             Binding: [.. constraints.Take(IsWorkerVariant(variant) ? constraints.Count : BriefBindingCap).Select(ToBinding)],
             BindingTotal: constraints.Count,
             Assumptions: [.. assumptions.Take(BriefAssumptionCap).Select(ToAssumption)],
@@ -266,7 +268,8 @@ public sealed partial class BoardReader(WorkStateQueries queries, BoardQueries b
         // ws/13: one line per addressee. Grouped on the bare ref, two runs' 4.1 merged into a line
         // whose work_brief(scope:"4.1") is refused as ambiguous — and each brief consumes only its
         // own notes anyway. A shared bare ref is printed qualified, as every other call is (ws/10).
-        var notes = await board.UnconsumedNotesAsync(scope.WorkspaceId, item.Id, cancellationToken);
+        var notes = await board.UnconsumedNotesAsync(
+            scope.WorkspaceId, item.Id, cancellationToken, openAddresseesOnly: true);
         var addressees = notes.Where(n => n.ToItemId is not null).GroupBy(n => n.ToItemId!.Value).ToList();
         var shared = (await board.FactsAsync([.. addressees.Select(a => a.Key)], cancellationToken))
             .Where(f => f.RefShared)
@@ -306,7 +309,7 @@ public sealed partial class BoardReader(WorkStateQueries queries, BoardQueries b
     private async Task<string> CallableAsync(ScopeRef item, CancellationToken cancellationToken)
     {
         var facts = await board.FactsAsync([item.Id], cancellationToken);
-        return facts is [{ RefShared: true } own] ? own.QualifiedRef : item.Ref;
+        return await CallableAsync(item, facts.FirstOrDefault(), cancellationToken);
     }
 
     private async Task<string> WorkerSectionAsync(
@@ -384,7 +387,8 @@ public sealed partial class BoardReader(WorkStateQueries queries, BoardQueries b
     private static string Next(
         ScopeRef item,
         IReadOnlyList<ReadyItem> frontier,
-        IReadOnlyList<SubtreeNode> subtree)
+        IReadOnlyList<SubtreeNode> subtree,
+        IReadOnlyList<ItemFacts> derived)
     {
         if (frontier.Count > 0)
         {
@@ -407,9 +411,21 @@ public sealed partial class BoardReader(WorkStateQueries queries, BoardQueries b
         }
 
         var open = subtree.Any(n => n.Id != item.Id && n.Status is ItemStatus.Open or ItemStatus.Ready);
-        return open
-            ? $"work_next(scope:\"{item.Ref}\")"
-            : $"work_status(ref:\"{item.Ref}\", to:\"done\") — every child is closed";
+        if (open)
+        {
+            return $"work_next(scope:\"{item.Ref}\")";
+        }
+
+        if (item.Status is ItemStatus.Done or ItemStatus.Cancelled or ItemStatus.Superseded)
+        {
+            var status = item.Status.ToString().ToLowerInvariant();
+            return derived is [var first, ..]
+                ? $"work_get(refs:[\"{Callable(first.Ref, first)}\"]) — {item.Ref} is {status}; "
+                  + $"{Callable(first.Ref, first)} derived from it is still open"
+                : $"nothing left — {item.Ref} is {status}";
+        }
+
+        return $"work_status(ref:\"{item.Ref}\", to:\"done\") — every child is closed";
     }
 
     /// <summary>
