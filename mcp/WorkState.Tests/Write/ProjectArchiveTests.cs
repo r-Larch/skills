@@ -160,7 +160,7 @@ public sealed class ProjectArchiveTests(PostgresFixture fixture)
         {
             ["repo"] = new Dictionary<string, object?> { ["remote"] = "https://github.com/r-larch/archived" },
         });
-        Assert.Contains("arch-run", byRepo, StringComparison.Ordinal);
+        Assert.StartsWith("PROJECT arch ", byRepo, StringComparison.Ordinal);
         Assert.Contains("archived", byRepo, StringComparison.Ordinal);
 
         var byRef = await FirstLineAsync(client, new Dictionary<string, object?> { ["scope"] = "arch" });

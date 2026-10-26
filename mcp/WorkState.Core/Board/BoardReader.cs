@@ -123,6 +123,19 @@ public sealed partial class BoardReader(WorkStateQueries queries, BoardQueries b
     /// The brief and the ids of the notes it rendered — what <see cref="BriefSessionAsync"/> may
     /// consume, and nothing else.
     /// </summary>
+    /// <summary>An archived project still opens; its brief's header says so (doc 02).</summary>
+    private async Task<string> MarkArchivedAsync(Guid itemId, string text, CancellationToken cancellationToken)
+    {
+        if (await board.ArchivedAtAsync(itemId, cancellationToken) is not { } archivedAt)
+        {
+            return text;
+        }
+
+        var lines = text.Split('\n');
+        lines[0] += $"  ·  archived {archivedAt:yyyy-MM-dd}";
+        return string.Join("\n", lines);
+    }
+
     private async Task<(string Text, IReadOnlyList<Guid> RenderedNoteIds)> RenderBriefAsync(
         ScopeResult.Found scope,
         string variant,
@@ -131,7 +144,8 @@ public sealed partial class BoardReader(WorkStateQueries queries, BoardQueries b
         var item = scope.Item;
         if (item.Kind == "project")
         {
-            return await RenderProjectBriefAsync(scope, variant, cancellationToken);
+            var (projectText, renderedIds) = await RenderProjectBriefAsync(scope, variant, cancellationToken);
+            return (await MarkArchivedAsync(item.Id, projectText, cancellationToken), renderedIds);
         }
 
         var header = await board.HeaderAsync(item.Id, cancellationToken);
@@ -175,14 +189,7 @@ public sealed partial class BoardReader(WorkStateQueries queries, BoardQueries b
                     verify.Passed),
             Attention: attention);
 
-        var text = BriefRenderer.Render(model, IsWorkerVariant(variant));
-
-        if (await board.ArchivedAtAsync(item.Id, cancellationToken) is { } archivedAt)
-        {
-            var lines = text.Split('\n');
-            lines[0] += $"  ·  archived {archivedAt:yyyy-MM-dd}";
-            text = string.Join("\n", lines);
-        }
+        var text = await MarkArchivedAsync(item.Id, BriefRenderer.Render(model, IsWorkerVariant(variant)), cancellationToken);
 
         if (IsWorkerVariant(variant))
         {
