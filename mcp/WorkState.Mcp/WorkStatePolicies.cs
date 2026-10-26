@@ -24,6 +24,12 @@ public static class WorkStatePolicies
     public const string Reader = "reader";
 
     /// <summary>
+    /// <c>work_import</c>. Not nested either: an orchestrator role plus the <c>import</c> grant claim,
+    /// which only a minted token can carry, so no static token and no ungranted session ever lists it.
+    /// </summary>
+    public const string Importer = "importer";
+
+    /// <summary>
     /// Any agent token. <c>/mcp</c> requires it, so an unknown token never reaches a tool — and
     /// neither does a reader token, which authenticates but holds no agent role.
     /// </summary>

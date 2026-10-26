@@ -30,7 +30,7 @@ skills.
 > plugins and are gone. Follow **[upgrade_guide.md](upgrade_guide.md#upgrading-to-the-single-rlarch-plugin)**
 > — it takes two minutes, and there is one scope trap in it that will bite you if you improvise.
 
-## The eight skills
+## The nine skills
 
 | Skill | Substrate | Use it for |
 |---|---|---|
@@ -42,6 +42,7 @@ skills.
 | `nested-claude` | `claude --bg` | running **Claude Code inside Claude Code** — spawn, address, steer and watch background agents |
 | `code-comments` | your code | a **subtractive comment pass** — the default verdict is DELETE; only a constraint the code can't state itself survives |
 | [`workstate-setup`](#workstate) | Docker + `claude mcp add` | getting the **WorkState** server running and registered, so the `work_*` tools are callable |
+| `workstate-import` | your repo's plans and docs + `work_import` | bringing a repo's **existing planning material** into WorkState — keeps only what is true of the current code, asks before writing, records source and reason |
 
 ### Prerequisites and platforms
 
@@ -508,6 +509,8 @@ plugins/rlarch/                          # the plugin
     SKILL.md
   skills/workstate-setup/
     SKILL.md                             # four states, one procedure — see "WorkState" above
+  skills/workstate-import/
+    SKILL.md                             # discover, judge against the code, ask, work_import
 mcp/                                     # the WorkState server — NOT part of the plugin payload
   WorkState.slnx + WorkState.{Api,Core,Mcp,Tests}/
   compose.yml / compose.dev.yml / Dockerfile / .env.example

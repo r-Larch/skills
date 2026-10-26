@@ -36,7 +36,7 @@ All new; additive; **not** under `/api/v1` (v1 is read-only by rule).
 
 | Call | Who | Does |
 |---|---|---|
-| `POST /api/agent-sessions` `{name, role, launchedBy?, origin?, cwd?, externalRole?, claudeSessionId?, ttlHours?, replace?, repo?:{remote?, root?}}` | a bearer with **orchestrator or controller** role (static or minted) | creates/updates the `agent_session` row for `name`, issues a token `wss_<base64url 32 bytes>`, stores only its SHA-256, returns `201 {sessionId, name, role, token, expiresAt}` **once** |
+| `POST /api/agent-sessions` `{name, role, launchedBy?, origin?, cwd?, externalRole?, claudeSessionId?, ttlHours?, replace?, repo?:{remote?, root?}, grants?:["import"]}` | a bearer with **orchestrator or controller** role (static or minted) | creates/updates the `agent_session` row for `name`, issues a token `wss_<base64url 32 bytes>`, stores only its SHA-256, returns `201 {sessionId, name, role, token, expiresAt}` **once** |
 | `PATCH /api/agent-sessions/{id}` `{claudeSessionId}` | the same principal, or a controller | sets the Claude session uuid (history kept as an event, doc 11) |
 | `DELETE /api/agent-sessions/{id}` | the same principal, or a controller | revokes: `revoked_at = now()`, live claims of that session released (`release_reason = 'revoked'`) |
 
@@ -50,6 +50,12 @@ Rules:
   `replace` does not override it. A mint for a header-named row with the same launcher attaches the
   token to that row.
 - `externalRole` fills `external_role` exactly as `X-WorkState-Foreman-Role` does.
+- **Grants:** `grants` is a set of capabilities stored on the row (`agent_session.grants`, checked
+  against the known names; migration `ImportGrant`). Only a minter that may mint at all (orchestrator
+  or controller) can give one, an unknown name is `400`, and `import` on a `worker` role is `400` —
+  `work_import` writes plan items, an orchestrator's act. Each mint sets the grants anew, so a
+  `replace` without `grants` drops them. The bearer handler adds one `workstate:grant` claim per
+  grant; `import` shows `work_import` (doc 01 §6). A static token never carries a grant.
 - **"The same principal":** a controller may PATCH/DELETE any session. Otherwise, a session minted by
   a minted token belongs to that minting session. A session minted by a static token belongs to any
   static caller whose role is at least the granted role, because the static orchestrator and
@@ -102,7 +108,7 @@ Tools appear as `mcp__plugin_rlarch_agents__<tool>`. No npm dependencies; plain 
 | `effort` | `low\|medium\|high\|xhigh\|max` | — | `--effort` |
 | `settings` | path or JSON string | — | `--settings` |
 | `append_system_prompt` | string | — | `--append-system-prompt` |
-| `workstate` | `{role: worker\|orchestrator\|controller\|none, env_file, url?, ttl_hours?}` | `{role: "worker"}` | §1/§2 |
+| `workstate` | `{role: worker\|orchestrator\|controller\|none, env_file, url?, ttl_hours?, grants?: ["import"]}` | `{role: "worker"}` | §1/§2; `grants` is passed to the mint as is — the server enforces who may hold one |
 | `dry_run` | bool | false | everything except minting and spawning; returns the argv (token shown as `<minted>`) |
 
 Every variadic flag is closed by the next flag and the prompt goes last, exactly as the scripts do

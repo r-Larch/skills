@@ -657,6 +657,34 @@ CREATE INDEX note_selector_idx ON note USING gin (to_selector jsonb_path_ops)
 supersedes** the thing it corrects, so a reader who finds the original also finds the retraction.
 Today they are two sections 500 lines apart and only one of them is ever found.
 
+### 9a. Import provenance — `import_record`
+
+One row per record `work_import` wrote (doc 01 §3.5), keyed by where it came from:
+
+```sql
+CREATE TABLE import_record (
+  id              uuid PRIMARY KEY,
+  workspace_id    uuid NOT NULL REFERENCES workspace ON DELETE CASCADE,
+  project_item_id uuid NOT NULL REFERENCES item ON DELETE CASCADE,
+  source_path     text NOT NULL,              -- repo-relative, forward slashes
+  source_anchor   text NOT NULL DEFAULT '',   -- a heading or L<line>; '' = the whole file
+  kind            text NOT NULL,              -- run|phase|task|followup|note|assumption|rule
+  item_id uuid, note_id uuid, assumption_id uuid, constraint_id uuid,  -- exactly one set
+  why             text NOT NULL,              -- why the importer judged it still true
+  imported_status text,                       -- the status the import left an item in
+  session_id      uuid REFERENCES agent_session ON DELETE SET NULL,
+  imported_by     text NOT NULL,
+  created_at, updated_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (project_item_id, source_path, source_anchor)
+);
+```
+
+The unique key is what makes a re-import an update. `imported_status` is what "moved since import"
+is judged against: an item whose status differs, or that was started, checked or verified, is never
+rewritten. An imported item also carries `item.source = 'import:<path>#<anchor>'`; an imported
+assumption's `evidence_note` carries the same plus the why. `work_get` and the v1 item page
+(`imported`) print source and why whole.
+
 ---
 
 ## 10. Claims — one writer at a time, enforced
