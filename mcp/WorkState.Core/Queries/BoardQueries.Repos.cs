@@ -42,30 +42,6 @@ public sealed partial class BoardQueries
             cancellationToken);
     }
 
-    /// <summary>
-    /// <see cref="DefaultScopeAsync"/> inside one project: its run with the most unfinished work,
-    /// else the project itself.
-    /// </summary>
-    public async Task<ScopeRef> ProjectScopeAsync(
-        ScopeRef project,
-        CancellationToken cancellationToken = default)
-    {
-        const string sql =
-            $"""
-             SELECT {ScopeColumns}
-             FROM   item i
-             LEFT JOIN item s ON s.id = i.ref_scope_id AND s.id <> i.id
-             LEFT JOIN item_rollup r ON r.id = i.id
-             WHERE  i.kind = 'run' AND i.ancestors @> ARRAY[@project]::uuid[]
-             ORDER BY (coalesce(r.open_count,0) + coalesce(r.doing_count,0)
-                       + coalesce(r.review_count,0)) DESC,
-                      i.seq
-             LIMIT 1;
-             """;
-
-        return await SingleAsync<ScopeRef>(sql, new { project = project.Id }, cancellationToken) ?? project;
-    }
-
     public async Task<IReadOnlyList<ProjectRepoRow>> ProjectReposAsync(
         IReadOnlyCollection<Guid> projectIds,
         CancellationToken cancellationToken = default)

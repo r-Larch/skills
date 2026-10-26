@@ -131,8 +131,9 @@ as `projects[].repos`.
 
 **Resolution — `work_brief` with no `scope`:**
 
-1. `repo:` given → the project bound to it: its run with the most unfinished work, else the project.
-   When the two keys name different projects, the remote wins.
+1. `repo:` given → the **project brief** of the project bound to it ([06 §4a](06-rendering.md)),
+   whose `NEXT` names the run to resume — the open run with the most unfinished work — or the call
+   that starts one. When the two keys name different projects, the remote wins.
 2. no `repo:`, but the caller is a minted session minted with one (`POST /api/agent-sessions
    {…, repo:{remote, root}}`, which `agent_launch` always sends) → the same, from the stored keys.
 3. a repo is known but unbound → onboarding naming `work_create(… repo: <the same keys>)`, and
@@ -140,6 +141,10 @@ as `projects[].repos`.
 4. no repo known → the busiest run of the workspace, as before, plus one line: pass `repo:`.
 
 `scope` given → unchanged; the repo plays no part.
+
+> **Changed 2026-10-26 (project-brief).** Steps 1 and 2 opened the bound project's busiest run. A
+> fresh session in the repo then saw one run's brief and nothing of the others, of what had closed
+> or of the backlog; it now opens the project, and resumes a run in one more call.
 
 ### Ref scoping — short handles that cannot collide across parallel runs
 

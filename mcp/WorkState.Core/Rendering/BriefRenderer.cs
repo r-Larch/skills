@@ -100,28 +100,7 @@ public static class BriefRenderer
         lines.Add($"WHERE  {Glyph.Flat(model.Where)}");
         lines.Add($"NEXT   {Glyph.Flat(model.Next)}");
 
-        if (model.BindingTotal > 0)
-        {
-            lines.Add(string.Empty);
-            lines.Add($"BINDING ({model.BindingTotal})");
-
-            // The ref sits between the marker and the text, on the assumption row's four-wide
-            // handle column: a rule an agent can read but not name is one it cannot question or
-            // retire, and the marker still opens the line so the ! column stays scannable.
-            //
-            // The separator after the pad is not decoration. Pad(ref, 4) leaves nothing behind a
-            // ref that is already four wide, and the corpus runs to C258 — so without it every
-            // line from C100 up reads "C148Never connect to …". AssumptionRow has always appended
-            // this space; copying the column without it is how the defect arrived.
-            foreach (var b in model.Binding)
-            {
-                var label = $"  {(b.RedLine ? "!" : "·")} {Glyph.Pad(Glyph.Flat(b.Ref), 4)} ";
-                var text = b.Route is { Length: > 0 } ? $"{b.Text} — {b.Route}" : b.Text;
-                lines.AddRange(Wrap(label, text, label.Length));
-            }
-
-            AddOverflow(lines, model.BindingTotal - model.Binding.Count, $"read {WorkUris.Conventions}");
-        }
+        AddBinding(lines, model.Binding, model.BindingTotal);
 
         if (model.AssumptionTotal > 0)
         {
@@ -134,41 +113,91 @@ public static class BriefRenderer
                 $"work_threads(scope:\"{handle}\", include:\"assumptions\")");
         }
 
-        // A note addressed to an item and a note the run merely carries are different obligations,
-        // and the header says which it is holding. "ADDRESSED TO YOU (140)" over 140 notes that name
-        // no target is an honest count under a dishonest label, and the label is what an agent reads.
-        if (model.NoteTotal > 0)
-        {
-            lines.Add(string.Empty);
-            lines.Add(model.AddressedTo is { Length: > 0 }
-                ? $"ADDRESSED TO YOU ({model.AddressedTotal})   — these render into "
-                  + $"{model.AddressedTo}'s brief and are then marked consumed"
-                : $"NOTES IN SCOPE ({model.NoteTotal})   — carried forward by this run; "
-                  + "none names an item, so none is consumed");
-
-            lines.AddRange(model.Notes.SelectMany(n => Wrap("  ", n, 2)));
-
-            var hidden = model.NoteTotal - model.Notes.Count;
-            if (hidden > 0)
-            {
-                // work_threads lists only addressed notes; a carried note is printed whole in history.
-                lines.Add(model.AddressedTo is { Length: > 0 }
-                    ? $"  · +{hidden} more unconsumed in scope — work_threads(scope:\"{handle}\", include:\"notes\")"
-                    : $"  · +{hidden} more carried in scope — work_history() prints each note whole");
-            }
-        }
-
-        if (model.LastVerify is { } verify)
-        {
-            lines.Add(string.Empty);
-            var command = verify.Command is { Length: > 0 } ? $"{verify.Command} → " : string.Empty;
-            lines.AddRange(Wrap(
-                "LAST VERIFY  ",
-                $"{command}{verify.ResultLine}, by {verify.RunBy}, {Glyph.Age(verify.Ago)} ago",
-                13));
-        }
+        AddNotes(lines, model.Notes, model.NoteTotal, model.AddressedTotal, model.AddressedTo, handle, "run");
+        AddLastVerify(lines, model.LastVerify);
 
         return Attention.Append(string.Join("\n", lines), model.Attention);
+    }
+
+    internal static void AddBinding(List<string> lines, IReadOnlyList<BindingLine> binding, int total)
+    {
+        if (total == 0)
+        {
+            return;
+        }
+
+        lines.Add(string.Empty);
+        lines.Add($"BINDING ({total})");
+
+        // The ref sits between the marker and the text, on the assumption row's four-wide
+        // handle column: a rule an agent can read but not name is one it cannot question or
+        // retire, and the marker still opens the line so the ! column stays scannable.
+        //
+        // The separator after the pad is not decoration. Pad(ref, 4) leaves nothing behind a
+        // ref that is already four wide, and the corpus runs to C258 — so without it every
+        // line from C100 up reads "C148Never connect to …". AssumptionRow has always appended
+        // this space; copying the column without it is how the defect arrived.
+        foreach (var b in binding)
+        {
+            var label = $"  {(b.RedLine ? "!" : "·")} {Glyph.Pad(Glyph.Flat(b.Ref), 4)} ";
+            var text = b.Route is { Length: > 0 } ? $"{b.Text} — {b.Route}" : b.Text;
+            lines.AddRange(Wrap(label, text, label.Length));
+        }
+
+        AddOverflow(lines, total - binding.Count, $"read {WorkUris.Conventions}");
+    }
+
+    /// <summary>
+    /// A note addressed to an item and a note the scope merely carries are different obligations,
+    /// and the header says which it is holding. "ADDRESSED TO YOU (140)" over 140 notes that name
+    /// no target is an honest count under a dishonest label, and the label is what an agent reads.
+    /// </summary>
+    internal static void AddNotes(
+        List<string> lines,
+        IReadOnlyList<string> notes,
+        int total,
+        int addressedTotal,
+        string? addressedTo,
+        string handle,
+        string carrier)
+    {
+        if (total == 0)
+        {
+            return;
+        }
+
+        lines.Add(string.Empty);
+        lines.Add(addressedTo is { Length: > 0 }
+            ? $"ADDRESSED TO YOU ({addressedTotal})   — these render into "
+              + $"{addressedTo}'s brief and are then marked consumed"
+            : $"NOTES IN SCOPE ({total})   — carried forward by this {carrier}; "
+              + "none names an item, so none is consumed");
+
+        lines.AddRange(notes.SelectMany(n => Wrap("  ", n, 2)));
+
+        var hidden = total - notes.Count;
+        if (hidden > 0)
+        {
+            // work_threads lists only addressed notes; a carried note is printed whole in history.
+            lines.Add(addressedTo is { Length: > 0 }
+                ? $"  · +{hidden} more unconsumed in scope — work_threads(scope:\"{handle}\", include:\"notes\")"
+                : $"  · +{hidden} more carried in scope — work_history() prints each note whole");
+        }
+    }
+
+    internal static void AddLastVerify(List<string> lines, VerifyLine? verify)
+    {
+        if (verify is null)
+        {
+            return;
+        }
+
+        lines.Add(string.Empty);
+        var command = verify.Command is { Length: > 0 } ? $"{verify.Command} → " : string.Empty;
+        lines.AddRange(Wrap(
+            "LAST VERIFY  ",
+            $"{command}{verify.ResultLine}, by {verify.RunBy}, {Glyph.Age(verify.Ago)} ago",
+            13));
     }
 
     /// <summary>
