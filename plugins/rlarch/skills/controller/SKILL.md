@@ -28,8 +28,12 @@ launch. This skill is the **discipline** of running the queue on top of it, and 
 
 ## 0. Preflight — before anything else
 
-**Call `work_brief`.** The queue, its order, the evidence and the record live in WorkState; this skill
-has no other place to keep them.
+**Call `work_brief(repo: {remote, root})`.** The queue, its order, the evidence and the record live in
+WorkState; this skill has no other place to keep them. One project per repository, found from the
+repo: `remote` is `git remote get-url origin` (omit it with no origin), `root` the parent directory of
+`git rev-parse --path-format=absolute --git-common-dir` — the main checkout, the same from any
+worktree. A session `agent_launch` started already carries both; a bare `work_brief()` finds its
+project.
 
 - **No `work_*` tools in your list** → tell the human in one line: *"controller needs the WorkState
   MCP server and this session cannot see it — run `/rlarch:workstate-setup`."* Then stop. There is no
@@ -47,7 +51,9 @@ the `work_create` that made them. Never invent one, in a call or in a brief.
 ## 1. The queue is the unit of work
 
 **The queue is a run; each unit is an item under it.** Create them top-down, one `work_create` per
-level, reading back the refs each call prints: the project if none exists, the queue as a `run`
+level, reading back the refs each call prints: the project only when `work_brief(repo: …)` says the
+repo is unbound — passing that same `repo:` (or `work_update(ref, repo:)` to bind it to a project that
+exists; never a second project for one repo) — the queue as a `run`
 (`parent:` the project ref), then each unit as a `task` (`parent:` the queue ref) — its outcome as `criteria`, the gate you will run yourself as `verify_cmd`, and
 where it is specified in `intent`. A unit's nested session may run `/rlarch:orchestrate` and keep its
 own run for the inside of the unit; the unit item is yours, and only you close it.

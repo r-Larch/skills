@@ -246,7 +246,9 @@ You cannot finish this yourself — the last step is the user's. **Tell them, in
 
 1. Exit this session and start a new one in the same project.
 2. Call `work_brief` — it is the recovery payload and it needs nothing read before it. On an empty
-   server it answers with onboarding instead of an error.
+   server it answers with onboarding instead of an error. Projects are bound to repositories, one
+   project per repo: `work_brief(repo: {remote, root})` opens the repo's project, and onboarding
+   names the `work_create` that binds an unbound one.
 
 If the new session still has no `work_*` tool, the registration did not land: re-run
 `claude mcp get workstate` and read the `Scope` line — a project-scoped entry written in another
