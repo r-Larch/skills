@@ -199,11 +199,24 @@ Foreman authenticates with the reader token: it watches every project and can wr
 
 ### How to make it always-on
 
-**`mcp/compose.yml` already has `restart: unless-stopped` on both services.** So:
+**Both composes have `restart: unless-stopped` on both services.** So, from a clone:
 
 ```
 docker compose -f mcp/compose.yml up -d
 ```
+
+…or, with no clone at all, `/rlarch:workstate-setup` (its script) writes `~/.workstate/compose.yml`,
+which **pulls the published image** instead of building one, and runs the same command against it.
+
+> **Changed 2026-10-26 — a published image.** `.github/workflows/workstate-image.yml` builds
+> `mcp/Dockerfile` for `linux/amd64` and `linux/arm64` on every push to `master` that touches
+> `mcp/**`, and pushes `ghcr.io/r-larch/workstate-api:<ServerInfo.Version>` and `:latest`, labelled
+> `org.opencontainers.image.source=https://github.com/r-Larch/skills`. The pull-only compose is
+> `plugins/rlarch/skills/workstate-setup/assets/compose.yml`: the same services, volume and project
+> name (`workstate`) as `mcp/compose.yml`, so a machine can move between them and keep its data.
+> `mcp/compose.yml` stays the build-from-source compose for development. The Dockerfile's build
+> stages run on the builder's platform and cross-target (`-a $TARGETARCH`): `dotnet restore` under
+> QEMU aborts with exit 134.
 
 …and the UI is at `http://127.0.0.1:5290` permanently, surviving reboots wherever Docker Desktop
 starts at logon. Agents reach `/mcp` on the same host and port. **Nothing needs to know an agent is
@@ -220,7 +233,9 @@ task at logon. Same result, more moving parts.
 
 - **It becomes a single point of failure and a single backup target.** Every project's plan, ledger
   and evidence lives in one Postgres volume. **Back that volume up**, or the thing that replaced 181
-  markdown files in git becomes the one artifact that is not in git.
+  markdown files in git becomes the one artifact that is not in git. *(2026-10-26: scripted —
+  `workstate-setup.sh --backup <file>` / `--restore <file>` run `pg_dump -Fc` / `pg_restore --clean`
+  inside the `db` container; a restore writes a safety dump first. Not automated on a schedule.)*
 - **Bind to localhost.** `compose.dev.yml` already publishes `127.0.0.1:55433`. Keep the API the same
   until there is a reason not to, because the bearer tokens are currently throwaways and the
   dashboard's auth is a cookie over plain HTTP.

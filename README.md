@@ -42,7 +42,7 @@ skills.
 | `controller` | a queue + nested Claude sessions | a **backlog** of large, mostly independent undertakings — sequence, brief, steer, verify, land |
 | `nested-claude` | `claude --bg` | running **Claude Code inside Claude Code** — spawn, address, steer and watch background agents |
 | `code-comments` | your code | a **subtractive comment pass** — the default verdict is DELETE; only a constraint the code can't state itself survives |
-| [`workstate-setup`](#workstate) | Docker + `claude mcp add` | getting the **WorkState** server running and registered, so the `work_*` tools are callable |
+| [`workstate-setup`](#workstate) | Docker (no clone) + `claude mcp add` | getting the **WorkState** server running and registered, so the `work_*` tools are callable |
 | `workstate-import` | your repo's plans and docs + `work_import` | bringing a repo's **existing planning material** into WorkState — keeps only what is true of the current code, asks before writing, records source and reason |
 
 ### Prerequisites and platforms
@@ -402,21 +402,41 @@ Writes only ever go through the MCP tools. The dashboard is built on a **JSON re
 A session that sends an `X-WorkState-Agent` header is recorded **by name** on its claims and events —
 [docs/workstate/11-sessions.md](docs/workstate/11-sessions.md).
 
-Claude Code never manages the process — it only connects. You start it once:
-
-```bash
-docker compose -f mcp/compose.yml up -d
-```
-
-…and it is at **http://127.0.0.1:5290** permanently (`restart: unless-stopped`, so it survives a
-reboot wherever Docker starts at logon). Use `127.0.0.1`, not `localhost`: the server binds IPv4
-loopback only, and some clients try `::1` first.
+Claude Code never manages the process — it only connects. **You need Docker, and no clone of this
+repo:** the server ships as a public, multi-arch (amd64 + arm64) image,
+[`ghcr.io/r-larch/workstate-api`](https://github.com/r-Larch/skills/pkgs/container/workstate-api),
+tagged with the server version and `latest`.
 
 **The way in is [`/rlarch:workstate-setup`](plugins/rlarch/skills/workstate-setup/SKILL.md).** It
 works out which of four states your machine is in — already working, registered but down, up but not
-registered, or nothing at all — and does only the missing part: finds or asks for this repo, writes
-the local-only `mcp/.env` the stack needs, starts it, runs the one `claude mcp add`, and then proves
-from `tools/list` how many tools actually came back. **It never clones anything without asking.**
+registered, or nothing at all — and runs one shipped script for the missing part. Run it yourself if
+you prefer:
+
+```bash
+bash "$CLAUDE_PLUGIN_ROOT/skills/workstate-setup/assets/workstate-setup.sh"        # macOS, Linux, WSL, Git Bash
+pwsh "$env:CLAUDE_PLUGIN_ROOT/skills/workstate-setup/assets/workstate-setup.ps1"   # Windows
+```
+
+It keeps everything in `~/.workstate/` — a `compose.yml` that pulls the image, and a `.env` with
+random tokens and passwords that it writes once and never overwrites — starts the stack, runs the one
+`claude mcp add` itself, and proves from `tools/list` how many tools came back. **No token or password
+passes through the model:** the script prints status lines only, and the dashboard password stays in
+`~/.workstate/.env` for you to read. If you develop WorkState, `--clone <path>` uses
+`<path>/mcp/compose.yml` instead, which builds the image from source.
+
+It is then at **http://127.0.0.1:5290** permanently (`restart: unless-stopped`, so it survives a
+reboot wherever Docker starts at logon). Use `127.0.0.1`, not `localhost`: the server binds IPv4
+loopback only, and some clients try `::1` first.
+
+**Back up the database** — it is the only copy of every plan and verification:
+
+```bash
+bash "$CLAUDE_PLUGIN_ROOT/skills/workstate-setup/assets/workstate-setup.sh" --backup ~/workstate.dump
+bash "$CLAUDE_PLUGIN_ROOT/skills/workstate-setup/assets/workstate-setup.sh" --restore ~/workstate.dump
+```
+
+`--backup` is `pg_dump -Fc` inside the `db` container; `--restore` writes a safety dump of the current
+database to `~/.workstate/backups/` first, then `pg_restore --clean` with the API stopped.
 
 The plugin's `.mcp.json` deliberately holds **no WorkState entry** — only the local `agents` stdio
 server of `nested-claude`, which needs nothing but Node. A shipped WorkState entry is attempted by
@@ -509,13 +529,16 @@ plugins/rlarch/                          # the plugin
   skills/code-comments/
     SKILL.md
   skills/workstate-setup/
-    SKILL.md                             # four states, one procedure — see "WorkState" above
+    SKILL.md                             # four states, one script — see "WorkState" above
+    assets/workstate-setup.sh / .ps1     # .env, compose up, claude mcp add, tools/list proof, backup/restore
+    assets/compose.yml                   # pull-only compose: ghcr.io/r-larch/workstate-api
   skills/workstate-import/
     SKILL.md                             # discover, judge against the code, ask, work_import
 mcp/                                     # the WorkState server — NOT part of the plugin payload
   WorkState.slnx + WorkState.{Api,Core,Mcp,Tests}/
-  compose.yml / compose.dev.yml / Dockerfile / .env.example
+  compose.yml / compose.dev.yml / Dockerfile / .env.example   # compose.yml builds from source
   plugin.mcp.json                        # reference config, deliberately not shipped in the plugin
+.github/workflows/workstate-image.yml    # publishes the image to ghcr.io on push to master (mcp/**)
 docs/workstate/                          # the server's design notes
 README.md
 CHANGELOG.md

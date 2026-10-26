@@ -33,18 +33,19 @@ WorkState. If those are all you use, update the plugin and stop here — no Dock
    Confirm with `claude plugin details rlarch`: version `2.2.0`, eight skills.
 
 2. **Run `/rlarch:workstate-setup` once.** It needs Docker running (Docker Desktop, or the Docker
-   engine on Linux; Colima or OrbStack on macOS). It finds or asks for a clone of this repo — it never
-   clones without asking — writes the local-only `mcp/.env`, starts the stack with
-   `docker compose -f mcp/compose.yml up -d`, registers the server with `claude mcp add --scope user`,
-   and counts the tools the server returns. The stack restarts with Docker, so this is once per
-   machine, not once per session.
+   engine on Linux; Colima or OrbStack on macOS) and **no clone** (since 2.3.0). It runs a shipped
+   script that writes `~/.workstate/.env` with random values, pulls and starts the published image
+   `ghcr.io/r-larch/workstate-api`, registers the server with `claude mcp add --scope user`, and
+   counts the tools the server returns — no token passes through the model. A machine already
+   running WorkState from a clone keeps it with `--clone <path>`. The stack restarts with Docker, so
+   this is once per machine, not once per session.
 
 3. **Restart the session.** MCP servers are resolved at session start, so the `work_*` tools appear
    in the *next* session, not the one that ran the setup. In the new session, `work_brief` should
    answer.
 
 If you registered WorkState by hand during 2.x testing with `http://localhost:5290/mcp`, re-register
-it with `http://127.0.0.1:5290/mcp`: the server binds IPv4 loopback only, and some clients try `::1`
+it with `http://127.0.0.1:5290/mcp` (the setup script with `--force` does it): the server binds IPv4 loopback only, and some clients try `::1`
 for `localhost` first.
 
 ---
