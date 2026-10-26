@@ -263,6 +263,47 @@ NOTES IN SCOPE (140)   — carried forward by this run; none names an item, so n
 **On an empty server** `work_brief` returns onboarding instead: what a project is, what makes a good
 `verify_cmd`, and the one call to make next. Cold start uses the same mechanism as every other path.
 
+### 4a. The project brief
+
+`work_brief` on a project — `scope:"<project>"`, or `repo:` / a minted session's bare call, which
+resolve to the bound project (doc 02) — is the continue-here context of the repository. Nobody works
+*on* a project, so its `NEXT` never transitions it: it resumes the busiest open run, or starts one.
+
+```
+PROJECT e2e  ·  End to end  ·  repo remote github.com/r-larch/e2e, root p:/projects/e2e
+GOAL <the project's intent, whole>
+
+OPEN RUNS (2)                      every open run but the backlog run
+  run-a — The run
+    0/2 tasks done · held: 1.2 by aw-alpha
+    next  work_get(refs:["1.1"]) then work_status(ref:"1.1", to:"in_progress")
+  run-b — The other run
+    0/1 tasks done
+    next  nothing ready — 9.1 is blocked; work_threads(scope:"run-b", include:"deps")
+
+RECENT (5 of 7 closed)             newest first: outcome, closed date, last commit in the run
+  m7 — Closed run 7 — done/accepted · 2026-10-23 · c0ffee07
+  · +2 older — work_tree(scope:"e2e", depth:1, status:"done,cancelled,superseded")
+
+BACKLOG (6 open)                   open leaves of the backlog run, then follow-ups elsewhere
+  b1     foll   Backlog follow-up 1
+  · +1 more — work_tree(scope:"backlog") and work_threads(scope:"e2e", include:"followups")
+
+BINDING / NOTES IN SCOPE / LAST VERIFY      as the run brief prints them
+
+NEXT   resume run run-a — work_brief(scope:"run-a")
+```
+
+With no open run, `NEXT` is `start a run under this project — work_create(items:[{kind:"run",
+parent:"e2e", ref:"<slug>", title:"…"}])`. Titles and notes print whole; recent runs are capped at
+five and backlog rows at five, each cap naming the call that lists the rest. `next` is never wrapped,
+so the call copies whole. Budget: 49 lines / 696 tokens on the `ProjectBriefTests` fixture, bounded
+at 56 / 800; the run brief keeps its own 65 / 1250.
+
+> **Changed 2026-10-26 (project-brief).** A project scope rendered the run brief's shape — `WHERE 3 of
+> 3 tasks done.` and `NEXT work_status(ref:"e2e", to:"in_progress")` — with no runs, no history and
+> no backlog.
+
 ---
 
 ## 5. The attention block

@@ -144,7 +144,7 @@ public sealed class RepoBindingTests(PostgresFixture fixture)
     }
 
     [Fact]
-    public async Task Work_brief_with_repo_opens_that_projects_run_and_work_get_shows_its_repos()
+    public async Task Work_brief_with_repo_opens_that_projects_brief_and_work_get_shows_its_repos()
     {
         var world = await WriteSeed.CreateAsync(fixture);
         await CreateOtherAsync(world);
@@ -155,7 +155,8 @@ public sealed class RepoBindingTests(PostgresFixture fixture)
         Assert.Contains("run-a", bare.Split('\n')[0], StringComparison.Ordinal);
 
         var byRemote = await ReadServer.CallAsync(client, "work_brief", Repo(remote: "https://github.com/r-Larch/Other"), Ct);
-        Assert.Contains("other-run", byRemote.Split('\n')[0], StringComparison.Ordinal);
+        Assert.StartsWith("PROJECT other  ·  The other repo", byRemote.Split('\n')[0], StringComparison.Ordinal);
+        Assert.Contains("\nNEXT   resume run other-run — work_brief(scope:\"other-run\")", byRemote, StringComparison.Ordinal);
         Assert.DoesNotContain("repo     not given", byRemote, StringComparison.Ordinal);
 
         var byRoot = await ReadServer.CallAsync(client, "work_brief", Repo(root: "p:/projects/larchsys/other/.git"), Ct);
@@ -225,7 +226,8 @@ public sealed class RepoBindingTests(PostgresFixture fixture)
         {
             await using var client = await server.ConnectAsync(token, Ct);
             var brief = await ReadServer.CallAsync(client, "work_brief", null, Ct);
-            Assert.Contains("other-run", brief.Split('\n')[0], StringComparison.Ordinal);
+            Assert.StartsWith("PROJECT other  ·  The other repo", brief.Split('\n')[0], StringComparison.Ordinal);
+            Assert.Contains("\nNEXT   resume run other-run — work_brief(scope:\"other-run\")", brief, StringComparison.Ordinal);
             Assert.DoesNotContain("repo     not given", brief, StringComparison.Ordinal);
         }
     }

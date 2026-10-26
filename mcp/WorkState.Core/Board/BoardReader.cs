@@ -65,8 +65,9 @@ public sealed partial class BoardReader(WorkStateQueries queries, BoardQueries b
 
     /// <summary>
     /// <c>work_brief</c> with no scope, for a caller whose repository is known — from its
-    /// <c>repo:</c> argument, else from the minted session it was launched as. Null when neither
-    /// names a repository, which leaves the caller on <see cref="ResolveAsync"/>'s busiest run.
+    /// <c>repo:</c> argument, else from the minted session it was launched as. It opens the
+    /// project itself, whose brief names the run to resume. Null when neither names a repository,
+    /// which leaves the caller on <see cref="ResolveAsync"/>'s busiest run.
     /// </summary>
     public async Task<ScopeResult?> ResolveRepoAsync(
         string? workspaceSlug,
@@ -92,7 +93,7 @@ public sealed partial class BoardReader(WorkStateQueries queries, BoardQueries b
         var project = await board.ProjectByRepoAsync(workspace, keys, cancellationToken);
         return project is null
             ? new ScopeResult.Unbound(keys, await board.ProjectRefsAsync(workspace, cancellationToken))
-            : new ScopeResult.Found(workspace, await board.ProjectScopeAsync(project, cancellationToken));
+            : new ScopeResult.Found(workspace, project);
     }
 
     /// <summary>
@@ -128,6 +129,11 @@ public sealed partial class BoardReader(WorkStateQueries queries, BoardQueries b
         CancellationToken cancellationToken)
     {
         var item = scope.Item;
+        if (item.Kind == "project")
+        {
+            return await RenderProjectBriefAsync(scope, variant, cancellationToken);
+        }
+
         var header = await board.HeaderAsync(item.Id, cancellationToken);
         var subtree = await queries.SubtreeAsync(item.Id, cancellationToken);
         var frontier = await queries.ReadyFrontierAsync(item.Id, cancellationToken);
