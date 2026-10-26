@@ -74,6 +74,11 @@ half-finished publish leaves a directory that looks built, and we'd exec a broke
   parallel agent commands into a herd of Solution builds). Keyed by root **and tool MVID**.
   `FileSystemWatcher.Error` triggers a full rebuild — the OS drops events on buffer overflow (bulk
   `git checkout`), and ignoring that means silently serving a stale Solution.
+  On macOS/Linux the detached daemon calls `setsid()` and ignores SIGHUP, so a harness killing the
+  caller's process group does not take it down; and because .NET only emulates `DeleteOnClose`
+  there, its single-instance lock is a separate `flock`ed `<key>.lock` (released by the kernel on
+  any death) rather than the `.pid` marker, which a killed daemon leaves behind for the next one
+  to overwrite. Gate: `tests/dotnet-source/daemon-unix.sh`.
 
 The original plan explicitly rejected a daemon ("*not* a persistent daemon"). Measurement changed
 the answer: 15 s per semantic query is too slow to leave alone, and the index provably cannot fix it.
