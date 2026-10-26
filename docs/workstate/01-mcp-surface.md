@@ -406,6 +406,14 @@ URI scheme `work://`. Read-only projections, `cacheScope: "private"`, short `ttl
 | `work://item/{ref}/brief` | the fully rendered worker brief (see §9) |
 | `work://doc/{id}` | a document with block ids inline |
 | `work://workspace/{slug}/handoff` | the "competent stranger could continue from this alone" document |
+| `work://attention` | the busiest run's attention block, uncapped — every line, ranked, each with its call |
+| `work://attention/{scope}` | the same for one scope; the URI a capped attention block prints (doc 06 §5) |
+
+> **Changed 2026-10-26 (attention-cap).** The attention block capped at 5 lines with no route to
+> the rest — the one count cap that broke the noclip rule. No tool lists exactly those lines (expired
+> claims and phase gates appear nowhere else), and a new tool parameter would move `tools/list`, so
+> the route is a resource: fixed `work://attention` (listed) plus the `{+scope}` template, both
+> readable by any agent role.
 
 **Measured, 2026-09-18 — what actually works:**
 

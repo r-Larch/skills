@@ -94,9 +94,10 @@ public sealed class RendererTests
 
         var block = Attention.Block(lines).Split('\n');
 
-        Assert.StartsWith("--- attention (5) ---", block[0], StringComparison.Ordinal);
-        Assert.Equal(6, block.Length);
-        Assert.All(block[1..], line =>
+        Assert.StartsWith("--- attention (5 of 9) ---", block[0], StringComparison.Ordinal);
+        Assert.Equal(7, block.Length);
+        Assert.Equal("+4 more — read work://attention with ReadMcpResourceTool", block[6]);
+        Assert.All(block[1..6], line =>
         {
             Assert.Contains(" — ", line, StringComparison.Ordinal);
             Assert.Matches(@"— work_[a-z]+\(", line);

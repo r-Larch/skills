@@ -57,6 +57,7 @@ public sealed partial class BoardReader
 
         var backlog = await board.ProjectBacklogAsync(project.Id, backlogRun?.Id, cancellationToken);
         var constraints = await board.ConstraintsAsync(scope.WorkspaceId, project.Id, cancellationToken);
+        var assumptions = await board.AssumptionsAsync(scope.WorkspaceId, project.Id, true, cancellationToken);
         var notes = await board.UnconsumedNotesAsync(scope.WorkspaceId, project.Id, cancellationToken);
         var shown = ShownNotes(notes, project.Id, worker);
         var verify = await board.LastVerificationAsync(project.Id, cancellationToken);
@@ -92,7 +93,11 @@ public sealed partial class BoardReader
                 ? $"resume run {openLines[0].Ref} — work_brief(scope:\"{openLines[0].Ref}\")"
                 : "start a run under this project — "
                   + $"work_create(items:[{{kind:\"run\", parent:\"{projectRef}\", ref:\"<slug>\", title:\"…\"}}])",
-            Attention: await AttentionAsync(scope, cancellationToken));
+            Attention: await AttentionAsync(scope, cancellationToken),
+            // Several runs number their own A1, so a project prints each assumption's qualified ref.
+            Assumptions: [.. assumptions.Take(BriefAssumptionCap)
+                .Select(a => ToAssumption(a) with { Ref = a.QualifiedRef ?? a.Ref })],
+            AssumptionTotal: assumptions.Count);
 
         return (ProjectBriefRenderer.Render(model), [.. shown.Select(n => n.Id)]);
     }

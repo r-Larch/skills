@@ -497,9 +497,10 @@ public sealed partial class WorkWriter
         EvidenceLevel level,
         ReversalCost cost,
         Guid? revisitItemId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? chosen = null)
     {
-        var reference = await FreeAssumptionRefAsync(
+        var reference = chosen ?? await FreeAssumptionRefAsync(
             connection, transaction, item.RefScopeId, cancellationToken);
 
         const string sql =
@@ -536,6 +537,25 @@ public sealed partial class WorkWriter
         Guid? refScopeId,
         CancellationToken cancellationToken)
     {
+        for (var n = 1; n < 500; n++)
+        {
+            var candidate = $"A{n}";
+            if (!await AssumptionRefTakenAsync(connection, transaction, refScopeId, candidate, cancellationToken))
+            {
+                return candidate;
+            }
+        }
+
+        return $"A{Guid.CreateVersion7():n}"[..6];
+    }
+
+    private static async Task<bool> AssumptionRefTakenAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        Guid? refScopeId,
+        string reference,
+        CancellationToken cancellationToken)
+    {
         const string sql =
             """
             SELECT EXISTS (
@@ -543,22 +563,11 @@ public sealed partial class WorkWriter
               WHERE ref_scope_id IS NOT DISTINCT FROM @scope AND lower(ref) = lower(@ref));
             """;
 
-        for (var n = 1; n < 500; n++)
-        {
-            var candidate = $"A{n}";
-            var taken = await connection.ExecuteScalarAsync<bool>(new CommandDefinition(
-                sql,
-                new { scope = refScopeId, @ref = candidate },
-                transaction,
-                cancellationToken: cancellationToken));
-
-            if (!taken)
-            {
-                return candidate;
-            }
-        }
-
-        return $"A{Guid.CreateVersion7():n}"[..6];
+        return await connection.ExecuteScalarAsync<bool>(new CommandDefinition(
+            sql,
+            new { scope = refScopeId, @ref = reference },
+            transaction,
+            cancellationToken: cancellationToken));
     }
 
     private static bool Level(string? asked, out EvidenceLevel level)

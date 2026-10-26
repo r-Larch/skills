@@ -271,8 +271,8 @@ public sealed partial class BoardReader(WorkStateQueries queries, BoardQueries b
         ScopeResult.Found scope,
         CancellationToken cancellationToken = default)
     {
-        var lines = new List<AttentionLine>();
         var item = scope.Item;
+        var lines = new ScopedAttention(await CallableAsync(item, cancellationToken));
 
         foreach (var claim in await board.ExpiredClaimsAsync(item.Id, cancellationToken))
         {
@@ -282,7 +282,7 @@ public sealed partial class BoardReader(WorkStateQueries queries, BoardQueries b
 
             lines.Add(new AttentionLine(
                 AttentionRank.ExpiredClaim,
-                $"{claim.ItemRef} claim by {claim.AgentName}{on} expired {Glyph.Age(Since(claim.ExpiresAt))} ago",
+                $"{claim.ItemRef} claim by {claim.AgentName}{on} expired {Glyph.Ago(Since(claim.ExpiresAt))}",
                 $"work_status(ref:\"{claim.ItemRef}\", to:\"in_progress\"{tree}) to retake it",
                 claim.ItemRef,
                 claim.QualifiedRef));

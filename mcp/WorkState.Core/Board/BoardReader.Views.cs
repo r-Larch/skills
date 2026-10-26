@@ -74,6 +74,21 @@ public sealed partial class BoardReader
         bool includeCounts,
         CancellationToken cancellationToken = default)
     {
+        var keep = new HashSet<ItemStatus>();
+        foreach (var name in statuses)
+        {
+            if (!Transitions.TryParseStatus(name, out var parsed))
+            {
+                return Refusal.Blocked(
+                    $"work_tree(status:\"{string.Join(",", statuses)}\") on {scope.Item.Ref}.",
+                    $"\"{name}\" is not a status",
+                    $"work_tree(scope:\"{scope.Item.Ref}\", status:\"…\") with any of: "
+                    + string.Join(", ", Enum.GetValues<ItemStatus>().Select(Transitions.Name)));
+            }
+
+            keep.Add(parsed);
+        }
+
         var subtree = await queries.SubtreeAsync(scope.Item.Id, cancellationToken);
         if (subtree.Count == 0)
         {
@@ -87,9 +102,7 @@ public sealed partial class BoardReader
 
         var nodes = subtree
             .Where(n => n.Depth - root.Depth <= depth)
-            .Where(n => statuses.Count == 0
-                        || n.Id == root.Id
-                        || statuses.Contains(n.Status.ToString().ToLowerInvariant()))
+            .Where(n => keep.Count == 0 || n.Id == root.Id || keep.Contains(n.Status))
             .ToList();
 
         var lines = new List<string>();
@@ -132,6 +145,7 @@ public sealed partial class BoardReader
     {
         var workspaceId = home.WorkspaceId;
         var resolved = new List<ScopeRef>();
+        var assumptions = new List<AssumptionDetailRow>();
         var problems = new List<string>();
 
         foreach (var reference in references)
@@ -156,14 +170,33 @@ public sealed partial class BoardReader
                           + $"→ work_get(refs:[{string.Join(", ", candidates.Select(c => $"\"{c}\""))}])");
                     break;
                 default:
-                    problems.Add($"✗ no item has ref \"{reference}\" "
-                               + $"→ work_search(q:\"{reference}\") or work_tree()");
+                    var assumed = await board.AssumptionByRefAsync(workspaceId, reference.Trim(), cancellationToken);
+                    if (assumed.Count == 1)
+                    {
+                        assumptions.Add(assumed[0]);
+                        break;
+                    }
+
+                    var forms = assumed.Where(a => a.Qualified).Take(5).Select(a => $"\"{a.QualifiedRef}\"").ToList();
+                    problems.Add(assumed.Count == 0
+                        ? $"✗ no item or assumption has ref \"{reference}\" "
+                          + $"→ work_search(q:\"{reference}\") or work_tree()"
+                        : forms.Count == 0
+                            ? $"✗ \"{reference}\" names {assumed.Count} assumptions and no ref names only one "
+                              + "→ work_threads(include:\"assumptions\") lists them"
+                            : $"✗ \"{reference}\" names {assumed.Count} assumptions across runs — qualify it "
+                              + $"→ work_get(refs:[{string.Join(", ", forms)}])");
                     break;
             }
         }
 
         if (resolved.Count == 0)
         {
+            if (assumptions.Count > 0)
+            {
+                return string.Join("\n", [.. problems, .. assumptions.SelectMany(AssumptionDetail), string.Empty, AssumptionNext(assumptions[0])]);
+            }
+
             return problems.Count == 0
                 ? "work_get needs at least one ref → work_next() or work_tree() to find one."
                 : string.Join("\n", problems);
@@ -221,7 +254,7 @@ public sealed partial class BoardReader
             {
                 lines.AddRange(BriefRenderer.Wrap(
                     "  imported  ",
-                    $"from {imported.Source} by {imported.ImportedBy}, {Glyph.Age(Since(imported.UpdatedAt))} ago",
+                    $"from {imported.Source} by {imported.ImportedBy}, {Glyph.Ago(Since(imported.UpdatedAt))}",
                     12));
                 lines.AddRange(BriefRenderer.Wrap("  why       ", imported.Why, 12));
             }
@@ -238,7 +271,7 @@ public sealed partial class BoardReader
                     "  evidence  ",
                     $"{(verification.Passed ? "✓" : "✗")} {verification.ResultLine} "
                     + $"by {verification.RunBy.ToString().ToLowerInvariant()}, "
-                    + $"{Glyph.Age(Since(verification.At))} ago",
+                    + Glyph.Ago(Since(verification.At)),
                     12));
             }
 
@@ -264,6 +297,8 @@ public sealed partial class BoardReader
             lines.Add($"  uri       {WorkUris.Item(callable)}");
             lines.Add($"  brief     {WorkUris.ItemBrief(callable)} — read it with ReadMcpResourceTool");
         }
+
+        lines.AddRange(assumptions.SelectMany(AssumptionDetail));
 
         facts.TryGetValue(resolved[0].Id, out var head);
         var next = await CallableAsync(resolved[0], head, cancellationToken);
@@ -314,9 +349,10 @@ public sealed partial class BoardReader
         IReadOnlyCollection<string> include,
         CancellationToken cancellationToken = default)
     {
-        var lines = (await ThreadsAsync(scope, include, rows: true, cancellationToken))
-            .SelectMany(row => row)
-            .ToList();
+        var rowList = (await ThreadsAsync(scope, include, rows: true, cancellationToken)).ToList();
+        // A wrapped row spans several lines, so the header counts rows, not lines.
+        var rows = rowList.Count;
+        var lines = rowList.SelectMany(row => row).ToList();
 
         if (lines.Count == 0)
         {
@@ -325,7 +361,7 @@ public sealed partial class BoardReader
         }
 
         lines.Insert(0, string.Empty);
-        lines.Insert(0, $"THREADS  {lines.Count - 1} unclosed under {scope.Item.Ref}");
+        lines.Insert(0, $"THREADS  {rows} unclosed under {scope.Item.Ref}");
         return string.Join("\n", lines);
     }
 

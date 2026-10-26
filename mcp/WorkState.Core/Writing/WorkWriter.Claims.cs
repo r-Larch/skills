@@ -153,7 +153,7 @@ public sealed partial class WorkWriter
 
         return left > TimeSpan.Zero
             ? $"the lease lapses in {Glyph.Age(left)} ({at})"
-            : $"the lease lapsed {Glyph.Age(-left)} ago ({at}) and is not swept yet";
+            : $"the lease lapsed {Glyph.Ago(-left)} ({at}) and is not swept yet";
     }
 
     private async Task<string> AcquireAsync(

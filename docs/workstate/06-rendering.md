@@ -291,8 +291,20 @@ BACKLOG (6 open)                   open leaves of the backlog run, then follow-u
 
 BINDING / NOTES IN SCOPE / LAST VERIFY      as the run brief prints them
 
+OPEN ASSUMPTIONS (7)               every open one under the project, qualified: runs number their own A1
+  run-a/A1 Assumption number 1 still holds.   reasoned   medium
+  · +2 more — work_threads(scope:"e2e", include:"assumptions")
+
 NEXT   resume run run-a — work_brief(scope:"run-a")
 ```
+
+An assumption's ref reads back in `work_get(refs:["run-a/A1"])`, which prints it whole: statement,
+state, evidence, reversal, revisit, scope, the resolution once settled, and its import source and why
+when it was imported. A bare `A1` held by two runs is refused with the qualified forms, as an item
+ref is.
+
+> **Changed 2026-10-26 (assumption-reach).** `work_get(refs:["A1"])` answered "no item has ref A1",
+> and the project brief showed none of the project's open assumptions.
 
 With no open run, `NEXT` is `start a run under this project — work_create(items:[{kind:"run",
 parent:"e2e", ref:"<slug>", title:"…"}])`. Titles and notes print whole; recent runs are capped at
@@ -319,6 +331,21 @@ Omitted entirely — header included — when empty.
 
 Every line is `<what> — <the call that fixes it>`. A line without a call is a defect: it is the
 1,241 ⚠ markers of the old corpus reinvented, and those are what this replaces.
+
+When more than 5 lines are due, the header counts both and a sixth line names the read that lists
+them all, as "What may be shortened" requires of a count cap:
+
+```
+--- attention (5 of 9) ---
+⚠ …five ranked lines…
++4 more — read work://attention/run-a with ReadMcpResourceTool
+```
+
+`work://attention/<scope>` prints every line, ranked, uncapped (doc 01 §8). No tool lists exactly
+these lines — expired claims and phase gates appear nowhere else — so the route is that resource.
+
+> **Changed 2026-10-26 (attention-cap).** The header gave the shown count and nothing listed the
+> rest: the one count cap that broke the noclip rule.
 
 Ranking: expired claims → blocker findings → **phases whose tasks are all done and whose gate has not
 run** → items done-but-unverified → assumptions past revisit → unconsumed notes for the current scope
@@ -417,7 +444,8 @@ Renderer tests are cheap and they are the only defence against drift back toward
 - [ ] **No uuid appears in any rendering, ever** — one regex over the output of every renderer.
 - [ ] Column positions hold for refs up to 6 chars and titles up to 34, and long titles get `…`.
 - [ ] A clean result emits **no** attention header, not an empty one.
-- [ ] The attention block never exceeds 5 lines, and **every line contains a `—` followed by a call**.
+- [ ] The attention block never exceeds 5 lines, and **every line contains a `—` followed by a call**;
+      past 5 a final `+N more — read work://attention/<scope>` line names the read that lists all.
 - [ ] A refusal lists **all** unmet conditions and every one has a `→` line.
 - [ ] **Token budget, asserted with a number — against a committed fixture, not the live corpus.**
       `work_brief` on a fixture run imported into the test container renders in **≤ 1,250 tokens**

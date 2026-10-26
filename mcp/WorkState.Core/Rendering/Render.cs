@@ -88,6 +88,9 @@ public static class Glyph
         _ => "99d",
     };
 
+    /// <summary>A past moment as a phrase: <c>43m ago</c>, or <c>just now</c> — never <c>now ago</c>.</summary>
+    public static string Ago(TimeSpan span) => span.TotalMinutes < 1 ? "just now" : $"{Age(span)} ago";
+
     /// <summary>Evidence as doc 06 §2 writes it: checked over total, or nothing to say.</summary>
     public static string Evidence(int passed, int total, bool failing = false)
         => total == 0 ? None : $"{(failing ? "✗" : "✓")}{passed}/{total}";
