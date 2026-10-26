@@ -15,6 +15,7 @@ import {
 import { runClaude, parseBackgroundId, listLiveAgents, stripAnsi, resolveClaude } from './claude.mjs'
 import { readControllerToken, mintSession, bindClaudeSession, revokeSession, mcpConfigJson } from './workstate.mjs'
 import { saveRecord, loadRecords, findRecord, deleteRecord } from './state.mjs'
+import { repoKeys } from './repo.mjs'
 
 /** @param {string} line */
 export function log(line) {
@@ -190,6 +191,7 @@ async function agentLaunch(input) {
             launchedBy: p.controller.replace(/\s\[[0-9a-fA-F]{6}\]$/, ''),
             cwd: p.repoRoot,
             ttlHours: p.workstate.ttlHours,
+            repo: repoKeys(p.repoRoot),
         })
     }
 
