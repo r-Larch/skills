@@ -14,7 +14,9 @@ namespace WorkState.Mcp;
 /// the session's leases, which is why it runs for every tool call and resource read, not only
 /// writes. The source is the credential when it is a minted token (doc 14 §2), else the headers:
 /// the transport is stateless, so neither a connection id nor a declaration made on one call
-/// survives to the next.
+/// survives to the next. Order: a minted token's session, ignoring both headers; else
+/// <see cref="AgentHeader"/>, binding <see cref="ClientHeader"/> to it when both are sent; else the
+/// session <c>work_session</c> bound the client key to; else none.
 /// </summary>
 public static class CallerSession
 {
@@ -26,6 +28,15 @@ public static class CallerSession
     public const string OriginHeader = "X-WorkState-Origin";
     public const string CwdHeader = "X-WorkState-Cwd";
     public const string ForemanRoleHeader = "X-WorkState-Foreman-Role";
+
+    /// <summary>The session helper's key for the Claude Code process: host/pid/start time.</summary>
+    public const string ClientHeader = "X-WorkState-Client";
+
+    /// <summary>
+    /// <see cref="ClientHeader"/>, on the principal of a static agent token only — a minted token's
+    /// session is its credential's, so its key is never read.
+    /// </summary>
+    public const string ClientKeyClaim = "workstate:client-key";
 
     /// <summary>doc 14 §2 — on the principal of a minted token, and only there.</summary>
     public const string SessionIdClaim = "workstate:session-id";
@@ -95,7 +106,8 @@ public static class CallerSession
             return null;
         }
 
-        if (string.IsNullOrWhiteSpace(name))
+        var key = http.User.FindFirst(ClientKeyClaim)?.Value;
+        if (string.IsNullOrWhiteSpace(name) && string.IsNullOrWhiteSpace(key))
         {
             return null;
         }
@@ -103,6 +115,25 @@ public static class CallerSession
         var workspace = await board.WorkspaceAsync(services!.GetService<WorkspaceOptions>()?.Slug, cancellationToken);
         if (workspace is not { } workspaceId)
         {
+            return null;
+        }
+
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            var keyed = new SessionFacts(
+                ClaudeSessionId: headers[SessionHeader],
+                Origin: headers[OriginHeader],
+                Cwd: headers[CwdHeader],
+                ExternalRole: headers[ForemanRoleHeader],
+                ClientName: context.Server.ClientInfo?.Name,
+                ClientVersion: context.Server.ClientInfo?.Version,
+                ClientKey: key);
+
+            if (await store.ResolveByKeyAsync(workspaceId, role, keyed, cancellationToken) is { } byKey)
+            {
+                http.Items[ItemKey] = byKey;
+            }
+
             return null;
         }
 
@@ -114,7 +145,8 @@ public static class CallerSession
             Cwd: headers[CwdHeader],
             ExternalRole: headers[ForemanRoleHeader],
             ClientName: context.Server.ClientInfo?.Name,
-            ClientVersion: context.Server.ClientInfo?.Version);
+            ClientVersion: context.Server.ClientInfo?.Version,
+            ClientKey: key);
 
         var resolved = await store.ResolveAsync(workspaceId, role, named, cancellationToken);
         if (resolved.Session is { } session)

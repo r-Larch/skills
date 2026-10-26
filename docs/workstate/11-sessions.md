@@ -36,10 +36,29 @@ row, its id, claims and history, and swaps only the token. `DELETE /api/agent-se
 the token and releases the session's live claims (`release_reason = 'revoked'`; the items go back to
 `ready`, as an expired claim's do). Header-named sessions keep working for anything that cannot mint.
 
-A call without `X-WorkState-Agent` and without a minted token has **no session**: it writes `session_id` NULL, renders as its role
+**Or by naming itself (2026-10-26, unit `mature/session-names`).** A hand-started session shares the
+user-scope static registration, so it has no header of its own — and a fixed `X-WorkState-Agent` in
+`~/.claude.json` would give every session the same name. The registration's `headersHelper`,
+`session-header.mjs` (installed by `workstate-setup`), sends `X-WorkState-Client:
+<host>/<pid>/<start epoch s>` of the nearest Claude Code ancestor process — found in the process table,
+never from `CLAUDE_PID`/`CLAUDE_JOB_DIR`, which are inherited from whoever started the process — and
+`X-WorkState-Agent` too when `claude agents --json` lists that pid with a name (background sessions;
+a fresh interactive one may not be listed yet). `work_session(name, claude_session_id?)` binds the
+request's key to the row for `name` (created as a header would create it), moving the key off any
+other row. It is refused for a name another key used within the lease window (the claim TTL), for a
+minted session's name, and under the launcher rule below. `agent_session.client_key` is unique per
+workspace (migration `SessionClientKey`).
+
+**Resolution order, per request.** (a) a minted `wss_` token → its session; both `X-WorkState-Agent`
+and `X-WorkState-Client` are ignored. (b) `X-WorkState-Agent` → the session by name; with
+`X-WorkState-Client` also present, that key is bound to it. (c) only `X-WorkState-Client` → the
+session the key is bound to, if any. (d) otherwise no session.
+
+A call that resolves to no session has **no session**: it writes `session_id` NULL, renders as its role
 exactly as before doc 11, and keeps today's per-tree behaviour (a sessionless claim holds its tree
-alone). `work_brief` tells such a caller, in one line under its header, how to register; write tools
-say nothing.
+alone). `work_brief` tells such a caller, in one line under its header, what to do: with a client key,
+the `work_session(name:…)` call; without one, the setup that installs the helper. Write tools say
+nothing.
 
 ### Why headers only
 The MCP SDK (ModelContextProtocol 2.2.0) defaults the Streamable HTTP transport to

@@ -32,8 +32,8 @@ public sealed class WorkWriteTools(
     [Description("""
         Moves an item: open → ready → in_progress → review → done. in_progress takes a claim on the
         working tree; done is refused until every criterion is checked, an orchestrator verification
-        exists, no child is open and no blocker finding targets it. Read the refusal — it names the
-        call for each thing missing. Deferring is a move, not a status: it needs target: and creates
+        exists, no child is open and no blocker finding targets it. The refusal names the call for
+        each thing missing. Deferring is a move, not a status: it needs target: and creates
         a real open item there, so nothing is dropped silently.
         Next: after in_progress, work_verify; after done, work_next.
         """)]
@@ -137,8 +137,7 @@ public sealed class WorkWriteTools(
     [Description("""
         Creates items in one call, because a decomposition is one decision. Kinds: project, feature,
         run, phase, task, subtask, finding, followup, question, incident, spike.
-        It refuses a task with no verify_cmd or no done-criterion — a brief that omits either cannot
-        be closed honestly, so it cannot be written.
+        It refuses a task with no verify_cmd or no done-criterion: it could not be closed honestly.
         Next: work_link if any depends on another, then work_next.
         """)]
     public async Task<CallToolResult> CreateAsync(
@@ -191,8 +190,7 @@ public sealed class WorkWriteTools(
     [Authorize(Policy = WorkStatePolicies.Orchestrator)]
     [McpServerTool(Name = "work_move", Title = "Reshape: reparent or reorder")]
     [Description("""
-        Reparents an item, or slots it before or after a sibling. Ordering is fractional, so
-        inserting 2.1b between 2.1 and 2.2 rewrites one row and renumbers nothing.
+        Reparents an item, or slots it before or after a sibling. Nothing is renumbered.
         Next: work_tree(scope) to confirm the shape.
         """)]
     public async Task<CallToolResult> MoveAsync(
@@ -212,7 +210,7 @@ public sealed class WorkWriteTools(
     [Description("""
         Records an edge: blocks (the frontier reads it), supersedes (which marks the target
         superseded in the same transaction), duplicates, derived_from, verifies. A blocks cycle is
-        refused by the database, naming the edge that would close it.
+        refused, naming the edge that would close it.
         Next: work_next — the frontier has just changed.
         """)]
     public async Task<CallToolResult> LinkAsync(
@@ -300,9 +298,8 @@ public sealed class WorkWriteTools(
     [Description("""
         Records a rule that binds, or retires one by ref. It renders in the BINDING block of every
         brief in scope, as C1, C2, … — the ref is how you cite, question or retire it later.
-        A red_line needs route: — what to do instead, or who to ask. A prohibition with no way out
-        is a trap, and "stop and report it" is a route.
-        Retiring leaves the row with active = false, so the audit keeps what used to bind.
+        A red_line needs route: — what to do instead, or who to ask; "stop and report it" is a route.
+        Retiring keeps the row (active = false) for the audit.
         Next: nothing. It is a side effect, not a step.
         """)]
     public async Task<CallToolResult> ConstrainAsync(
@@ -343,8 +340,7 @@ public sealed class WorkWriteTools(
     [McpServerTool(Name = "work_finding", Title = "Judge: what a review or gate found")]
     [Description("""
         Records what a review, gate or audit found as real items against their targets. A blocker
-        finding blocks its target's done transition until it is closed or deferred — the gate result
-        that used to dissolve into prose.
+        finding blocks its target's done transition until it is closed or deferred.
         Next: work_status(ref, "in_progress") on the target, or deferred on the finding.
         """)]
     public async Task<CallToolResult> FindingAsync(

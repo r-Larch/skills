@@ -328,6 +328,15 @@ import and for nobody else: every static token's and every ungranted session's `
 byte-for-byte what it was before the tool existed (pinned by `ImportVisibilityTests`). The tool costs
 538 tokens of `tools/list`; a granted orchestrator's `work_*` list is 6,849.
 
+**Self-naming — `work_session(name, claude_session_id?)`** (doc 11). Hidden the same way: the
+`self-namer` policy needs any agent role **and** a `workstate:client-key` claim, which the bearer
+handler adds only for a **static** token on a request carrying `X-WorkState-Client` (the session
+helper's key). A minted session never lists it — its name is its credential's — and neither does a
+session without the helper, whose `work_brief` names `/rlarch:workstate-setup` instead. Every other
+`tools/list` is unchanged bytes. Measured 2026-10-26 (chars/4): the tool costs 147–148 tokens; to keep
+a keyed orchestrator inside the 6,400 budget, seven orchestrator-only descriptions were trimmed, so the
+lists are worker 1,943 → 2,091 keyed, orchestrator/controller 6,212 → 6,359 keyed.
+
 Tokens are minted per agent with a scope and a TTL, so a nested `claude --bg` launch carries a token
 that only reaches its own unit. The `actor` on every event comes from the token, never from a
 self-declared argument — which is what makes the web UI's audit trail trustworthy when six agents are

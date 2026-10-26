@@ -47,6 +47,10 @@ namespace WorkState.Core.Migrations
                         .HasColumnType("text")
                         .HasColumnName("claude_session_id");
 
+                    b.Property<string>("ClientKey")
+                        .HasColumnType("text")
+                        .HasColumnName("client_key");
+
                     b.Property<string>("ClientName")
                         .HasColumnType("text")
                         .HasColumnName("client_name");
@@ -148,6 +152,11 @@ namespace WorkState.Core.Migrations
                     b.HasIndex("TokenHash")
                         .IsUnique()
                         .HasDatabaseName("agent_session_token_hash_unique");
+
+                    b.HasIndex("WorkspaceId", "ClientKey")
+                        .IsUnique()
+                        .HasDatabaseName("agent_session_client_key_unique")
+                        .HasFilter("client_key IS NOT NULL");
 
                     b.HasIndex("WorkspaceId", "Name")
                         .IsUnique()

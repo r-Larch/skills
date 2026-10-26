@@ -232,7 +232,8 @@ public sealed partial class BoardReader(WorkStateQueries queries, BoardQueries b
         string variant,
         Housekeeping housekeeping,
         CancellationToken cancellationToken = default,
-        bool signed = false)
+        bool signed = false,
+        bool keyed = false)
     {
         await housekeeping.SweepAsync(scope.WorkspaceId, cancellationToken);
 
@@ -243,20 +244,24 @@ public sealed partial class BoardReader(WorkStateQueries queries, BoardQueries b
             await housekeeping.ConsumeNotesAsync(scope.Item.Id, rendered, cancellationToken);
         }
 
-        return signed ? brief : Unsigned(brief);
+        return signed ? brief : Unsigned(brief, keyed);
     }
+
+    public const string UnnamedKeyed = "session  unnamed — work_session(name:\"<the name ListAgents shows for you>\")";
+
+    public const string UnnamedBare =
+        "session  unnamed — /rlarch:workstate-setup installs the session helper; then start a new session";
 
     /// <summary>
     /// doc 11 — a caller with no session writes as its role alone, and two of them on one token
     /// cannot be told apart. Said under the header, where every session looks first, and only here:
-    /// a write tool answers an unnamed caller without comment.
+    /// a write tool answers an unnamed caller without comment. A caller whose helper sends a client
+    /// key can name itself in one call; one without it needs the setup first.
     /// </summary>
-    private static string Unsigned(string brief)
+    private static string Unsigned(string brief, bool keyed)
     {
         var lines = brief.Split('\n').ToList();
-        lines.Insert(
-            Math.Min(1, lines.Count),
-            "session  unnamed — register WorkState with header X-WorkState-Agent:<name> to sign your work");
+        lines.Insert(Math.Min(1, lines.Count), keyed ? UnnamedKeyed : UnnamedBare);
         return string.Join("\n", lines);
     }
 

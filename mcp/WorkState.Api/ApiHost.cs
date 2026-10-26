@@ -82,6 +82,11 @@ public static class ApiHost
                 .RequireAuthenticatedUser()
                 .RequireRole(WorkStatePolicies.Orchestrator)
                 .RequireClaim(CallerSession.GrantClaim, Core.Domain.SessionGrants.Import))
+            .AddPolicy(WorkStatePolicies.SelfNamer, policy => policy
+                .AddAuthenticationSchemes(StaticTokenHandler.SchemeName)
+                .RequireAuthenticatedUser()
+                .RequireRole(WorkStatePolicies.Worker)
+                .RequireClaim(CallerSession.ClientKeyClaim))
 
             // The fifth policy names the cookie scheme and nothing else, exactly as the four above
             // name the bearer scheme and nothing else. That is what "two schemes that never cross"
