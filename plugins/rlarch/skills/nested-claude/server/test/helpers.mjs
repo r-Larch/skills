@@ -16,9 +16,17 @@ export const MINTED_TOKEN = 'wss_FAKEminted0123456789abcdefMINTED'
 export const CONTROLLER_TOKEN = 'ctl_FAKEcontroller0123456789SECRET'
 export const CONTROLLER = 'skills-5d [e50df6]'
 
+/** @type {string[]} */
+const created = []
+process.on('exit', () => {
+    for (const d of created) fs.rmSync(d, { recursive: true, force: true })
+})
+
 /** @param {string} prefix */
 export function tmp(prefix) {
-    return fs.mkdtempSync(path.join(os.tmpdir(), `agents-${prefix}-`))
+    const d = fs.mkdtempSync(path.join(os.tmpdir(), `agents-${prefix}-`))
+    created.push(d)
+    return d
 }
 
 /**
