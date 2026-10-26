@@ -4,7 +4,7 @@ What changes for someone who has the `rlarch` plugin installed, newest first. Fo
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions are the `version` field in
 `plugins/rlarch/.claude-plugin/plugin.json`, which is what the updater gates on.
 
-## [Unreleased]
+## [2.4.0] - 2026-10-27
 
 ### Added
 
@@ -14,8 +14,11 @@ What changes for someone who has the `rlarch` plugin installed, newest first. Fo
   its name when `claude agents` knows it. `work_session(name)` binds a hand-started session to the
   name `ListAgents` shows; `/rlarch:controller` and `/rlarch:orchestrate` call it when `work_brief`
   says the session is unnamed. A minted session keeps its name; two live sessions cannot share
-  one. Existing installs: run the setup script once with `--session-names`, then start a new
-  session.
+  one. Existing installs: run the setup script once with `--session-names` (`-SessionNames` in
+  PowerShell), then start a new session. A local-scope `workstate` entry in a repo overrides the
+  user registration there and has no helper; `claude mcp remove workstate -s local` in that repo
+  removes it.
+- WorkState server **0.6.0** (rebuild to get it; one additive migration, `SessionClientKey`).
 
 ### Fixed
 
