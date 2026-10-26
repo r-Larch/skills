@@ -61,6 +61,12 @@ For every claim a file makes, **read the code it talks about** and assign one ve
 | **drop — superseded** | a later plan, ADR or the code contradicts it | nothing; name what supersedes it |
 | **ask** | you cannot tell from the code, or two sources disagree | a question to the human |
 
+**A living contract is referenced, never copied.** `AGENTS.md`, `CLAUDE.md`, `CONTRIBUTING.md`, agent
+rule files and a spec the team keeps current are already loaded or read by every agent; a copy of their
+rules in WorkState goes stale the first time the file changes, and every brief pays for it. Do not turn
+them into `rule` records. What they *lack* is still yours: a gap between the contract and the code (a
+stale count, a promise the code does not keep) is a **followup** with the contract as its `source`.
+
 Shape what you keep:
 - A coherent body of work is a **run**; its stages **phases**; its units **tasks** only when you can
   name a `verify_cmd` that can fail and at least one done-criterion — otherwise a **followup**
