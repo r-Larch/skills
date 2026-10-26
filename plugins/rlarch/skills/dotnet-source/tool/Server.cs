@@ -16,6 +16,7 @@
 
 using System.Diagnostics;
 using System.IO.Pipes;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 using Microsoft.CodeAnalysis;
@@ -42,15 +43,29 @@ static class Server
         DeclIndex.Hash($"{root.ToLowerInvariant()}|{typeof(Server).Assembly.ManifestModule.ModuleVersionId}");
 
     /// <summary>
-    /// Presence marker for a live daemon. Held open by the daemon with FileOptions.DeleteOnClose,
-    /// which makes it self-cleaning: the OS drops the handle even on a hard kill, so a stale marker
-    /// can't outlive the process that made it.
+    /// Presence marker for a live daemon: its pid, then its root.
     ///
     /// It exists so a client can tell "no daemon" (skip the probe entirely — stateless commands
     /// shouldn't pay for a connect timeout) apart from "daemon is busy serving someone else" (wait
     /// and queue, instead of silently falling back to the 15s stateless path).
+    ///
+    /// How long it lives differs per OS:
+    ///  * Windows: the daemon holds it open with FileOptions.DeleteOnClose, which the kernel honours
+    ///    on any exit, so even a hard-killed daemon leaves no marker.
+    ///  * macOS/Linux: .NET only emulates DeleteOnClose by unlinking in Dispose, so a killed daemon
+    ///    (kill -9, a killed process group) LEAVES its marker. That is why the single-instance lock
+    ///    is a separate file there (LockPath) and why LiveDaemonPid checks the pid it reads.
     /// </summary>
     static string PresencePath(string root) => Path.Combine(Paths.CacheRoot, "daemons", $"{Key(root)}.pid");
+
+    /// <summary>
+    /// macOS/Linux single-instance lock, held with FileShare.None for the daemon's whole life. .NET
+    /// implements that as flock(LOCK_EX | LOCK_NB), which the kernel drops when the process dies,
+    /// however it dies. The file is never deleted: unlinking a flock'd path lets one contender lock
+    /// the orphaned inode while another creates and locks a new one — two daemons.
+    /// (DOTNET_SYSTEM_IO_DISABLEFILELOCKING=1 turns the flock off and with it this guarantee.)
+    /// </summary>
+    static string LockPath(string root) => Path.ChangeExtension(PresencePath(root), ".lock");
 
     static int? LiveDaemonPid(string root)
     {
@@ -61,8 +76,17 @@ static class Server
             using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
             using var sr = new StreamReader(fs);
             if (!int.TryParse(sr.ReadLine(), out var pid)) return null;
-            try { using var _ = Process.GetProcessById(pid); return pid; }
-            catch { return null; }   // marker outlived its process (shouldn't happen; be safe anyway)
+            try
+            {
+                using var p = Process.GetProcessById(pid);
+                if (p.HasExited) return null;
+                // A marker left by a killed unix daemon can name a pid the OS has since reused; a
+                // process started after the marker was written cannot be the daemon that wrote it.
+                if (!OperatingSystem.IsWindows()
+                    && p.StartTime.ToUniversalTime() > File.GetLastWriteTimeUtc(path).AddSeconds(5)) return null;
+                return pid;
+            }
+            catch { return null; }   // the marker outlived its process
         }
         catch { return null; }
     }
@@ -270,38 +294,53 @@ static class Server
         catch { /* logging must never take the daemon down */ }
     }
 
+    [DllImport("libc", SetLastError = true)]
+    static extern int setsid();
+
+    /// <summary>Kept alive for the daemon's lifetime: disposing it restores the default SIGHUP.</summary>
+    static PosixSignalRegistration? _ignoreHangup;
+
+    /// <summary>
+    /// Leave the caller's session (macOS/Linux). The detached child otherwise stays in its caller's
+    /// process group and session, so a harness killing that group when its command ends, or a
+    /// hangup of the caller's terminal, takes the daemon down with it. setsid() rather than
+    /// /usr/bin/setsid: macOS has no setsid(1). It cannot fail with EPERM here, because a child
+    /// .NET spawns is never a process-group leader.
+    /// </summary>
+    static void LeaveCallerSession()
+    {
+        if (setsid() < 0) Say($"setsid failed (errno {Marshal.GetLastPInvokeError()}); the daemon stays in its caller's session");
+        _ignoreHangup = PosixSignalRegistration.Create(PosixSignal.SIGHUP, c => c.Cancel = true);
+    }
+
     static int Foreground(Args a, Stopwatch sw)
     {
         _log = a.Str("log");
+        // --log means Detach spawned us. Run by hand in a terminal we stay in it, so Ctrl+C and a
+        // closed terminal still stop us.
+        if (_log is not null && !OperatingSystem.IsWindows()) LeaveCallerSession();
         var set = Discovery.Resolve(a, a.Has("include-generated"));
 
-        // Single-instance lock AND presence marker in one atomic step. CreateNew is the race
-        // resolver: if two agents `serve` the same solution at the same instant, exactly one
-        // creates the file and the other is told who won — instead of both spending 5s building a
-        // Solution and the loser then dying on a pipe collision.
-        // DeleteOnClose means the marker cannot outlive this process, even if it's killed.
-        FileStream presence;
+        // Single-instance lock AND presence marker: if two agents `serve` the same solution at the
+        // same instant, exactly one wins and the other is told who won — instead of both spending
+        // 5s building a Solution and the loser then stealing the pipe (on unix a second server
+        // unlinks the live one's socket and binds its own).
         var presencePath = PresencePath(set.Root);
         Directory.CreateDirectory(Path.GetDirectoryName(presencePath)!);
-        try
+        var instance = OperatingSystem.IsWindows() ? ClaimWindows(set.Root) : ClaimUnix(set.Root);
+        if (instance is null)
         {
-            presence = new FileStream(presencePath, FileMode.CreateNew, FileAccess.Write,
-                FileShare.Read | FileShare.Delete, 4096, FileOptions.DeleteOnClose);
-        }
-        catch (IOException)
-        {
+            // The winner writes its marker right after taking the lock; give it that moment, so
+            // our parent (which watches the marker once we exit) knows a daemon is coming up.
             var pid = LiveDaemonPid(set.Root);
+            for (var i = 0; pid is null && i < 20; i++) { Thread.Sleep(100); pid = LiveDaemonPid(set.Root); }
             Say($"another daemon is already serving {set.Root}"
               + (pid is null ? " (its marker is stale — retry in a moment)" : $" (pid {pid})"));
             return 0;
         }
 
-        using (presence)
+        using (instance)
         {
-            using var w = new StreamWriter(presence) { AutoFlush = true };
-            w.WriteLine(Environment.ProcessId);
-            w.WriteLine(set.Root);
-
             Say($"building the semantic workspace for {set.Root} …");
             var loaded = WorkspaceBuilder.Build(set);
             var state = new ServerState(loaded);
@@ -310,6 +349,59 @@ static class Server
 
             return Listen(set, state);
         }
+    }
+
+    /// <summary>
+    /// Windows: the marker IS the lock. CreateNew lets exactly one contender create it, and
+    /// DeleteOnClose means it cannot outlive this process, even if it's killed. Null if we lost.
+    /// </summary>
+    static IDisposable? ClaimWindows(string root)
+    {
+        FileStream presence;
+        try
+        {
+            presence = new FileStream(PresencePath(root), FileMode.CreateNew, FileAccess.Write,
+                FileShare.Read | FileShare.Delete, 4096, FileOptions.DeleteOnClose);
+        }
+        catch (IOException) { return null; }
+
+        var w = new StreamWriter(presence) { AutoFlush = true };
+        w.WriteLine(Environment.ProcessId);
+        w.WriteLine(root);
+        return w;
+    }
+
+    /// <summary>
+    /// macOS/Linux: the flock on LockPath decides who serves; only the holder then (re)writes the
+    /// marker, so a marker left by a killed daemon is simply overwritten. Released in order — marker
+    /// gone before the lock is — so the next holder never has its fresh marker deleted. Null if we lost.
+    /// </summary>
+    static IDisposable? ClaimUnix(string root)
+    {
+        FileStream lockFile;
+        try { lockFile = new FileStream(LockPath(root), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None); }
+        catch (IOException) { return null; }
+
+        var presencePath = PresencePath(root);
+        try
+        {
+            // Write-then-rename: a reader sees the old marker or the whole new one, never half.
+            var tmp = $"{presencePath}.{Environment.ProcessId}.tmp";
+            File.WriteAllText(tmp, $"{Environment.ProcessId}\n{root}\n");
+            File.Move(tmp, presencePath, overwrite: true);
+        }
+        catch { lockFile.Dispose(); throw; }
+
+        return new Release(() =>
+        {
+            try { File.Delete(presencePath); } catch { /* the next holder overwrites it anyway */ }
+            lockFile.Dispose();
+        });
+    }
+
+    sealed class Release(Action release) : IDisposable
+    {
+        public void Dispose() => release();
     }
 
     static int Listen(SolutionSet set, ServerState state)
