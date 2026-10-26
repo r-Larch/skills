@@ -51,6 +51,8 @@ installed user. Upgrading: **[upgrade_guide.md](upgrade_guide.md#upgrading-from-
   See [docs/workstate/14-agent-launch.md](docs/workstate/14-agent-launch.md).
 - **Per-session WorkState tokens** (`/api/agent-sessions`): `agent_launch` mints each agent its own
   token and role, and `agent_stop` revokes it — no token ever appears in a tool result or a brief.
+  A minted token's `ttlHours` (default 72) is an idle window that every use renews, with no hard cap:
+  it lapses only after that long unused.
 
 ### Changed
 

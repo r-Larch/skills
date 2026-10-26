@@ -47,7 +47,12 @@ public class AgentSession
     /// <summary>The role the minted token carries; unlike <see cref="Role"/>, this one is consulted.</summary>
     public ActorRole? GrantedRole { get; set; }
 
+    /// <summary>The current expiry: each use slides it to now plus <see cref="TokenTtlHours"/>, with no cap.</summary>
     public DateTimeOffset? TokenExpiresAt { get; set; }
+
+    /// <summary>The idle window the token was minted with; null on a row minted before it was stored, read as 72.</summary>
+    public int? TokenTtlHours { get; set; }
+
     public DateTimeOffset? RevokedAt { get; set; }
 
     /// <summary>The minted session that minted this one; null when a static token did.</summary>

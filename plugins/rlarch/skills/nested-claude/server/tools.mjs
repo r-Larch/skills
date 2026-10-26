@@ -50,7 +50,7 @@ export const TOOLS = [
                         role: { type: 'string', enum: ROLES, default: 'worker', description: '"none" mints nothing and passes no --mcp-config' },
                         env_file: { type: 'string', description: "PATH of the WorkState clone's mcp/.env (never its contents)" },
                         url: { type: 'string', default: DEFAULT_WORKSTATE_URL },
-                        ttl_hours: { type: 'integer', minimum: 1, maximum: 720 },
+                        ttl_hours: { type: 'integer', minimum: 1, maximum: 720, description: 'Idle window in hours (server default 72): the token lapses after this long unused; every use renews it, no hard cap' },
                     },
                     additionalProperties: false,
                 },
@@ -208,7 +208,7 @@ async function agentLaunch(input) {
         if (minted) {
             const err = await revokeSession({ url: p.workstate.url, controllerToken: /** @type {string} */ (controllerToken), sessionId: minted.sessionId })
             fs.rmSync(/** @type {string} */ (mcpConfigPath), { force: true })
-            cleanup = err ? ` The minted token could NOT be revoked (${err}); it expires ${minted.expiresAt ?? 'at its TTL'}.` : ' The minted token was revoked and its config deleted.'
+            cleanup = err ? ` The minted token could NOT be revoked (${err}); it lapses once unused past its idle window (current expiry ${minted.expiresAt ?? 'unknown'}, renewed on each use).` : ' The minted token was revoked and its config deleted.'
         }
         throw new Refusal(`${/** @type {Error} */ (e).message}${cleanup}`)
     }
@@ -249,7 +249,7 @@ async function agentLaunch(input) {
         `launched ${p.name} (id ${id}${rec.sessionId ? `, session ${rec.sessionId}` : ''})`,
         `brief: ${briefPath}`,
         `permission mode: ${p.permissionMode}; toolset: ${p.toolset}`,
-        ws ? `workstate: session ${ws.session}, role ${ws.role}, expires ${ws.expiresAt ?? '?'}` : 'workstate: none (no token minted, no --mcp-config)',
+        ws ? `workstate: session ${ws.session}, role ${ws.role}, idle expiry ${ws.expiresAt ?? '?'} (renewed on use)` : 'workstate: none (no token minted, no --mcp-config)',
         ...warnings.map((w) => `warning: ${w}`),
     ]
     return {
@@ -304,7 +304,7 @@ async function agentStop(input) {
             revoked = true
             done.push(`revoked WorkState session ${rec.workstate.sessionId}`)
         } catch (e) {
-            problems.push(`could not revoke WorkState session ${rec.workstate.sessionId}: ${/** @type {Error} */ (e).message}; the token stays valid until ${rec.workstate.expiresAt ?? 'its TTL'}. Retry agent_stop.`)
+            problems.push(`could not revoke WorkState session ${rec.workstate.sessionId}: ${/** @type {Error} */ (e).message}; the token stays valid until unused past its idle window (expiry ${rec.workstate.expiresAt ?? 'unknown'} when minted, renewed on each use). Retry agent_stop.`)
         }
     } else if (!rec) {
         notes.push('no launch record for this agent, so no token was revoked and no files were deleted')
