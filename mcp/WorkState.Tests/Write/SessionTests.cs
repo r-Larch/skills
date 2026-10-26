@@ -91,7 +91,7 @@ public sealed class SessionTests(PostgresFixture fixture)
         await using var unnamed = await server.ConnectAsync(ReadServer.OrchestratorToken, Ct);
         await using var named = await ConnectAsync(server, ReadServer.OrchestratorToken, Agent("aw-m4"));
 
-        const string hint = "session  unnamed — register WorkState with header X-WorkState-Agent:<name>";
+        const string hint = "session  unnamed — /rlarch:workstate-setup installs the session helper";
 
         var bare = (await ReadServer.CallAsync(unnamed, "work_brief", null, Ct)).Split('\n');
         Assert.StartsWith(hint, bare[1], StringComparison.Ordinal);

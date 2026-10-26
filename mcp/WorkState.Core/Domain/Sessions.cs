@@ -68,6 +68,12 @@ public class AgentSession
     /// orchestrator or controller; <see cref="SessionGrants.Import"/> is the one there is.
     /// </summary>
     public string[] Grants { get; set; } = [];
+
+    /// <summary>
+    /// doc 11 — <c>X-WorkState-Client</c> of the process this session runs in, bound by
+    /// <c>work_session</c> or an <c>X-WorkState-Agent</c> call carrying it. Unique per workspace.
+    /// </summary>
+    public string? ClientKey { get; set; }
 }
 
 public static class SessionGrants

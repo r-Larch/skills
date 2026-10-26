@@ -186,7 +186,8 @@ public sealed partial class RenderedCallTests(PostgresFixture fixture)
 
     /// <summary>
     /// The static controller's tools/list, unioned with a minted controller's that carries every
-    /// grant: some tools (work_import) are shown only to granted sessions, never to a static token.
+    /// grant and with a static controller's whose request carries X-WorkState-Client: some tools are
+    /// shown only to granted sessions (work_import) or only to a keyed static one (work_session).
     /// </summary>
     private async Task<Dictionary<string, HashSet<string>>> DeclaredAsync()
     {
@@ -196,9 +197,15 @@ public sealed partial class RenderedCallTests(PostgresFixture fixture)
             server, ReadServer.ControllerToken, new { name = "aw-rendered", role = "controller", grants = new[] { "import" } });
 
         var declared = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
-        foreach (var token in new[] { ReadServer.ControllerToken, ImportVisibilityTests.Token(minted) })
+        var keyed = new Dictionary<string, string> { [WorkState.Mcp.CallerSession.ClientHeader] = "host/1/1" };
+        foreach (var (token, headers) in new[]
+                 {
+                     (ReadServer.ControllerToken, null),
+                     (ImportVisibilityTests.Token(minted), null),
+                     (ReadServer.ControllerToken, keyed),
+                 })
         {
-            await using var client = await server.ConnectAsync(token, Ct);
+            await using var client = await server.ConnectAsync(token, Ct, headers);
             foreach (var t in await client.ListToolsAsync(cancellationToken: Ct))
             {
                 declared[t.Name] = t.ProtocolTool.InputSchema.TryGetProperty("properties", out var properties)

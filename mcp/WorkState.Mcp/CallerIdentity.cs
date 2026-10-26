@@ -27,6 +27,9 @@ public sealed class CallerIdentity(IHttpContextAccessor accessor)
         }
     }
 
+    /// <summary>The session helper's key, when a static agent token sent one; never a minted token's.</summary>
+    public string? ClientKey => accessor.HttpContext?.User.FindFirst(CallerSession.ClientKeyClaim)?.Value;
+
     private Actor Role
     {
         get

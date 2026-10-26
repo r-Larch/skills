@@ -30,6 +30,12 @@ public static class WorkStatePolicies
     public const string Importer = "importer";
 
     /// <summary>
+    /// <c>work_session</c>. A static agent token on a request carrying <c>X-WorkState-Client</c>; a
+    /// minted token never gets the claim, so neither it nor a session without the helper lists the tool.
+    /// </summary>
+    public const string SelfNamer = "self-namer";
+
+    /// <summary>
     /// Any agent token. <c>/mcp</c> requires it, so an unknown token never reaches a tool — and
     /// neither does a reader token, which authenticates but holds no agent role.
     /// </summary>

@@ -59,7 +59,12 @@ public sealed class WorkReadTools(
         // BriefSessionAsync, because GET /api/v1/items/{id}/brief must perform the identical writes in
         // the identical order or the two surfaces return different bytes for the same scope.
         var brief = await reader.BriefSessionAsync(
-            found, @for ?? "resume", housekeeping, cancellationToken, signed: caller.Actor.SessionId is not null);
+            found,
+            @for ?? "resume",
+            housekeeping,
+            cancellationToken,
+            signed: caller.Actor.SessionId is not null,
+            keyed: caller.ClientKey is not null);
 
         return Text(string.IsNullOrWhiteSpace(scope) && byRepo is null ? WithoutRepo(brief) : brief);
     }
@@ -104,7 +109,7 @@ public sealed class WorkReadTools(
     [Authorize(Policy = WorkStatePolicies.Orchestrator)]
     [McpServerTool(Name = "work_tree", Title = "Orient: the shape", ReadOnly = true)]
     [Description("""
-        The shape of a scope: an indented tree, two spaces per level, with a done/total rollup on
+        The shape of a scope: an indented tree with a done/total rollup on
         every container and blocking edges marked on the rows they hold up.
         Reach for it to see where a ref sits or how much of a phase is left — not to decide what to
         do next, which is work_next's job.

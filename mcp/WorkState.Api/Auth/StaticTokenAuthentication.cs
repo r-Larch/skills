@@ -61,7 +61,14 @@ public sealed class StaticTokenHandler(
 
         if (roles.Length > 0)
         {
-            return AuthenticateResult.Success(Ticket(Identity(roles)));
+            var identity = Identity(roles);
+            if (roles.Contains(WorkStatePolicies.Worker)
+                && Request.Headers[CallerSession.ClientHeader].ToString().Trim() is { Length: > 0 } key)
+            {
+                identity.AddClaim(new Claim(CallerSession.ClientKeyClaim, key));
+            }
+
+            return AuthenticateResult.Success(Ticket(identity));
         }
 
         return presented.StartsWith(SessionToken.Prefix, StringComparison.Ordinal)

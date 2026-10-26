@@ -70,6 +70,10 @@ public class WorkStateDbContext(DbContextOptions<WorkStateDbContext> options) : 
             e.HasIndex(x => x.TokenHash)
                 .HasDatabaseName("agent_session_token_hash_unique")
                 .IsUnique();
+            e.HasIndex(x => new { x.WorkspaceId, x.ClientKey })
+                .HasDatabaseName("agent_session_client_key_unique")
+                .IsUnique()
+                .HasFilter("client_key IS NOT NULL");
             e.HasOne<AgentSession>().WithMany().HasForeignKey(x => x.MintedBySessionId).OnDelete(DeleteBehavior.SetNull);
             e.Property(x => x.Grants).HasDefaultValueSql("'{}'::text[]");
             e.ToTable(t => t.HasCheckConstraint("agent_session_grants_known", "grants <@ ARRAY['import']::text[]"));
