@@ -138,9 +138,24 @@ as `projects[].repos`.
    {…, repo:{remote, root}}`, which `agent_launch` always sends) → the same, from the stored keys.
 3. a repo is known but unbound → onboarding naming `work_create(… repo: <the same keys>)`, and
    `work_update(ref:"<project>", repo:…)` with the projects that exist.
-4. no repo known → the busiest run of the workspace, as before, plus one line: pass `repo:`.
+4. no repo known, and at most one live project → the busiest run of the workspace, plus one line:
+   pass `repo:`.
+5. no repo known, and several live projects → **no run is opened.** A chooser: `NEXT
+   work_brief(repo:{remote, root})`, `OR work_brief(scope:"<project>")` for each project, newest
+   activity first, eight shown and `+N more — work_search(q:"…")` for the rest. Live means not
+   archived, cancelled or superseded. It is resolved before the brief's housekeeping, so it sweeps
+   no claim and consumes no note.
 
 `scope` given → unchanged; the repo plays no part.
+
+**Other unscoped reads.** `work_next`, `work_tree`, `work_threads`, `work_audit`, `work_search`'s and
+`work_history`'s attention block, and the fixed `work://` resources resolve a missing scope the same
+way for a minted session with a bound repo: that project's busiest run. Any other caller keeps the
+busiest run of the workspace. `work_get`'s attention block is that of the run its first ref sits in.
+
+> **Changed 2026-10-26 (bare-brief).** Step 4 applied to every workspace: a hand-started session in
+> one repo was handed another project's run with a bare `work_brief()`, and a minted session's
+> `work_next()` read the workspace's busiest run rather than its own project's.
 
 > **Changed 2026-10-26 (project-brief).** Steps 1 and 2 opened the bound project's busiest run. A
 > fresh session in the repo then saw one run's brief and nothing of the others, of what had closed
@@ -161,8 +176,9 @@ ALTER TABLE item ADD COLUMN archived_at timestamptz NULL
   doc 10). Either journals an `archived` / `unarchived` event with who did it. Archiving what is
   already archived changes nothing and journals nothing.
 - **Hidden from** the default lists: the dashboard's sidebar and overview (behind an *Archived (n)*
-  toggle), the onboarding list of projects to bind a repo to, and the busiest-run fallback of a bare
-  `work_brief` (an archived project's runs rank after every live one).
+  toggle), the onboarding list of projects to bind a repo to, the project chooser of a bare
+  `work_brief` (an archived project is neither counted nor listed), and the busiest-run fallback
+  (an archived project's runs rank after every live one).
 - **Still resolves.** By ref (`work_brief(scope:"x")`), and by repo (`work_brief(repo:…)` opens it):
   the brief's header line ends `· archived <date>`. The v1 overview still lists it, with `archivedAt`.
 - **New work un-archives.** `work_create` of any item under an archived project clears `archived_at`
