@@ -22,6 +22,7 @@ public static class ScopeExplain
     {
         ScopeResult.Empty => BriefRenderer.Onboarding(),
         ScopeResult.Unbound unbound => BriefRenderer.Unbound(unbound.Keys, unbound.Projects),
+        ScopeResult.Unchosen unchosen => BriefRenderer.Unchosen(unchosen.Projects),
         ScopeResult.Ambiguous ambiguous => Ambiguous(ambiguous, call),
         ScopeResult.Missing missing => Missing(missing, call),
         _ => Refusal.Blocked(

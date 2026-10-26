@@ -146,8 +146,8 @@ public sealed class ProjectArchiveTests(PostgresFixture fixture)
         await using var server = await AppServer.StartAsync(fixture.ConnectionString, world.Slug, Ct);
         await using var client = await server.ConnectAsync(ReadServer.OrchestratorToken, Ct);
 
-        // The archivable project's run is the busiest, so a bare brief lands there until it is archived.
-        Assert.Contains("arch-run", await FirstLineAsync(client, null), StringComparison.Ordinal);
+        // Two live projects: a bare brief opens neither's run until one is archived (bare-brief).
+        Assert.Equal("RUN —  ·  repo not given, and this workspace holds 2 projects", await FirstLineAsync(client, null));
 
         Assert.False((await world.Writer.UpdateAsync(world.WorkspaceId, WriteSeed.Orchestrator, "arch",
             new UpdateArgs(Archived: true), Ct)).Refused);

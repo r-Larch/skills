@@ -36,8 +36,15 @@ public sealed partial class BoardQueries(NpgsqlDataSource dataSource)
     /// The scope an unqualified call lands on: the run with the most unfinished work, else any run,
     /// else the project. A cold agent that names nothing still gets the board it meant.
     /// </summary>
+    public Task<ScopeRef?> DefaultScopeAsync(
+        Guid workspaceId,
+        CancellationToken cancellationToken = default)
+        => DefaultScopeAsync(workspaceId, null, cancellationToken);
+
+    /// <summary>The same order, kept to <paramref name="under"/> and its subtree when given.</summary>
     public async Task<ScopeRef?> DefaultScopeAsync(
         Guid workspaceId,
+        Guid? under,
         CancellationToken cancellationToken = default)
     {
         const string sql =
@@ -48,6 +55,7 @@ public sealed partial class BoardQueries(NpgsqlDataSource dataSource)
              JOIN   item_kind k ON k.key = i.kind
              LEFT JOIN item_rollup r ON r.id = i.id
              WHERE  i.workspace_id = @workspace AND i.kind IN ('run','project')
+               AND  (@under::uuid IS NULL OR i.id = @under OR i.ancestors @> ARRAY[@under]::uuid[])
              ORDER BY EXISTS (SELECT 1 FROM item ap
                               WHERE  (ap.id = i.id OR ap.id = ANY(i.ancestors))
                                 AND  ap.archived_at IS NOT NULL),
@@ -58,7 +66,7 @@ public sealed partial class BoardQueries(NpgsqlDataSource dataSource)
              LIMIT 1;
              """;
 
-        return await SingleAsync<ScopeRef>(sql, new { workspace = workspaceId }, cancellationToken);
+        return await SingleAsync<ScopeRef>(sql, new { workspace = workspaceId, under }, cancellationToken);
     }
 
     /// <summary>
@@ -270,6 +278,45 @@ public sealed partial class BoardQueries(NpgsqlDataSource dataSource)
         }
 
         return await UniqueRefAsync(item.WorkspaceId, item, cancellationToken) ?? qualified;
+    }
+
+    /// <summary>
+    /// <see cref="UniqueRefAsync"/> for a row that carries only an id and its bare ref, such as a
+    /// search hit or a row <c>work_create</c> just committed: the bare ref while it resolves to that
+    /// item alone, else the shortest form that does.
+    /// </summary>
+    public async Task<string> PrintableRefAsync(
+        Guid workspaceId,
+        Guid itemId,
+        string reference,
+        CancellationToken cancellationToken = default)
+    {
+        var matches = await ResolveAsync(workspaceId, reference, cancellationToken);
+        if (matches is [var only] && only.Id == itemId)
+        {
+            return reference;
+        }
+
+        return matches.FirstOrDefault(m => m.Id == itemId) is { } match
+            ? await UniqueRefAsync(workspaceId, match, cancellationToken) ?? match.QualifiedRef ?? reference
+            : reference;
+    }
+
+    /// <summary>The run the item is, or sits in; null for a project, a feature or an orphan.</summary>
+    public async Task<ScopeRef?> RunOfAsync(Guid itemId, CancellationToken cancellationToken = default)
+    {
+        const string sql =
+            $"""
+             SELECT {ScopeColumns}
+             FROM   item x
+             JOIN   item i ON (i.id = x.id OR i.id = ANY(x.ancestors)) AND i.kind = 'run'
+             LEFT JOIN item s ON s.id = i.ref_scope_id AND s.id <> i.id
+             WHERE  x.id = @id
+             ORDER  BY coalesce(array_position(x.ancestors, i.id), 2147483647) DESC
+             LIMIT  1;
+             """;
+
+        return await SingleAsync<ScopeRef>(sql, new { id = itemId }, cancellationToken);
     }
 
     /// <summary>

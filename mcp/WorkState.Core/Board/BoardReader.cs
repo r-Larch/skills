@@ -97,6 +97,82 @@ public sealed partial class BoardReader(WorkStateQueries queries, BoardQueries b
     }
 
     /// <summary>
+    /// <c>work_brief</c> with no scope and no repository known. With one live project, or none, that
+    /// is <see cref="ResolveAsync"/>'s busiest run as it always was; with several it is
+    /// <see cref="ScopeResult.Unchosen"/>, because the busiest run of the whole workspace is as likely
+    /// another project's as the caller's. Archived, cancelled and superseded projects do not count.
+    /// </summary>
+    public async Task<ScopeResult> ResolveUnscopedBriefAsync(
+        string? workspaceSlug,
+        CancellationToken cancellationToken = default)
+    {
+        if (await board.WorkspaceAsync(workspaceSlug, cancellationToken) is { } workspace)
+        {
+            var live = (await board.ProjectsAsync(workspace, cancellationToken))
+                .Where(p => p.ArchivedAt is null
+                            && p.Status is not (ItemStatus.Cancelled or ItemStatus.Superseded))
+                .ToList();
+
+            if (live.Count > 1)
+            {
+                var choices = new List<ProjectChoice>(live.Count);
+                foreach (var project in live)
+                {
+                    var printed = choices.Count < BriefRenderer.UnboundProjectCap
+                        ? await board.PrintableRefAsync(workspace, project.Id, project.Ref, cancellationToken)
+                        : project.Ref;
+                    choices.Add(new ProjectChoice(printed, project.Title, project.OpenRuns, project.LastActivityAt));
+                }
+
+                return new ScopeResult.Unchosen(choices);
+            }
+        }
+
+        return await ResolveAsync(workspaceSlug, null, cancellationToken);
+    }
+
+    /// <summary>
+    /// The scope a call lands on when it names none. A caller whose project is known — a minted
+    /// session with repo keys — lands on that project's busiest run, never on another project's;
+    /// any other caller keeps <see cref="ResolveAsync"/>'s busiest run of the workspace.
+    /// </summary>
+    public async Task<ScopeResult> ResolveDefaultAsync(
+        string? workspaceSlug,
+        string? scope,
+        Guid? sessionId,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(scope)
+            && sessionId is { } session
+            && await ResolveRepoAsync(workspaceSlug, [], session, cancellationToken) is ScopeResult.Found project)
+        {
+            var busiest = await board.DefaultScopeAsync(project.WorkspaceId, project.Item.Id, cancellationToken);
+            return new ScopeResult.Found(project.WorkspaceId, busiest ?? project.Item);
+        }
+
+        return await ResolveAsync(workspaceSlug, scope, cancellationToken);
+    }
+
+    /// <summary>
+    /// The scope whose attention block rides on a read of <paramref name="reference"/>: the run that
+    /// item sits in, or the item itself above any run. A ref that does not resolve to one item keeps
+    /// <paramref name="fallback"/>.
+    /// </summary>
+    public async Task<ScopeResult.Found> AttentionScopeAsync(
+        ScopeResult.Found fallback,
+        string? reference,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(reference)
+            || await board.ResolveAsync(fallback.WorkspaceId, reference.Trim(), cancellationToken) is not [var item])
+        {
+            return fallback;
+        }
+
+        return new ScopeResult.Found(fallback.WorkspaceId, await board.RunOfAsync(item.Id, cancellationToken) ?? item);
+    }
+
+    /// <summary>
     /// A bare ref that exists in several runs is disambiguated in favour of the caller's own run.
     /// ACCEPTANCE A-1: the refusal named <c>document-store/3.1</c> to an agent working in
     /// <c>entity-store</c> — a callable line that satisfies doc 04 §3 and sends the caller to the
