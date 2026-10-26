@@ -320,6 +320,21 @@ Omitted entirely — header included — when empty.
 Every line is `<what> — <the call that fixes it>`. A line without a call is a defect: it is the
 1,241 ⚠ markers of the old corpus reinvented, and those are what this replaces.
 
+When more than 5 lines are due, the header counts both and a sixth line names the read that lists
+them all, as "What may be shortened" requires of a count cap:
+
+```
+--- attention (5 of 9) ---
+⚠ …five ranked lines…
++4 more — read work://attention/run-a with ReadMcpResourceTool
+```
+
+`work://attention/<scope>` prints every line, ranked, uncapped (doc 01 §8). No tool lists exactly
+these lines — expired claims and phase gates appear nowhere else — so the route is that resource.
+
+> **Changed 2026-10-26 (attention-cap).** The header gave the shown count and nothing listed the
+> rest: the one count cap that broke the noclip rule.
+
 Ranking: expired claims → blocker findings → **phases whose tasks are all done and whose gate has not
 run** → items done-but-unverified → assumptions past revisit → unconsumed notes for the current scope
 → stale `in_progress`.
@@ -417,7 +432,8 @@ Renderer tests are cheap and they are the only defence against drift back toward
 - [ ] **No uuid appears in any rendering, ever** — one regex over the output of every renderer.
 - [ ] Column positions hold for refs up to 6 chars and titles up to 34, and long titles get `…`.
 - [ ] A clean result emits **no** attention header, not an empty one.
-- [ ] The attention block never exceeds 5 lines, and **every line contains a `—` followed by a call**.
+- [ ] The attention block never exceeds 5 lines, and **every line contains a `—` followed by a call**;
+      past 5 a final `+N more — read work://attention/<scope>` line names the read that lists all.
 - [ ] A refusal lists **all** unmet conditions and every one has a `→` line.
 - [ ] **Token budget, asserted with a number — against a committed fixture, not the live corpus.**
       `work_brief` on a fixture run imported into the test container renders in **≤ 1,250 tokens**

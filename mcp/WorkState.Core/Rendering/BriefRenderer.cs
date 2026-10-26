@@ -196,7 +196,7 @@ public static class BriefRenderer
         var command = verify.Command is { Length: > 0 } ? $"{verify.Command} → " : string.Empty;
         lines.AddRange(Wrap(
             "LAST VERIFY  ",
-            $"{command}{verify.ResultLine}, by {verify.RunBy}, {Glyph.Age(verify.Ago)} ago",
+            $"{command}{verify.ResultLine}, by {verify.RunBy}, {Glyph.Ago(verify.Ago)}",
             13));
     }
 

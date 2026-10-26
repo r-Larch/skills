@@ -71,6 +71,15 @@ public static class Transitions
                && Enum.IsDefined(move);
     }
 
+    /// <summary>A status as a filter names it: both <c>in_progress</c> and <c>inprogress</c>, as <see cref="TryParse"/> takes.</summary>
+    public static bool TryParseStatus(string? name, out ItemStatus status)
+    {
+        status = default;
+        return !string.IsNullOrWhiteSpace(name)
+               && Enum.TryParse(name.Replace("_", string.Empty).Trim(), ignoreCase: true, out status)
+               && Enum.IsDefined(status);
+    }
+
     public static string Name(Move move) => move switch
     {
         Move.InProgress => "in_progress",

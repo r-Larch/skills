@@ -44,28 +44,52 @@ public sealed record AttentionLine(
     string? Ref = null,
     string? QualifiedRef = null);
 
+/// <summary>
+/// The attention lines of one scope, carrying the ref their uncapped block is read back under, so a
+/// capped block names <c>work://attention/&lt;scope&gt;</c> without every caller passing it along.
+/// </summary>
+public sealed class ScopedAttention(string scope) : List<AttentionLine>
+{
+    public string Scope { get; } = scope;
+}
+
 public static class Attention
 {
     public const int MaxLines = 5;
 
     /// <summary>
     /// Renders the block, or the empty string. Never an empty header: doc 06 §1 rule 5, and it is
-    /// the difference between a nag channel and thirty wasted tokens on every call.
+    /// the difference between a nag channel and thirty wasted tokens on every call. The count cap
+    /// names the read that lists everything it cut (doc 06 "What may be shortened").
     /// </summary>
     public static string Block(IEnumerable<AttentionLine> lines)
     {
-        var ranked = lines
-            .OrderBy(l => l.Rank)
-            .Take(MaxLines)
-            .ToList();
+        var all = lines.OrderBy(l => l.Rank).ToList();
+        var ranked = all.Take(MaxLines).ToList();
 
         if (ranked.Count == 0)
         {
             return string.Empty;
         }
 
-        var body = ranked.Select(l => $"{Glyph.Warn} {Glyph.Flat(l.What)} — {Glyph.Flat(l.Call)}");
-        return $"--- attention ({ranked.Count}) ---\n{string.Join("\n", body)}";
+        var body = ranked.Select(Line).ToList();
+        if (all.Count == ranked.Count)
+        {
+            return $"--- attention ({ranked.Count}) ---\n{string.Join("\n", body)}";
+        }
+
+        var uri = WorkUris.AttentionFor((lines as ScopedAttention)?.Scope);
+        body.Add($"+{all.Count - ranked.Count} more — read {uri} with ReadMcpResourceTool");
+        return $"--- attention ({ranked.Count} of {all.Count}) ---\n{string.Join("\n", body)}";
+    }
+
+    /// <summary>Every line, ranked and uncapped — what <c>work://attention/&lt;scope&gt;</c> serves.</summary>
+    public static string Full(string scope, IEnumerable<AttentionLine> lines)
+    {
+        var ranked = lines.OrderBy(l => l.Rank).ToList();
+        return ranked.Count == 0
+            ? $"ATTENTION  nothing needs attention under {scope}."
+            : $"--- attention ({ranked.Count}) under {scope} ---\n{string.Join("\n", ranked.Select(Line))}";
     }
 
     /// <summary>Appends the block to a result, or leaves the result alone when there is nothing to say.</summary>
@@ -74,4 +98,6 @@ public static class Attention
         var block = Block(lines);
         return block.Length == 0 ? body : $"{body}\n\n{block}";
     }
+
+    private static string Line(AttentionLine line) => $"{Glyph.Warn} {Glyph.Flat(line.What)} — {Glyph.Flat(line.Call)}";
 }

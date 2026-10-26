@@ -74,6 +74,21 @@ public sealed partial class BoardReader
         bool includeCounts,
         CancellationToken cancellationToken = default)
     {
+        var keep = new HashSet<ItemStatus>();
+        foreach (var name in statuses)
+        {
+            if (!Transitions.TryParseStatus(name, out var parsed))
+            {
+                return Refusal.Blocked(
+                    $"work_tree(status:\"{string.Join(",", statuses)}\") on {scope.Item.Ref}.",
+                    $"\"{name}\" is not a status",
+                    $"work_tree(scope:\"{scope.Item.Ref}\", status:\"…\") with any of: "
+                    + string.Join(", ", Enum.GetValues<ItemStatus>().Select(Transitions.Name)));
+            }
+
+            keep.Add(parsed);
+        }
+
         var subtree = await queries.SubtreeAsync(scope.Item.Id, cancellationToken);
         if (subtree.Count == 0)
         {
@@ -87,9 +102,7 @@ public sealed partial class BoardReader
 
         var nodes = subtree
             .Where(n => n.Depth - root.Depth <= depth)
-            .Where(n => statuses.Count == 0
-                        || n.Id == root.Id
-                        || statuses.Contains(n.Status.ToString().ToLowerInvariant()))
+            .Where(n => keep.Count == 0 || n.Id == root.Id || keep.Contains(n.Status))
             .ToList();
 
         var lines = new List<string>();
@@ -221,7 +234,7 @@ public sealed partial class BoardReader
             {
                 lines.AddRange(BriefRenderer.Wrap(
                     "  imported  ",
-                    $"from {imported.Source} by {imported.ImportedBy}, {Glyph.Age(Since(imported.UpdatedAt))} ago",
+                    $"from {imported.Source} by {imported.ImportedBy}, {Glyph.Ago(Since(imported.UpdatedAt))}",
                     12));
                 lines.AddRange(BriefRenderer.Wrap("  why       ", imported.Why, 12));
             }
@@ -238,7 +251,7 @@ public sealed partial class BoardReader
                     "  evidence  ",
                     $"{(verification.Passed ? "✓" : "✗")} {verification.ResultLine} "
                     + $"by {verification.RunBy.ToString().ToLowerInvariant()}, "
-                    + $"{Glyph.Age(Since(verification.At))} ago",
+                    + Glyph.Ago(Since(verification.At)),
                     12));
             }
 
@@ -316,10 +329,13 @@ public sealed partial class BoardReader
     {
         var wanted = include.Count == 0 ? AllThreads : include;
         var lines = new List<string>();
+        // A wrapped row spans several lines, so the header counts rows, not lines.
+        var rows = 0;
 
         if (wanted.Contains("assumptions"))
         {
             var assumptions = await board.AssumptionsAsync(scope.WorkspaceId, scope.Item.Id, true, cancellationToken);
+            rows += assumptions.Count;
             // An assumption has no detail view, so this is where its statement is read whole.
             lines.AddRange(assumptions.SelectMany(a => WrappedRow(
                 $"{Glyph.Pad(a.Ref, 6)}  {Glyph.Pad("assum", 6)}  ",
@@ -332,6 +348,7 @@ public sealed partial class BoardReader
 
         if (wanted.Contains("findings"))
         {
+            rows += threads.Count(t => t.Type == "finding");
             lines.AddRange(threads.Where(t => t.Type == "finding").Select(t =>
                 $"{Glyph.Pad(t.Ref, 6)}  {Glyph.Pad("find", 6)}  "
                 + $"{Glyph.Pad(Glyph.Row(t.Text, 46), 46)}  "
@@ -340,6 +357,7 @@ public sealed partial class BoardReader
 
         if (wanted.Contains("followups"))
         {
+            rows += threads.Count(t => t.Type == "followup");
             lines.AddRange(threads.Where(t => t.Type == "followup").Select(t =>
                 $"{Glyph.Pad(t.Ref, 6)}  {Glyph.Pad("foll", 6)}  "
                 + $"{Glyph.Pad(Glyph.Row(t.Text, 46), 46)}  "
@@ -354,6 +372,7 @@ public sealed partial class BoardReader
             // A note has no detail view and its brief consumes it, so its body is printed whole here.
             foreach (var n in notes.Where(n => n.ToItemId is not null))
             {
+                rows++;
                 lines.AddRange(WrappedRow(
                     $"{Glyph.Pad(n.ToRef!, 6)}  {Glyph.Pad("note", 6)}  ",
                     n.Body,
@@ -365,6 +384,7 @@ public sealed partial class BoardReader
         if (wanted.Contains("deps"))
         {
             var deps = await queries.UnclosedDependenciesAsync(scope.Item.Id, cancellationToken);
+            rows += deps.Count;
             lines.AddRange(deps.Select(d =>
                 $"{Glyph.Pad(d.Waiting, 6)}  {Glyph.Pad("dep", 6)}  "
                 + $"{Glyph.Pad($"waiting on {d.On} ({d.Status.ToString().ToLowerInvariant()})", 46)}  "
@@ -374,6 +394,7 @@ public sealed partial class BoardReader
         if (wanted.Contains("stale"))
         {
             var stale = await board.StaleInProgressAsync(scope.Item.Id, StaleHours, cancellationToken);
+            rows += stale.Count;
             lines.AddRange(stale.Select(s =>
                 $"{Glyph.Pad(s.Ref, 6)}  {Glyph.Pad("stale", 6)}  "
                 + $"{Glyph.Pad($"in_progress {Glyph.Age(Since(s.StartedAt))}, no live claim", 46)}  "
@@ -387,7 +408,7 @@ public sealed partial class BoardReader
         }
 
         lines.Insert(0, string.Empty);
-        lines.Insert(0, $"THREADS  {lines.Count - 1} unclosed under {scope.Item.Ref}");
+        lines.Insert(0, $"THREADS  {rows} unclosed under {scope.Item.Ref}");
         return string.Join("\n", lines);
     }
 
