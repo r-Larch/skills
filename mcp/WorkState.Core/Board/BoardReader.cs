@@ -225,7 +225,7 @@ public sealed partial class BoardReader(WorkStateQueries queries, BoardQueries b
         foreach (var claim in await board.ExpiredClaimsAsync(item.Id, cancellationToken))
         {
             var (on, tree) = claim.Tree is { } t
-                ? ($" on tree \"{Glyph.Clip(t, 40)}\"", $", tree:\"{t}\"")
+                ? ($" on tree \"{Glyph.Flat(t)}\"", $", tree:\"{t}\"")
                 : (string.Empty, string.Empty);
 
             lines.Add(new AttentionLine(
@@ -241,7 +241,7 @@ public sealed partial class BoardReader(WorkStateQueries queries, BoardQueries b
             var target = blocker.TargetRef is { Length: > 0 } ? $" against {blocker.TargetRef}" : string.Empty;
             lines.Add(new AttentionLine(
                 AttentionRank.BlockerFinding,
-                $"{blocker.FindingRef} (BLOCKER) is open{target}: {Glyph.Clip(blocker.FindingTitle, 40)}",
+                $"{blocker.FindingRef} (BLOCKER) is open{target}: {Glyph.Row(blocker.FindingTitle, 40)}",
                 $"work_status(ref:\"{blocker.FindingRef}\", to:\"done\")",
                 blocker.FindingRef,
                 blocker.QualifiedRef));
@@ -353,7 +353,7 @@ public sealed partial class BoardReader(WorkStateQueries queries, BoardQueries b
     {
         var criteria = await board.CriteriaAsync([item.Id], cancellationToken);
         var facts = (await board.FactsAsync([item.Id], cancellationToken)).FirstOrDefault();
-        var lines = new List<string> { $"YOUR TASK  {item.Ref} — {Glyph.Flat(item.Title)}" };
+        var lines = new List<string>(BriefRenderer.Wrap($"YOUR TASK  {item.Ref} — ", item.Title, 11));
 
         if (item.Intent is { Length: > 0 })
         {
@@ -362,7 +362,7 @@ public sealed partial class BoardReader(WorkStateQueries queries, BoardQueries b
 
         if (item.Status == ItemStatus.InProgress && facts?.HeldBy is { Length: > 0 } holder)
         {
-            lines.Add($"  held by   {Glyph.Clip(holder, 86)}");
+            lines.Add($"  held by   {Glyph.Flat(holder)}");
         }
 
         lines.Add(criteria.Count == 0
@@ -423,7 +423,7 @@ public sealed partial class BoardReader(WorkStateQueries queries, BoardQueries b
                       ?? phases[^1];
         var index = phases.IndexOf(current) + 1;
 
-        return $"phase {index} of {phases.Count} — {Glyph.Clip(current.Title, 34)}. "
+        return $"phase {index} of {phases.Count} — {Glyph.Flat(current.Title)}. "
              + $"{done} of {tasks.Count} tasks done across the run.";
     }
 

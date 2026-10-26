@@ -159,7 +159,7 @@ public sealed partial class WorkWriter
                 kind,
                 reference,
                 await NextSeqAsync(connection, transaction, parentId, cancellationToken),
-                Glyph.Clip(wanted.Title, 180),
+                Glyph.Flat(wanted.Title),
                 wanted.Intent,
                 wanted.VerifyCmd,
                 wanted.RiskTags,
@@ -178,7 +178,7 @@ public sealed partial class WorkWriter
 
             await EventAsync(
                 connection, transaction, workspaceId, row2.Id, actor, "created",
-                $"{reference} ({kind}) created under {parent?.Ref ?? "—"}: {Glyph.Clip(wanted.Title, 40)}",
+                $"{reference} ({kind}) created under {parent?.Ref ?? "—"}: {Glyph.Flat(wanted.Title)}",
                 new { kind, parent = parent?.Ref, title = wanted.Title },
                 cancellationToken);
 
@@ -188,7 +188,7 @@ public sealed partial class WorkWriter
             }
 
             written.Add($"{Glyph.Pad(reference, 8)}  {Glyph.Pad(Glyph.Kind(kind), 6)}  "
-                      + Glyph.Clip(wanted.Title, 60));
+                      + Glyph.Row(wanted.Title, 60));
         }
 
         await transaction.CommitAsync(cancellationToken);
@@ -267,7 +267,7 @@ public sealed partial class WorkWriter
         await using (var command = new NpgsqlCommand(sql, connection, transaction))
         {
             Bind(command, "id", item.Id);
-            Bind(command, "title", Blank(args.Title) ? null : Glyph.Clip(args.Title, 180));
+            Bind(command, "title", Blank(args.Title) ? null : Glyph.Flat(args.Title));
             Bind(command, "intent", Blank(args.Intent) ? null : args.Intent);
             Bind(command, "verify", Blank(args.VerifyCmd) ? null : args.VerifyCmd);
             Bind(command, "risk", args.RiskTags);
@@ -513,7 +513,7 @@ public sealed partial class WorkWriter
         {
             unmet.Add(new Unmet(
                 $"a {kind} without a verify_cmd cannot be closed honestly — nothing would judge it",
-                $"work_create(items:[{{kind:\"{kind}\", title:\"{Glyph.Clip(wanted.Title, 30)}\", "
+                $"work_create(items:[{{kind:\"{kind}\", title:\"{Glyph.Flat(wanted.Title)}\", "
                 + "verify_cmd:\"dotnet test --filter …\", criteria:[\"…\"]}]) — and it must be a "
                 + "command that is RED before the work"));
         }
@@ -522,14 +522,14 @@ public sealed partial class WorkWriter
         {
             unmet.Add(new Unmet(
                 $"a {kind} without done-criteria is a brief nobody can check off",
-                $"work_create(items:[{{kind:\"{kind}\", title:\"{Glyph.Clip(wanted.Title, 30)}\", "
+                $"work_create(items:[{{kind:\"{kind}\", title:\"{Glyph.Flat(wanted.Title)}\", "
                 + "criteria:[\"the observable thing that is true when this is done\"]}])"));
         }
 
         return unmet.Count == 0
             ? null
             : Refusal.Blocked(
-                $"work_create(items:[{{kind:\"{kind}\", title:\"{Glyph.Clip(wanted.Title, 40)}\"}}]). "
+                $"work_create(items:[{{kind:\"{kind}\", title:\"{Glyph.Flat(wanted.Title)}\"}}]). "
                 + $"{unmet.Count} requirement(s) unmet.",
                 unmet);
     }
@@ -633,7 +633,7 @@ public sealed partial class WorkWriter
 
         foreach (var criterion in criteria)
         {
-            var text = Blank(criterion.Text) ? "…" : Glyph.Clip(criterion.Text, 40);
+            var text = Blank(criterion.Text) ? "…" : Glyph.Flat(criterion.Text);
             var append = $"work_update(ref:\"{item.Ref}\", criteria:[{{text:\"{text}\"}}]) appends it as "
                          + $"c{(existing.Count == 0 ? 1 : existing.Max() + 1)} — the server numbers it";
 
@@ -653,7 +653,7 @@ public sealed partial class WorkWriter
             if (Seq(criterion.Id) is not { } seq || !existing.Contains(seq))
             {
                 unmet.Add(new Unmet(
-                    $"criterion \"{Glyph.Clip(criterion.Id, 12)}\" does not exist on {item.Ref} — {known}; "
+                    $"criterion \"{Glyph.Flat(criterion.Id)}\" does not exist on {item.Ref} — {known}; "
                     + "an id addresses an existing criterion, it never creates one",
                     [
                         append,
@@ -818,7 +818,7 @@ public sealed partial class WorkWriter
 
         return Refusal.Blocked(
             $"{call} — the schema refused it.",
-            Glyph.Clip(refused.MessageText, 140),
+            Glyph.Flat(refused.MessageText),
             [.. routes]);
     }
 
@@ -844,7 +844,7 @@ public sealed partial class WorkWriter
 
         return Refusal.Blocked(
             $"{call} — the schema refused it.",
-            Glyph.Clip(refused.MessageText, 140),
+            Glyph.Flat(refused.MessageText),
             [.. routes]);
     }
 }

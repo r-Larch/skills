@@ -52,7 +52,7 @@ public static class BoardRenderer
         builder.Append(Glyph.Pad(Glyph.Flat(item.Ref), Columns.Ref)).Append("  ");
         builder.Append(Glyph.Pad(Glyph.Kind(item.Kind), Columns.Kind)).Append("  ");
         builder.Append(Glyph.Pad(Glyph.Status(item.Status, item.DoingFor), Columns.Status)).Append("  ");
-        builder.Append(Glyph.Pad(Glyph.Clip(item.Title, Columns.Title), Columns.Title)).Append("  ");
+        builder.Append(Glyph.Pad(Glyph.Row(item.Title, Columns.Title), Columns.Title)).Append("  ");
         builder.Append(Glyph.Pad(item.Evidence ?? Glyph.None, Columns.Evidence)).Append("  ");
 
         if (item.Flags is { Count: > 0 })
@@ -76,13 +76,13 @@ public static class BoardRenderer
     public static string TreeRow(TreeItem node)
     {
         var indent = new string(' ', Math.Min(Math.Max(node.Depth, 0), 8) * 2);
-        var handle = indent + Glyph.Clip(node.Item.Ref, Columns.TreeRef - indent.Length);
+        var handle = indent + Glyph.Flat(node.Item.Ref);
 
         var builder = new StringBuilder(Columns.Width);
         builder.Append(Glyph.Pad(handle, Columns.TreeRef)).Append("  ");
         builder.Append(Glyph.Pad(Glyph.Kind(node.Item.Kind), Columns.Kind)).Append("  ");
         builder.Append(Glyph.Pad(Glyph.Status(node.Item.Status, node.Item.DoingFor), Columns.Status)).Append("  ");
-        builder.Append(Glyph.Pad(Glyph.Clip(node.Item.Title, Columns.Title), Columns.Title)).Append("  ");
+        builder.Append(Glyph.Pad(Glyph.Row(node.Item.Title, Columns.Title), Columns.Title)).Append("  ");
         builder.Append(Glyph.Pad(node.Item.Evidence ?? Glyph.None, Columns.Evidence)).Append("  ");
 
         if (node.Rollup is { Length: > 0 })

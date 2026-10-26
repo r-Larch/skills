@@ -123,7 +123,7 @@ public sealed partial class SessionStore(NpgsqlDataSource dataSource)
                 actor = Pg.Label(role),
                 role = Pg.Label(role),
                 payload = JsonSerializer.Serialize(new { from = previous, to = claudeId }),
-                summary = Glyph.Clip($"session {name} is now Claude session {claudeId}", 120),
+                summary = Glyph.Flat($"session {name} is now Claude session {claudeId}"),
                 session = sessionId,
             },
             transaction,

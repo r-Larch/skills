@@ -57,7 +57,7 @@ public static class DoneGuard
         foreach (var criterion in open.Take(Listed))
         {
             unmet.Add(new Unmet(
-                $"criterion c{criterion.Seq} \"{Glyph.Clip(criterion.Text, 52)}\" unchecked",
+                $"criterion c{criterion.Seq} \"{Glyph.Flat(criterion.Text)}\" unchecked",
                 $"work_update(ref:\"{facts.Ref}\", criteria:[{{id:\"c{criterion.Seq}\", "
                 + "checked:true, evidence:\"…\"}])"));
         }
@@ -83,7 +83,7 @@ public static class DoneGuard
         }
 
         var route =
-            $"work_verify(ref:\"{facts.Ref}\", command:\"{Glyph.Clip(facts.VerifyCmd ?? "…", 44)}\", "
+            $"work_verify(ref:\"{facts.Ref}\", command:\"{(string.IsNullOrWhiteSpace(facts.VerifyCmd) ? "…" : facts.VerifyCmd)}\", "
             + "result_line:\"…\", run_by:\"orchestrator\")";
 
         var passed = facts.Verifications.Where(v => v.Passed).ToList();
@@ -112,8 +112,8 @@ public static class DoneGuard
             && mismatched.TrueForAll(v => !Same(v.Command!, expected)))
         {
             unmet.Add(new Unmet(
-                $"the orchestrator verification ran \"{Glyph.Clip(mismatched[0].Command!, 40)}\", "
-                + $"not this item's verify_cmd \"{Glyph.Clip(expected, 40)}\"",
+                $"the orchestrator verification ran \"{Glyph.Flat(mismatched[0].Command)}\", "
+                + $"not this item's verify_cmd \"{Glyph.Flat(expected)}\"",
                 route));
         }
     }

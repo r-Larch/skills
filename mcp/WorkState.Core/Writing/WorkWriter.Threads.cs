@@ -108,7 +108,7 @@ public sealed partial class WorkWriter
             toItemId ?? fromItemId,
             actor,
             "note",
-            $"{Pg.Label(noteKind)} note{(Blank(to) ? string.Empty : $" to {to}")}: {Glyph.Clip(body, 40)}",
+            $"{Pg.Label(noteKind)} note{(Blank(to) ? string.Empty : $" to {to}")}: {Glyph.Flat(body)}",
             new { kind = Pg.Label(noteKind), to, body },
             cancellationToken);
 
@@ -118,7 +118,7 @@ public sealed partial class WorkWriter
             "\n",
             $"OK  note recorded ({Pg.Label(noteKind)})"
             + (Blank(to) ? string.Empty : $", addressed to {to}"),
-            $"    {Glyph.Clip(body, 92)}",
+            $"    {Glyph.Row(body, 92)}",
             string.Empty,
             Blank(to)
                 ? "Next: nothing — a note is a side effect, not a step."
@@ -209,7 +209,7 @@ public sealed partial class WorkWriter
         return WriteResult.Ok(string.Join(
             "\n",
             $"OK  {opened}  assumption opened, scoped to {item.Ref}",
-            $"    {Glyph.Clip(statement, 92)}",
+            $"    {Glyph.Row(statement, 92)}",
             $"    {Pg.Label(level)} · reversal {Pg.Label(cost)}"
             + (Blank(revisitWhen) ? string.Empty : $" · revisit when {revisitWhen} closes"),
             string.Empty,
@@ -271,7 +271,7 @@ public sealed partial class WorkWriter
                 await FreeRefAsync(
                     connection, transaction, parent.RefScopeId, n => $"F-{n:00}", cancellationToken),
                 await NextSeqAsync(connection, transaction, parent.Id, cancellationToken),
-                Glyph.Clip(finding.Title, 180),
+                Glyph.Flat(finding.Title),
                 finding.Intent,
                 Severity: severity,
                 Source: Blank(finding.Source) ? "review" : finding.Source!.Trim().ToLowerInvariant());
@@ -285,12 +285,12 @@ public sealed partial class WorkWriter
                 row.Id,
                 actor,
                 "finding",
-                $"{row.Ref} ({severity}) against {parent.Ref}: {Glyph.Clip(finding.Title, 40)}",
+                $"{row.Ref} ({severity}) against {parent.Ref}: {Glyph.Flat(finding.Title)}",
                 new { target = parent.Ref, severity, source = row.Source },
                 cancellationToken);
 
             written.Add($"{Glyph.Pad(row.Ref, 6)}  {Glyph.Pad(severity, 7)}  → {parent.Ref}  "
-                      + Glyph.Clip(finding.Title, 56));
+                      + Glyph.Row(finding.Title, 56));
         }
 
         await transaction.CommitAsync(cancellationToken);
@@ -412,7 +412,7 @@ public sealed partial class WorkWriter
             null,
             actor,
             "assumption",
-            $"{closed} resolved {Pg.Label(state)}: {Glyph.Clip(evidence ?? string.Empty, 40)}",
+            $"{closed} resolved {Pg.Label(state)}: {Glyph.Flat(evidence)}",
             new { @ref = closed, resolve = Pg.Label(state), evidence },
             cancellationToken);
 
@@ -421,7 +421,7 @@ public sealed partial class WorkWriter
         return WriteResult.Ok(string.Join(
             "\n",
             $"OK  {closed}  resolved {Pg.Label(state)}; reversal cost cleared — a settled question has none",
-            Blank(evidence) ? string.Empty : $"    {Glyph.Clip(evidence, 92)}",
+            Blank(evidence) ? string.Empty : $"    {Glyph.Row(evidence, 92)}",
             string.Empty,
             "Next: nothing, unless resolving it unblocks an item — then work_next().").TrimEnd());
     }

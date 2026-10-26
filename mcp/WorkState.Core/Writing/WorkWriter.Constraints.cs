@@ -69,7 +69,7 @@ public sealed partial class WorkWriter
                 "work_constrain(kind:\"red_line\") without a route.",
                 "a prohibition with no way out is a trap the author set themselves — the agent that "
                 + "hits it at 3am has nothing to do but guess or stop",
-                $"work_constrain(kind:\"red_line\", text:\"{Glyph.Clip(args.Text, 36)}\", "
+                $"work_constrain(kind:\"red_line\", text:\"{Glyph.Flat(args.Text)}\", "
                 + "route:\"…what to do instead, or who to ask\")",
                 "work_constrain(kind:\"domain_rule\", text:\"…\") if it is not actually a prohibition"));
         }
@@ -140,7 +140,7 @@ public sealed partial class WorkWriter
             scopeItemId ?? addedBy,
             actor,
             "constraint",
-            $"{minted} ({Pg.Label(kind)}) binds {scopeRef}: {Glyph.Clip(args.Text, 40)}",
+            $"{minted} ({Pg.Label(kind)}) binds {scopeRef}: {Glyph.Flat(args.Text)}",
             new { @ref = minted, kind = Pg.Label(kind), scope = args.Scope, text = args.Text, route = args.Route },
             cancellationToken);
 
@@ -149,12 +149,12 @@ public sealed partial class WorkWriter
         var lines = new List<string>
         {
             $"OK  {minted}  {Pg.Label(kind)} recorded, binding on {scopeRef}",
-            $"    {(kind == ConstraintKind.RedLine ? "!" : "·")} {Glyph.Clip(args.Text, 92)}",
+            $"    {(kind == ConstraintKind.RedLine ? "!" : "·")} {Glyph.Row(args.Text, 92)}",
         };
 
         if (!Blank(args.Route))
         {
-            lines.Add($"    → {Glyph.Clip(args.Route, 92)}");
+            lines.Add($"    → {Glyph.Flat(args.Route)}");
         }
 
         lines.Add(string.Empty);
@@ -226,7 +226,7 @@ public sealed partial class WorkWriter
             null,
             actor,
             "constraint",
-            $"{row.Ref} retired: {Glyph.Clip(reason, 40)}",
+            $"{row.Ref} retired: {Glyph.Flat(reason)}",
             new { @ref = row.Ref, retired = true, reason },
             cancellationToken);
 
@@ -235,8 +235,8 @@ public sealed partial class WorkWriter
         return WriteResult.Ok(string.Join(
             "\n",
             $"OK  {row.Ref}  retired; the row stays with active = false, because the record is the point",
-            $"    {Glyph.Clip(row.Text, 92)}",
-            $"    reason  {Glyph.Clip(reason, 86)}",
+            $"    {Glyph.Flat(row.Text)}",
+            $"    reason  {Glyph.Row(reason, 86)}",
             string.Empty,
             "Next: nothing — the next brief in scope no longer prints it."));
     }

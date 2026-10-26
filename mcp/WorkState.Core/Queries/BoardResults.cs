@@ -59,6 +59,13 @@ public sealed record NoteRow(
     Guid? ToItemId,
     DateTimeOffset CreatedAt);
 
+public sealed record ItemReportRow(
+    Guid ItemId,
+    int N,
+    string Status,
+    string? AgentName,
+    string? Raw);
+
 public sealed record VerificationRow(
     Guid ItemId,
     string ItemRef,

@@ -432,6 +432,27 @@ public sealed class BoardQueries(NpgsqlDataSource dataSource)
         return await ListAsync<VerificationRow>(sql, new { ids = itemIds.ToArray() }, cancellationToken);
     }
 
+    /// <summary>Every work_report against the items, oldest attempt first — work_get prints them whole.</summary>
+    public async Task<IReadOnlyList<ItemReportRow>> ReportsAsync(
+        IReadOnlyCollection<Guid> itemIds,
+        CancellationToken cancellationToken = default)
+    {
+        const string sql =
+            """
+            SELECT a.item_id    AS "ItemId",
+                   a.n          AS "N",
+                   r.status     AS "Status",
+                   a.agent_name AS "AgentName",
+                   r.raw        AS "Raw"
+            FROM   report r
+            JOIN   attempt a ON a.id = r.attempt_id
+            WHERE  a.item_id = ANY(@ids)
+            ORDER  BY a.n, r.id;
+            """;
+
+        return await ListAsync<ItemReportRow>(sql, new { ids = itemIds.ToArray() }, cancellationToken);
+    }
+
     /// <summary>Everything the flag vocabulary of doc 06 §2 needs, one row per item.</summary>
     public async Task<IReadOnlyList<ItemFacts>> FactsAsync(
         IReadOnlyCollection<Guid> itemIds,
@@ -912,8 +933,8 @@ public sealed class BoardQueries(NpgsqlDataSource dataSource)
         const string sql =
             """
             SELECT 'constraint-no-route'                             AS "Check",
-                   left(c.text, 40)                                  AS "Ref",
-                   'binding rule with no route: ' || left(c.text, 70) AS "Problem",
+                   c.ref                                             AS "Ref",
+                   'binding rule with no route: ' || c.text          AS "Problem",
                    'record the way out — a rule demanding a capability the agent lacks is a trap' AS "Route"
             FROM   constraint_rule c
             CROSS  JOIN (SELECT id, ancestors FROM item WHERE id = @scope) x

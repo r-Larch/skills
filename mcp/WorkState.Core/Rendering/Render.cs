@@ -31,8 +31,8 @@ public static class Columns
 }
 
 /// <summary>
-/// Vocabulary shared by every rendering: the abbreviations, the age format and the clipping rule.
-/// <c>ref</c> and <c>status</c> are never clipped — the ref is the handle and the status is the
+/// Vocabulary shared by every rendering: the abbreviations, the age format and the one row cut.
+/// <c>ref</c> and <c>status</c> are never shortened — the ref is the handle and the status is the
 /// decision.
 /// </summary>
 public static class Glyph
@@ -63,7 +63,7 @@ public static class Glyph
     };
 
     public static string Kind(string key)
-        => Kinds.TryGetValue(key, out var label) ? label : Clip(key, Columns.Kind);
+        => Kinds.TryGetValue(key, out var label) ? label : key;
 
     public static string Status(ItemStatus status, TimeSpan? doingFor = null) => status switch
     {
@@ -122,7 +122,14 @@ public static class Glyph
         return builder.ToString();
     }
 
-    public static string Clip(string? text, int width)
+    /// <summary>
+    /// Shortens <paramref name="text"/> to one row cell. Allowed only where doc 06 "What may be
+    /// shortened" allows it — a list row carrying the ref whose detail view prints the text whole,
+    /// or a write confirmation echoing the caller's own input — and every caller is on the
+    /// allow-list in <c>WorkState.Tests/Read/NoClipSourceTests.cs</c>. Never for a command, a ref or
+    /// anything inside a route.
+    /// </summary>
+    public static string Row(string? text, int width)
     {
         var flat = Flat(text);
         return flat.Length <= width ? flat : flat[..(width - 1)] + Ellipsis;
