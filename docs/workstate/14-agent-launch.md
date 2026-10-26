@@ -57,7 +57,13 @@ Rules:
 - **Revoke** also returns the released claims' `in_progress` items to `ready` and journals
   `claim_revoked`, as the expiry sweep does for an expired claim.
 - Revoked, expired and unknown tokens are refused on `/mcp` itself (HTTP 401), before any tool runs.
-- **Expiry:** `ttlHours` default 72, max 720. An expired token is refused like an unknown one.
+- **Expiry:** `ttlHours` (default 72, 1..720) is an **idle window**, stored per row. Each successful
+  authentication slides `token_expires_at` to now + that window, written at most once a minute per
+  token; there is **no hard cap**, so a token in use never lapses (owner decision 2026-10-26: a token
+  on disk exposes no read danger here). An unused token lapses when its window passes, and an expired
+  or revoked token is never renewed — it is refused like an unknown one, however often presented. A
+  row minted before the window was stored slides by 72. `expiresAt` in the mint response is the
+  current expiry, not a deadline.
 - **Authentication:** the bearer handler accepts the three static tokens as today, and a `wss_` token
   by hash lookup (not revoked, not expired). A minted token's principal carries the granted role
   (with the nesting the static tokens have) **and the session** — `CallerSession` takes the session
@@ -65,6 +71,8 @@ Rules:
   bound to the credential, not asserted by a header (doc 12 §7.1, SEP-2567's "authenticated principal").
 - Schema: `agent_session` gains `token_hash` (unique, nullable), `granted_role`, `token_expires_at`,
   `revoked_at`, `minted_by_session_id` (nullable). One additive migration with a working Down.
+  A second, `TokenSlidingExpiry`, adds `token_ttl_hours` (nullable int, the idle window); its Down
+  drops only that column, leaving tokens valid and sliding by the default.
 
 ## 3. The `agents` stdio server (plugin)
 

@@ -112,6 +112,10 @@ namespace WorkState.Core.Migrations
                         .HasColumnType("text")
                         .HasColumnName("token_hash");
 
+                    b.Property<int?>("TokenTtlHours")
+                        .HasColumnType("integer")
+                        .HasColumnName("token_ttl_hours");
+
                     b.Property<string>("Tree")
                         .HasColumnType("text")
                         .HasColumnName("tree");

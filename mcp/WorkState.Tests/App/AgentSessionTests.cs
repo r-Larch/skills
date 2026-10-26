@@ -28,6 +28,7 @@ namespace WorkState.Tests.App;
 public sealed class AgentSessionTests(PostgresFixture fixture)
 {
     private const string BeforeTokens = "20261023115730_Sessions";
+    private const string BeforeSlidingExpiry = "20261023220548_AgentSessionTokens";
 
     [Fact]
     public async Task A_controller_mints_a_token_returned_once_and_the_row_keeps_only_its_hash()
@@ -382,6 +383,139 @@ public sealed class AgentSessionTests(PostgresFixture fixture)
         Assert.Equal(HttpStatusCode.Created, again);
     }
 
+    /// <summary>
+    /// The expiry is an idle window, not a lifetime: a use slides it to now plus the window, with no
+    /// cap, and a use inside the minute after a renewal writes nothing.
+    /// </summary>
+    [Fact]
+    public async Task A_used_token_slides_its_expiry_and_a_second_use_within_the_minute_writes_nothing()
+    {
+        var world = await WriteSeed.CreateAsync(fixture);
+        await using var server = await StartAsync(world);
+
+        var (_, minted) = await MintAsync(server, ReadServer.ControllerToken, new { name = "aw-slide", role = "worker" });
+        var id = minted.GetProperty("sessionId").GetGuid();
+        await SetExpiryAsync(id, DateTimeOffset.UtcNow.AddMinutes(1));
+
+        Assert.Equal(HttpStatusCode.OK, await InitializeAsync(server, Token(minted)));
+
+        var renewed = await ExpiryAsync(id);
+        Assert.InRange(renewed, DateTimeOffset.UtcNow.AddHours(72).AddMinutes(-2), DateTimeOffset.UtcNow.AddHours(72).AddMinutes(1));
+
+        Assert.Equal(HttpStatusCode.OK, await InitializeAsync(server, Token(minted)));
+        Assert.Equal(renewed, await ExpiryAsync(id));
+    }
+
+    [Fact]
+    public async Task A_token_slides_by_its_own_window()
+    {
+        var world = await WriteSeed.CreateAsync(fixture);
+        await using var server = await StartAsync(world);
+
+        var (_, minted) = await MintAsync(server, ReadServer.ControllerToken, new { name = "aw-five", role = "worker", ttlHours = 5 });
+        var id = minted.GetProperty("sessionId").GetGuid();
+        await SetExpiryAsync(id, DateTimeOffset.UtcNow.AddMinutes(1));
+
+        Assert.Equal(HttpStatusCode.OK, await InitializeAsync(server, Token(minted)));
+
+        Assert.InRange(
+            await ExpiryAsync(id),
+            DateTimeOffset.UtcNow.AddHours(5).AddMinutes(-2),
+            DateTimeOffset.UtcNow.AddHours(5).AddMinutes(1));
+    }
+
+    /// <summary>The renewal and the lookup race on one row: every concurrent use authenticates.</summary>
+    [Fact]
+    public async Task Concurrent_uses_of_a_token_due_for_renewal_all_authenticate()
+    {
+        var world = await WriteSeed.CreateAsync(fixture);
+        await using var server = await StartAsync(world);
+
+        var (_, minted) = await MintAsync(server, ReadServer.ControllerToken, new { name = "aw-race", role = "worker" });
+        var id = minted.GetProperty("sessionId").GetGuid();
+        await SetExpiryAsync(id, DateTimeOffset.UtcNow.AddMinutes(1));
+
+        var statuses = await Task.WhenAll(Enumerable.Range(0, 8).Select(_ => InitializeAsync(server, Token(minted))));
+
+        Assert.All(statuses, s => Assert.Equal(HttpStatusCode.OK, s));
+        Assert.True(await ExpiryAsync(id) > DateTimeOffset.UtcNow.AddHours(71));
+    }
+
+    [Fact]
+    public async Task A_revoked_token_presented_again_is_refused_and_not_renewed()
+    {
+        var world = await WriteSeed.CreateAsync(fixture);
+        await using var server = await StartAsync(world);
+
+        var (_, minted) = await MintAsync(server, ReadServer.ControllerToken, new { name = "aw-gone", role = "worker" });
+        var id = minted.GetProperty("sessionId").GetGuid();
+        Assert.Equal(HttpStatusCode.NoContent, await DeleteAsync(server, ReadServer.ControllerToken, id, Ct));
+
+        var near = await SetExpiryAsync(id, DateTimeOffset.UtcNow.AddMinutes(1));
+
+        Assert.Equal(HttpStatusCode.Unauthorized, await InitializeAsync(server, Token(minted)));
+        Assert.Equal(near, await ExpiryAsync(id));
+    }
+
+    [Fact]
+    public async Task An_expired_token_presented_again_is_refused_and_not_renewed()
+    {
+        var world = await WriteSeed.CreateAsync(fixture);
+        await using var server = await StartAsync(world);
+
+        var (_, minted) = await MintAsync(server, ReadServer.ControllerToken, new { name = "aw-lapsed", role = "worker" });
+        var id = minted.GetProperty("sessionId").GetGuid();
+        var lapsed = await SetExpiryAsync(id, DateTimeOffset.UtcNow.AddMinutes(-1));
+
+        Assert.Equal(HttpStatusCode.Unauthorized, await InitializeAsync(server, Token(minted)));
+        Assert.Equal(HttpStatusCode.Unauthorized, await InitializeAsync(server, Token(minted)));
+        Assert.Equal(lapsed, await ExpiryAsync(id));
+    }
+
+    [Fact]
+    public async Task A_row_with_no_stored_window_slides_by_the_default()
+    {
+        var world = await WriteSeed.CreateAsync(fixture);
+        await using var server = await StartAsync(world);
+
+        var (_, minted) = await MintAsync(server, ReadServer.ControllerToken, new { name = "aw-old", role = "worker", ttlHours = 5 });
+        var id = minted.GetProperty("sessionId").GetGuid();
+
+        await using (var db = fixture.NewContext())
+        {
+            var row = await db.AgentSessions.SingleAsync(s => s.Id == id, Ct);
+            Assert.Equal(5, row.TokenTtlHours);
+            row.TokenTtlHours = null;
+            row.TokenExpiresAt = DateTimeOffset.UtcNow.AddMinutes(1);
+            await db.SaveChangesAsync(Ct);
+        }
+
+        Assert.Equal(HttpStatusCode.OK, await InitializeAsync(server, Token(minted)));
+
+        Assert.InRange(
+            await ExpiryAsync(id),
+            DateTimeOffset.UtcNow.AddHours(SessionStore.DefaultTtlHours).AddMinutes(-2),
+            DateTimeOffset.UtcNow.AddHours(SessionStore.DefaultTtlHours).AddMinutes(1));
+    }
+
+    [Fact]
+    public async Task Static_tokens_renew_no_minted_row()
+    {
+        var world = await WriteSeed.CreateAsync(fixture);
+        await using var server = await StartAsync(world);
+
+        var (_, minted) = await MintAsync(server, ReadServer.ControllerToken, new { name = "aw-still", role = "worker" });
+        var id = minted.GetProperty("sessionId").GetGuid();
+        var near = await SetExpiryAsync(id, DateTimeOffset.UtcNow.AddMinutes(1));
+
+        foreach (var token in new[] { ReadServer.WorkerToken, ReadServer.OrchestratorToken, ReadServer.ControllerToken })
+        {
+            Assert.Equal(HttpStatusCode.OK, await InitializeAsync(server, token));
+        }
+
+        Assert.Equal(near, await ExpiryAsync(id));
+    }
+
     [Fact]
     public async Task No_token_an_unknown_token_or_a_dashboard_cookie_is_401_on_the_endpoints()
     {
@@ -525,6 +659,105 @@ public sealed class AgentSessionTests(PostgresFixture fixture)
             await using var admin = await fixture.DataSource.OpenConnectionAsync(Ct);
             await admin.ExecuteAsync($"DROP DATABASE IF EXISTS {database} WITH (FORCE);");
         }
+    }
+
+    /// <summary>
+    /// Down drops only the stored window: the token survives it, and once back up the row is one
+    /// minted before the window was stored, which still authenticates and slides by the default.
+    /// </summary>
+    [Fact]
+    public async Task The_sliding_expiry_migration_goes_down_and_up_again()
+    {
+        var database = $"mig_{Guid.CreateVersion7():n}";
+        await using (var admin = await fixture.DataSource.OpenConnectionAsync(Ct))
+        {
+            await admin.ExecuteAsync($"CREATE DATABASE {database};");
+        }
+
+        var connectionString = new NpgsqlConnectionStringBuilder(fixture.ConnectionString) { Database = database }
+            .ConnectionString;
+
+        try
+        {
+            await using (var context = new WorkStateDbContext(WorkStateDbContextOptions.Build(connectionString)))
+            {
+                await context.Database.MigrateAsync(Ct);
+            }
+
+            var workspace = Guid.CreateVersion7();
+            var session = Guid.CreateVersion7();
+            var token = SessionToken.New();
+
+            await using (var connection = new NpgsqlConnection(connectionString))
+            {
+                await connection.ExecuteAsync(
+                    """
+                    INSERT INTO workspace (id, slug) VALUES (@workspace, @slug);
+                    INSERT INTO agent_session (id, workspace_id, name, role, token_hash, granted_role, token_expires_at, token_ttl_hours)
+                    VALUES (@session, @workspace, 'aw-m12', 'worker', @hash, 'worker', now() + interval '1 minute', 5);
+                    """,
+                    new { workspace, slug = $"mig-{workspace:n}", session, hash = SessionToken.Hash(token) });
+            }
+
+            await using (var context = new WorkStateDbContext(WorkStateDbContextOptions.Build(connectionString)))
+            {
+                await context.GetService<IMigrator>().MigrateAsync(BeforeSlidingExpiry, Ct);
+            }
+
+            await using (var connection = new NpgsqlConnection(connectionString))
+            {
+                Assert.Equal(0, await connection.ExecuteScalarAsync<int>(
+                    """
+                    SELECT count(*) FROM information_schema.columns
+                    WHERE table_name = 'agent_session' AND column_name = 'token_ttl_hours';
+                    """));
+
+                Assert.Equal(SessionToken.Hash(token), await connection.ExecuteScalarAsync<string>(
+                    "SELECT token_hash FROM agent_session WHERE id = @session;", new { session }));
+            }
+
+            await using (var context = new WorkStateDbContext(WorkStateDbContextOptions.Build(connectionString)))
+            {
+                await context.Database.MigrateAsync(Ct);
+                Assert.Empty(await context.Database.GetPendingMigrationsAsync(Ct));
+                Assert.Null((await context.AgentSessions.SingleAsync(s => s.Id == session, Ct)).TokenTtlHours);
+            }
+
+            await using (var dataSource = NpgsqlDataSource.Create(connectionString))
+            {
+                Assert.Equal(session, (await new SessionStore(dataSource).AuthenticateAsync(token, Ct))?.SessionId);
+            }
+
+            await using (var context = new WorkStateDbContext(WorkStateDbContextOptions.Build(connectionString)))
+            {
+                Assert.InRange(
+                    (await context.AgentSessions.SingleAsync(s => s.Id == session, Ct)).TokenExpiresAt!.Value,
+                    DateTimeOffset.UtcNow.AddHours(SessionStore.DefaultTtlHours).AddMinutes(-2),
+                    DateTimeOffset.UtcNow.AddHours(SessionStore.DefaultTtlHours).AddMinutes(1));
+            }
+        }
+        finally
+        {
+            NpgsqlConnection.ClearAllPools();
+            await using var admin = await fixture.DataSource.OpenConnectionAsync(Ct);
+            await admin.ExecuteAsync($"DROP DATABASE IF EXISTS {database} WITH (FORCE);");
+        }
+    }
+
+    /// <summary>Returns the value as stored, so a later read compares equal to it if nothing wrote.</summary>
+    private async Task<DateTimeOffset> SetExpiryAsync(Guid id, DateTimeOffset expiresAt)
+    {
+        await using var connection = await fixture.DataSource.OpenConnectionAsync(Ct);
+        return await connection.ExecuteScalarAsync<DateTimeOffset>(
+            "UPDATE agent_session SET token_expires_at = @expiresAt WHERE id = @id RETURNING token_expires_at;",
+            new { id, expiresAt });
+    }
+
+    private async Task<DateTimeOffset> ExpiryAsync(Guid id)
+    {
+        await using var connection = await fixture.DataSource.OpenConnectionAsync(Ct);
+        return await connection.ExecuteScalarAsync<DateTimeOffset>(
+            "SELECT token_expires_at FROM agent_session WHERE id = @id;", new { id });
     }
 
     private Task<AppServer> StartAsync(WriteWorld world)
