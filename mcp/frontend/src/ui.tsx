@@ -39,7 +39,12 @@ export function CopyRef(props: { value: string }) {
 
   const copy = async () => {
     try {
-      await navigator.clipboard.writeText(props.value)
+      // A clipboard write can stay pending with no error (a held permission, an unfocused
+      // window); without a deadline the button would show nothing at all.
+      await Promise.race([
+        navigator.clipboard.writeText(props.value),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('clipboard timeout')), 1200)),
+      ])
       show('copied')
     } catch {
       show('selected')
