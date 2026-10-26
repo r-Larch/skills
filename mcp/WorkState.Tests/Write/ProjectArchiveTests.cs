@@ -161,10 +161,10 @@ public sealed class ProjectArchiveTests(PostgresFixture fixture)
             ["repo"] = new Dictionary<string, object?> { ["remote"] = "https://github.com/r-larch/archived" },
         });
         Assert.StartsWith("PROJECT arch ", byRepo, StringComparison.Ordinal);
-        Assert.Contains("archived", byRepo, StringComparison.Ordinal);
+        Assert.Matches(@"  ·  archived \d{4}-\d{2}-\d{2}$", byRepo);
 
         var byRef = await FirstLineAsync(client, new Dictionary<string, object?> { ["scope"] = "arch" });
-        Assert.Contains("archived", byRef, StringComparison.Ordinal);
+        Assert.Matches(@"  ·  archived \d{4}-\d{2}-\d{2}$", byRef);
 
         var onboarding = await new BoardQueries(fixture.DataSource).ProjectRefsAsync(world.WorkspaceId, Ct);
         Assert.DoesNotContain("arch", onboarding);
