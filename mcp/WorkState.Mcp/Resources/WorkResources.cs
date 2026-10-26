@@ -14,7 +14,7 @@ namespace WorkState.Mcp.Resources;
 /// model composing one for itself.
 /// </summary>
 [McpServerResourceType]
-public sealed class WorkResources(BoardReader reader, WorkspaceOptions workspace)
+public sealed class WorkResources(BoardReader reader, WorkspaceOptions workspace, CallerIdentity caller)
 {
     [Authorize(Policy = WorkStatePolicies.Worker)]
     [McpServerResource(
@@ -25,7 +25,7 @@ public sealed class WorkResources(BoardReader reader, WorkspaceOptions workspace
     [Description("The active run: its shape, its rollups, and the attention block. The board, as a document.")]
     public async Task<string> IndexAsync(CancellationToken cancellationToken)
     {
-        var scope = await reader.ResolveAsync(workspace.Slug, null, cancellationToken);
+        var scope = await DefaultAsync(cancellationToken);
         if (scope is not ScopeResult.Found found)
         {
             return BriefRenderer.Onboarding();
@@ -44,10 +44,12 @@ public sealed class WorkResources(BoardReader reader, WorkspaceOptions workspace
     [Description("The same payload work_brief returns, attachable with @ so it can be pinned into a session.")]
     public async Task<string> BriefAsync(CancellationToken cancellationToken)
     {
-        var scope = await reader.ResolveAsync(workspace.Slug, null, cancellationToken);
+        // Resolved as a bare work_brief() is: the session's project, else a chooser among several.
+        var scope = await reader.ResolveRepoAsync(workspace.Slug, [], caller.Actor.SessionId, cancellationToken)
+                    ?? await reader.ResolveUnscopedBriefAsync(workspace.Slug, cancellationToken);
         return scope is ScopeResult.Found found
             ? await reader.BriefAsync(found, "resume", cancellationToken)
-            : BriefRenderer.Onboarding();
+            : ScopeExplain.Text(scope, "work_brief", null);
     }
 
     [Authorize(Policy = WorkStatePolicies.Worker)]
@@ -59,7 +61,7 @@ public sealed class WorkResources(BoardReader reader, WorkspaceOptions workspace
     [Description("Every active constraint in scope, red lines first, each with its route out.")]
     public async Task<string> ConventionsAsync(CancellationToken cancellationToken)
     {
-        var scope = await reader.ResolveAsync(workspace.Slug, null, cancellationToken);
+        var scope = await DefaultAsync(cancellationToken);
         return scope is ScopeResult.Found found
             ? await reader.ConventionsAsync(found, cancellationToken)
             : BriefRenderer.Onboarding();
@@ -74,7 +76,7 @@ public sealed class WorkResources(BoardReader reader, WorkspaceOptions workspace
     [Description("Brief, shape and every unclosed thread in one document — what a handover has to carry.")]
     public async Task<string> HandoffAsync(CancellationToken cancellationToken)
     {
-        var scope = await reader.ResolveAsync(workspace.Slug, null, cancellationToken);
+        var scope = await DefaultAsync(cancellationToken);
         if (scope is not ScopeResult.Found found)
         {
             return BriefRenderer.Onboarding();
@@ -111,7 +113,7 @@ public sealed class WorkResources(BoardReader reader, WorkspaceOptions workspace
 
     private async Task<string> AttentionOfAsync(string? scope, CancellationToken cancellationToken)
     {
-        var resolved = await reader.ResolveAsync(workspace.Slug, scope, cancellationToken);
+        var resolved = await reader.ResolveDefaultAsync(workspace.Slug, scope, caller.Actor.SessionId, cancellationToken);
         if (resolved is not ScopeResult.Found found)
         {
             return scope is null ? BriefRenderer.Onboarding() : ScopeExplain.Text(resolved, "work_threads", scope);
@@ -120,6 +122,9 @@ public sealed class WorkResources(BoardReader reader, WorkspaceOptions workspace
         var lines = await reader.AttentionAsync(found, cancellationToken);
         return Attention.Full(((ScopedAttention)lines).Scope, lines);
     }
+
+    private Task<ScopeResult> DefaultAsync(CancellationToken cancellationToken)
+        => reader.ResolveDefaultAsync(workspace.Slug, null, caller.Actor.SessionId, cancellationToken);
 
     /// <summary>
     /// <c>{+ref}</c> rather than <c>{ref}</c>: reserved expansion lets the value carry a <c>/</c>, so

@@ -414,7 +414,7 @@ URI scheme `work://`. Read-only projections, `cacheScope: "private"`, short `ttl
 | `work://item/{ref}` | one item, rendered |
 | `work://item/{ref}/brief` | the fully rendered worker brief (see §9) |
 | `work://workspace/{slug}/handoff` | the "competent stranger could continue from this alone" document |
-| `work://attention` | the busiest run's attention block, uncapped — every line, ranked, each with its call |
+| `work://attention` | the busiest run's attention block (the caller's project's, when its repo is known), uncapped — every line, ranked, each with its call |
 | `work://attention/{scope}` | the same for one scope; the URI a capped attention block prints (doc 06 §5) |
 
 > **Changed 2026-10-26 (attention-cap).** The attention block capped at 5 lines with no route to
@@ -445,6 +445,11 @@ URI scheme `work://`. Read-only projections, `cacheScope: "private"`, short `ttl
   > **Changed 2026-10-23 (runref).** `work_get` on the run `autowork/backlog` printed
   > `uri work://item/backlog` and a bare Next while `m0/backlog` is a phase: the rule above used the
   > run's `QualifiedRef`, which for a run is its bare ref.
+
+  `work_create`'s rows and `Next:` line, and `work_search`'s hits and `Next:` line, follow the same
+  rule: the bare ref while it resolves alone, else the shortest form that does.
+  > **Changed 2026-10-26 (bare-brief).** A follow-up created under project `workstate` printed `1`,
+  > and the `work_get(refs:["1"])` it suggested was refused as ambiguous across 14 runs.
 - **`completions/complete` has no client mechanism at all.** ⛔ **The completion plan is dropped**, and
   `WithCompleteHandler` is not wired. The "live item picker for free" was wishful; there is no picker.
 - **Exact URIs win over templates.** Reading `work://probe/fixed` returned the *fixed* resource, not

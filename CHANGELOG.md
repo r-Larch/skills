@@ -17,6 +17,18 @@ What changes for someone who has the `rlarch` plugin installed, newest first. Fo
   one. Existing installs: run the setup script once with `--session-names`, then start a new
   session.
 
+### Fixed
+
+- **A bare `work_brief()` no longer hands out another project's run.** With several live projects
+  and no repo known, it opened the busiest run of the whole workspace — often another project's.
+  It now opens no run and lists the projects, newest activity first, each as a callable
+  `work_brief(scope:"…")`, with `work_brief(repo:{remote, root})` as the first route. With one
+  project, or none, the brief is unchanged. A minted session whose repo is bound lands its
+  unscoped `work_next`, `work_tree`, `work_threads`, `work_search` and the `work://` resources in
+  its own project; `work_get`'s attention block follows the run of the first ref it was given.
+- **Refs printed by `work_create` and `work_search` call back as printed.** A ref another run also
+  holds (`1`) is printed in its shortest unique form (`run-z/1`), in the rows and in the `Next:` line.
+
 ## [2.3.0] - 2026-10-26
 
 ### Added

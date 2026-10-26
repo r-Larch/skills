@@ -1,5 +1,6 @@
 using WorkState.Core.Domain;
 using WorkState.Core.Queries;
+using WorkState.Core.Rendering;
 
 namespace WorkState.Core.Board;
 
@@ -25,4 +26,11 @@ public abstract record ScopeResult
     public sealed record Unbound(IReadOnlyList<RepoKey> Keys, IReadOnlyList<string> Projects) : ScopeResult;
 
     public sealed record Ambiguous(string Asked, IReadOnlyList<string> Candidates, int Matches) : ScopeResult;
+
+    /// <summary>
+    /// No scope and no repo, in a workspace of several live projects: the busiest run of the whole
+    /// workspace would be a guess, so the caller chooses. <paramref name="Projects"/> are newest
+    /// activity first, each with a ref that resolves to it alone.
+    /// </summary>
+    public sealed record Unchosen(IReadOnlyList<ProjectChoice> Projects) : ScopeResult;
 }
