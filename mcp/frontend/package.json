@@ -1,0 +1,25 @@
+{
+  "name": "workstate-frontend",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "serve": "vite preview",
+    "ts": "tsc --project tsconfig.json --noEmit",
+    "verify": "node verify/state-cases.mjs",
+    "verify:board": "node verify/board-numbers.mjs",
+    "verify:links": "node verify/links.mjs"
+  },
+  "dependencies": {
+    "@solidjs/router": "^1.0.0",
+    "solid-js": "^1.9.15"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.3.3",
+    "tailwindcss": "^4.3.3",
+    "typescript": "^7.0.2",
+    "vite": "8.2.2",
+    "vite-plugin-solid": "^2.11.14"
+  }
+}

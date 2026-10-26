@@ -53,18 +53,30 @@ public sealed class Housekeeping(NpgsqlDataSource dataSource)
     /// <summary>
     /// doc 01 §3.4 — a note addressed to an item is injected into that item's brief and then marked
     /// consumed. Called only after the brief has rendered them, so the agent that pays for the call
-    /// is the one that receives them.
+    /// is the one that receives them — and only the ones it rendered, by id: a note written between
+    /// the render and this update was never shown, so it stays for the next brief.
     /// </summary>
-    public async Task<int> ConsumeNotesAsync(Guid itemId, CancellationToken cancellationToken = default)
+    public async Task<int> ConsumeNotesAsync(
+        Guid itemId,
+        IReadOnlyCollection<Guid> renderedNoteIds,
+        CancellationToken cancellationToken = default)
     {
+        if (renderedNoteIds.Count == 0)
+        {
+            return 0;
+        }
+
         const string sql =
             """
             UPDATE note SET consumed_at = now()
-             WHERE to_item_id = @item AND consumed_at IS NULL;
+             WHERE to_item_id = @item AND id = ANY(@ids) AND consumed_at IS NULL;
             """;
 
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
         return await connection.ExecuteAsync(
-            new CommandDefinition(sql, new { item = itemId }, cancellationToken: cancellationToken));
+            new CommandDefinition(
+                sql,
+                new { item = itemId, ids = renderedNoteIds.ToArray() },
+                cancellationToken: cancellationToken));
     }
 }

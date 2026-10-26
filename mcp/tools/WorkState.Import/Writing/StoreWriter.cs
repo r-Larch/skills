@@ -506,6 +506,18 @@ public sealed class StoreWriter(string connectionString, string workspaceSlug = 
         var existing = rows.Select(c => (c.Kind, c.Text)).ToHashSet();
         var incoming = run.Constraints.Select(c => (c.Kind, c.Text)).ToHashSet();
 
+        // A ref is numbered across the workspace, not across this run — one BINDING block renders
+        // both — so the taken set is every rule in the workspace, including the runs this import is
+        // not touching. A re-import matches an existing row by (kind, text) and leaves its ref
+        // alone, which is what keeps a rule citable between two briefs.
+        var taken = (await db.ConstraintRules
+                .Where(c => c.WorkspaceId == workspace.Id)
+                .Select(c => c.Ref)
+                .ToListAsync(token))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        var next = 1;
+
         // A rule this CONVENTIONS file no longer states is retracted, not deleted: the fix that
         // reunites a red line with its verb produces different text, and a store that kept both
         // would go on handing an agent the fragment (FINDINGS-live F-L2). Deactivating leaves the
@@ -522,11 +534,17 @@ public sealed class StoreWriter(string connectionString, string workspaceSlug = 
                 continue;
             }
 
+            while (!taken.Add($"C{next}"))
+            {
+                next++;
+            }
+
             db.ConstraintRules.Add(new ConstraintRule
             {
                 Id = Guid.CreateVersion7(),
                 WorkspaceId = workspace.Id,
                 ScopeItemId = runItem.Id,
+                Ref = $"C{next}",
                 Kind = source.Kind,
                 Text = source.Text,
                 Route = source.Route,

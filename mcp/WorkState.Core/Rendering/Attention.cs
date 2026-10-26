@@ -25,8 +25,24 @@ public enum AttentionRank
 /// <summary>
 /// One attention line. <paramref name="Call"/> is not optional and not prose: a line without a call
 /// is the 1,241 hand-written ⚠ markers of the old corpus reinvented, which is what this replaces.
+/// <para>
+/// <paramref name="Ref"/> is carried beside <paramref name="What"/>, never instead of it: the
+/// rendered text is one sentence by design (doc 06 §5), but doc 09 §5's queue gives the ref its own
+/// column, and re-extracting it from prose in the client is how the two surfaces drift apart.
+/// </para>
+/// <para>
+/// <paramref name="QualifiedRef"/> is what the queue links on. A bare ref is unique only inside its
+/// ref scope, and the project-scoped attention block spans every run under a project — the live corpus has one
+/// <c>phase-4</c> in each of four runs. Every source names one item, the unconsumed-note line
+/// included: it is one line per addressee (ws/13), so its call can never name an ambiguous scope.
+/// </para>
 /// </summary>
-public sealed record AttentionLine(AttentionRank Rank, string What, string Call);
+public sealed record AttentionLine(
+    AttentionRank Rank,
+    string What,
+    string Call,
+    string? Ref = null,
+    string? QualifiedRef = null);
 
 public static class Attention
 {

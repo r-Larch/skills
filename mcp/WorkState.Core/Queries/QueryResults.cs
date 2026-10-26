@@ -23,11 +23,17 @@ public sealed record UnclosedDependency(
     ItemStatus Status,
     bool OrderedCorrectly);
 
+/// <summary>
+/// The four unclosed buckets plus <see cref="DoneCount"/>. <c>cancelled</c> and <c>superseded</c>
+/// are in none of them — they are closed and were not done, so they belong in neither half of an
+/// "X of Y" — but <see cref="ReviewCount"/> is work in flight and belongs in the denominator.
+/// </summary>
 public sealed record ItemRollup(
     Guid Id,
     long OpenCount,
     long DoingCount,
     long BlockedCount,
+    long ReviewCount,
     long DoneCount);
 
 /// <summary>An item in document order, with the rollup of everything beneath it.</summary>
@@ -43,6 +49,7 @@ public sealed record SubtreeNode(
     long OpenCount,
     long DoingCount,
     long BlockedCount,
+    long ReviewCount,
     long DoneCount);
 
 /// <summary>Everything unclosed that is not a task — the work_threads backbone.</summary>

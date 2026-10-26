@@ -51,10 +51,10 @@ if (typeName is null)
 foreach (var dll in dlls)   // find the assembly that actually declares the type, then decompile it there
 {
     var dc = new CSharpDecompiler(dll, settings);
-    if (dc.TypeSystem.MainModule.TypeDefinitions.Any(t => t.FullName == typeName))
+    if (dc.TypeSystem.MainModule.TypeDefinitions.FirstOrDefault(t => t.FullName == typeName || t.ReflectionName == typeName) is { } match)
     {
         if (dlls.Count > 1) Console.WriteLine($"// in {Path.GetFileName(dll)}:");
-        Console.WriteLine(dc.DecompileTypeAsString(new FullTypeName(typeName)));
+        Console.WriteLine(dc.DecompileTypeAsString(match.FullTypeName));
         return 0;
     }
 }

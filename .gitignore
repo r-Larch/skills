@@ -19,3 +19,24 @@ obj/
 
 # Filled-in secrets for mcp/compose.yml. mcp/.env.example is the committed template.
 .env
+
+# Frontend. The SPA is built by an opt-in MSBuild target and by the Dockerfile's Node stage,
+# so no build output belongs in the repo. wwwroot is entirely generated: the API serves a
+# built-in placeholder when index.html is absent, so a clone without Node still runs.
+mcp/frontend/node_modules/
+mcp/frontend/dist/
+mcp/WorkState.Api/wwwroot/
+
+# Python bytecode. The nested-claude watchdog is a .py script the plugin ships; running it
+# leaves a __pycache__ beside it, and a committed .pyc is both junk and interpreter-specific.
+__pycache__/
+*.pyc
+
+# Scratch written by /rlarch:workstate-setup when it asks the server what tools a token grants.
+# It runs from this repo root, so the file lands here; it is evidence for one command, not an artifact.
+tools.json
+
+# The commit-message path every brief in this repo mandates: `git commit -F mcp/.commit-msg.txt`.
+# It is scratch for one commit, and it sat untracked-but-not-ignored, so every agent that used it
+# left a file one `git add -A` away from being committed.
+mcp/.commit-msg.txt

@@ -23,6 +23,8 @@
 5. **Every result ends with the attention block, or nothing.** Never an empty header.
 
 **Width budget: 100 columns.** Long titles truncate with `…`; refs, status and evidence never do.
+Neither do a rule, its route or a task's intent in the worker brief: they wrap at 100 columns with
+an indented continuation (§4).
 
 ---
 
@@ -54,7 +56,7 @@ A6    assum   open      Docker can run pgvector             probed    revisit: 1
 
 | Flag | Means | The call that resolves it |
 |---|---|---|
-| `⚠ no verify` | `done`-eligible but no orchestrator verification | `work_verify` |
+| `⚠ no verify` | `done`-eligible but no orchestrator verification (never on a deferred, `obsolete` item) | `work_verify` |
 | `← 2.4` | blocked by `2.4` | finish `2.4` |
 | `review-req` | `risk_tags` non-empty | spend a review before closing |
 | `BLOCKER → 2.4` | a blocker finding targeting `2.4` | close or defer the finding |
@@ -97,10 +99,10 @@ WHERE  phase 2 of 9 — Ingestion. 6 of 8 tasks done, gate not yet run.
 NEXT   work_status(ref:"2.8", to:"in_progress")   ← the literal next action
 
 BINDING (4)
-  ! never modify Gaia.Web/Core/Rag/** — 23 live chatbots depend on it
-  ! production is read-only until phase 9
-  ! run the suite with --filter; unfiltered hits a live service
-  · regenerate: dotnet ef migrations add, never edit the snapshot by hand
+  ! C1  never modify Gaia.Web/Core/Rag/** — 23 live chatbots depend on it
+  ! C2  production is read-only until phase 9
+  ! C4  run the suite with --filter; unfiltered hits a live service
+  · C9  regenerate: dotnet ef migrations add, never edit the snapshot by hand
 
 OPEN ASSUMPTIONS (2)
   A3 DSS jsonexport reachable from a dev machine   untested   medium   revisit: 3.1
@@ -119,6 +121,82 @@ LAST VERIFY  dotnet test --filter Importer → 181/181, by orchestrator, 6m ago
 
 **`NEXT` is a literal, callable line.** An agent that only ever does what `NEXT` says is running the
 system correctly — that is the tutorial channel of doc 04 §4, and it is why this line is never prose.
+
+**A closed scope's `NEXT` never closes it again.** When no child is open, an open scope's `NEXT` is
+`work_status(ref:"<ref>", to:"done") — every child is closed`. A `done`, `cancelled` or `superseded`
+scope instead names the first open item derived from it or from anything beneath it (a
+`derived_from` link, which is what a deferral writes), wherever that item now sits:
+`work_get(refs:["<ref>"]) — m1 is done; <ref> derived from it is still open`. With no such item the
+line is `nothing left — m1 is done`.
+
+> **Changed 2026-10-23 (donenext).** `work_brief(scope:"autowork/m1")` said
+> `NEXT work_status(ref:"m1", to:"done")` while m1 was done, and that call was refused "m1 is done".
+> The last branch checked only the children and never the scope's own status.
+
+**A BINDING line carries its ref**, between the marker and the rule, in the same four-wide handle
+column the assumption rows below it use. The marker still opens the line, so the `!` column stays
+scannable at a glance; the ref is what makes the rule addressable, which is what `work_constrain`
+needs to retire one and what a finding needs to argue against one.
+
+> **Changed 2026-09-22 (U9.1).** This section previously specified `  ! <text>`, with no ref —
+> deliberately, on the grounds that a rule asks for no decision. It was wrong: `constraint_rule` had
+> no `ref` column at all, so the omission was not restraint, it was the schema showing through. A
+> rule an agent can read but cannot name is one it cannot cite, question or retire, and directly
+> below it the assumptions print as `A3`. This is the only change to a rendered surface in the U9
+> queue, and it is why the unit that made it also edited this file.
+
+**In the worker brief, rules and intent are never cut.** `work_brief(for:"worker")` and
+`work://item/<ref>/brief` render each BINDING rule with its route, the GOAL and the task's `intent`
+in full, wrapped at 100 columns under an indented continuation:
+
+```
+  ! C1   Never stop, rm, respawn, attach to, message, or read the key file of any Claude session
+         this controller did not start itself — report it to the controller and leave it as it is
+```
+
+The resume brief (`for` omitted) still clips each rule to one line and GOAL to three: it is paid on
+every session start against the ≤ 35-line target, and the full conventions are one read away at
+`work://workspace/conventions`.
+
+> **Changed 2026-10-22 (ws/2).** Both briefs previously clipped a rule to one ~95-column line, GOAL to
+> three, and the worker brief's `intent` to one. A controller pastes the worker brief into a worker's
+> prompt, so the worker received red lines with their ends missing — and the end is the route, the
+> "what to do instead". Wrapping rules in the resume brief too was measured and rejected: on the
+> committed sample-run fixture it renders 41 lines against the 35-line target. The worker brief also
+> lists every rule in scope, with no count cap and no `+n more` pointer: a pasted brief has no
+> pointer a worker can follow, so the resume brief's cap of five silently dropped rule six and up.
+
+**The worker brief is worker-shaped.** A worker does not own its task's status — the orchestrator
+claims, verifies and closes, and a worker token cannot call `work_status` — so the worker variant's
+`NEXT` names the hand-back, never a transition, and its done-criteria and the notes addressed to the
+task wrap in full like the rules do:
+
+```
+NEXT   do the task, then work_report(ref:"2.8", status:"done", files:[…], verify:"…", …)
+…
+YOUR TASK  2.8 — ContentHash fix
+  criteria
+    ✗ c3 numbers recorded in docs/LEARNINGS.md: build time, binary size, idle RSS, p95 first-byte
+         latency under the battle-test load
+  report    status / files / verify / red_check / deviations / assumptions / risks / not_done
+  brief     work://item/2.8/brief
+  Next: work_report(ref:"2.8", …) with the fields above; closing is the orchestrator's call.
+        work_verify(ref:"2.8", …, run_by:"worker") records a claim, not evidence.
+```
+
+The resume brief's `NEXT` is unchanged, and it keeps clipping notes to one line.
+
+> **Changed 2026-10-22 (ws/3).** The worker brief's `NEXT` was the resume brief's — on a claimed task
+> `work_verify(…, run_by:"orchestrator") then work_status(ref, to:"done")`, on an open one
+> `work_status(ref, to:"in_progress")` — and its trailing line named only `work_verify`. Both told a
+> worker to make a call it does not own. Its criteria were clipped at 80 columns and its notes at 94,
+> so a worker read `p95 f…` for the criterion it is judged against.
+
+> **Changed 2026-10-22 (ws/4).** The worker brief rendered three addressed notes and then consumed
+> every note addressed to the task, so the fourth and later were marked delivered unseen. It now
+> renders every note addressed to its own item (notes it merely carries keep the cap of three), and
+> consumption marks exactly the rendered notes by id — a note written between render and consume
+> stays for the next brief.
 
 **The note header names what it is holding.** `ADDRESSED TO YOU (n)` counts only notes that name a
 target item — those are the ones a worker brief renders and consumes. Where a run carries unconsumed
@@ -165,6 +243,34 @@ run** → items done-but-unverified → assumptions past revisit → unconsumed 
 > because what goes unexamined is the composition across every task in the phase, not one task's
 > missing evidence.
 
+**A moved item is not done-but-unverified.** A deferral closes its item `done` with resolution
+`obsolete`, because the work moved rather than finished (doc 07 §4). That item is left out of the
+attention line, `work_audit`'s `done-unverified` check, the `⚠ no verify` row flag and the honesty
+strip's count, so all four numbers agree. `wontfix` and `duplicate` closures stay in: they pass the
+same done guard as `accepted`, so they cannot close without an orchestrator verification unless
+`force:true` is used, and a forced close is the case the count exists to show.
+
+> **Changed 2026-10-23 (defer-verify).** A deferred item raised `<ref> is done with no orchestrator
+> verification — work_verify(…)`, which invites a verification of work that was never done here.
+
+**The unconsumed-note line is one line per addressee**: `N note(s) addressed to <ref> unconsumed —
+work_brief(scope:"<ref>", for:"worker")`, where `<ref>` is bare unless another item in the workspace
+shares it, in which case it is qualified (`run-one/4.1`), the same rule as ws/10's calls and URIs.
+
+> **Changed 2026-10-22 (ws/13).** The line grouped on the bare ref, so at project scope the notes to
+> `run-one/4.1` and `run-two/4.1` were one line whose `work_brief(scope:"4.1")` is refused as
+> ambiguous: a hint that could not fire, over two briefs that each consume only their own notes.
+
+**A closed addressee raises no line.** Only the addressee's worker brief consumes a note, and nobody
+briefs a `done`, `cancelled` or `superseded` item, so its notes leave attention. They stay unconsumed
+and readable in `work_threads(include:"notes")` and the history. When the item is superseded through
+`work_link(type:"supersedes")`, the link moves its unconsumed notes to the replacing item in the same
+transaction, because they are still somebody's obligation. The line then names the replacement.
+
+> **Changed 2026-10-23 (F-08).** A note addressed to a closed item repeated on every call:
+> `1 note(s) addressed to 8-d unconsumed` long after 8-d was superseded, and the same for `m2/1` after
+> it was done. The line's call was a brief nobody would run.
+
 ---
 
 ## 6. Refusals
@@ -196,6 +302,19 @@ REFUSED  work_status(2.4 → done). 3 conditions unmet.
   is three times the cost and reads as an adversarial system.
 - **Name the override, and name its cost.** An escape hatch that is hidden gets worked around; one
   that leaves a permanent mark gets used honestly. Never hide `force`.
+- **A route is a call that binds.** Every named argument in a `→` line or a `NEXT` line is one the
+  tool declares, in the shape it declares (doc 01 §3.6). A call the server would refuse, printed as
+  the fix, teaches the wrong call permanently.
+
+A call whose arguments cannot bind is refused before the tool runs, in the same shape, with no
+override because nothing ran:
+
+```
+REFUSED  work_get — 1 argument cannot bind. Nothing ran.
+
+  ✗ refs is required and was not sent — One or more refs, e.g. ["2.3", "F-07"]. Qualify across…
+      → work_get(refs:["…"])
+```
 
 ---
 

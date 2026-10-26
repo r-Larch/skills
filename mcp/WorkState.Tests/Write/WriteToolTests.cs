@@ -166,7 +166,7 @@ public sealed class WriteToolTests(PostgresFixture fixture)
         await using var server = await ReadServer.StartAsync(fixture.ConnectionString, world.Slug, Ct);
         await using var client = await server.ConnectAsync(ReadServer.OrchestratorToken, Ct);
 
-        await Ok(client, "work_status", new Dictionary<string, object?>
+        var moved = await Ok(client, "work_status", new Dictionary<string, object?>
         {
             ["ref"] = "1.1",
             ["to"] = "deferred",
@@ -174,7 +174,13 @@ public sealed class WriteToolTests(PostgresFixture fixture)
             ["reason"] = "belongs in the next run",
         });
 
-        var frontier = await ReadServer.CallAsync(client, "work_next", null, Ct);
+        // ws/12: the follow-up lives in the project-level backlog run, not in the busiest run that a
+        // bare work_next() defaults to — so call the work_next the OK line names.
+        var named = System.Text.RegularExpressions.Regex.Match(moved, @"work_next\(scope:""([^""]+)""\)");
+        Assert.True(named.Success, moved);
+
+        var frontier = await ReadServer.CallAsync(
+            client, "work_next", new Dictionary<string, object?> { ["scope"] = named.Groups[1].Value }, Ct);
 
         Assert.Contains("1.1-d", frontier, StringComparison.Ordinal);
     }

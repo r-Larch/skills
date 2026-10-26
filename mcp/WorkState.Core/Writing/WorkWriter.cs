@@ -25,7 +25,8 @@ public sealed record StatusArgs(
     string? Target = null,
     string? Resolution = null,
     string? Commit = null,
-    bool Force = false);
+    bool Force = false,
+    string? Tree = null);
 
 /// <summary>
 /// The write side. It lives in <c>WorkState.Core</c> beside the renderers for the same reason they
@@ -40,7 +41,7 @@ public sealed record StatusArgs(
 public sealed partial class WorkWriter(NpgsqlDataSource dataSource, BoardQueries board, Housekeeping housekeeping)
 {
     /// <summary>doc 07 §5 — 30 minutes unless <c>workspace.settings</c> says otherwise.</summary>
-    private const int DefaultTtlMinutes = 30;
+    internal const int DefaultTtlMinutes = 30;
 
     private sealed record ItemRow(
         Guid Id,
@@ -59,11 +60,16 @@ public sealed partial class WorkWriter(NpgsqlDataSource dataSource, BoardQueries
         bool RequiresCriteria);
 
     private sealed record ClaimHolder(
+        Guid ItemId,
         string AgentName,
         string SerializationKey,
         DateTimeOffset ExpiresAt,
         DateTimeOffset HeartbeatAt,
-        string ItemRef);
+        string ItemRef,
+        string QualifiedRef,
+        bool SameWorkspace,
+        Guid? SessionId,
+        string Holder);
 
     /// <summary>
     /// doc 07 §2 and §3. The transition table decides what is reachable, the five conditions decide
@@ -101,6 +107,56 @@ public sealed partial class WorkWriter(NpgsqlDataSource dataSource, BoardQueries
 
         var item = await LoadAsync(connection, transaction, scope.Id, cancellationToken);
 
+        try
+        {
+            return await TransitionAsync(connection, transaction, item, move, actor, args, cancellationToken);
+        }
+        catch (PostgresException refused)
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            return WriteResult.No(
+                await SchemaRefusalAsync(connection, item, to!, actor, args, refused, cancellationToken));
+        }
+    }
+
+    /// <summary>
+    /// The guards read before anything is written, but a concurrent writer can still take the slot
+    /// between the read and the insert — and then the index says no. That answer is re-read as the
+    /// same refusal the guard would have given, holder and all, because a schema message naming an
+    /// index is a problem without a route (doc 04 §3).
+    /// </summary>
+    private async Task<string> SchemaRefusalAsync(
+        NpgsqlConnection connection,
+        ItemRow item,
+        string to,
+        Actor actor,
+        StatusArgs args,
+        PostgresException refused,
+        CancellationToken cancellationToken)
+    {
+        if (refused.ConstraintName is "claim_one_live_per_item" or "claim_one_writer_per_tree"
+            or "claim_one_session_per_tree")
+        {
+            await using var reread = await connection.BeginTransactionAsync(cancellationToken);
+            var held = await ClaimRefusalAsync(connection, reread, item, actor, args.Tree, cancellationToken);
+            if (held is not null)
+            {
+                return held;
+            }
+        }
+
+        return FromPostgres(refused, $"work_status(ref:\"{item.Ref}\", to:\"{to.Trim()}\")");
+    }
+
+    private async Task<WriteResult> TransitionAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        ItemRow item,
+        Move move,
+        Actor actor,
+        StatusArgs args,
+        CancellationToken cancellationToken)
+    {
         if (!Transitions.Legal(item.Status, move, item.Kind))
         {
             return WriteResult.No(Transitions.Refuse(item.Ref, item.Status, move, item.Kind));
@@ -110,6 +166,10 @@ public sealed partial class WorkWriter(NpgsqlDataSource dataSource, BoardQueries
         {
             return await DeferAsync(connection, transaction, item, actor, args, cancellationToken);
         }
+
+        var carried = move == Move.Done && item.Kind == "run"
+            ? await CarryBacklogAsync(connection, transaction, item, actor, cancellationToken)
+            : null;
 
         var refusal = await GuardAsync(connection, transaction, item, move, actor, args, cancellationToken);
         if (refusal is not null)
@@ -129,7 +189,7 @@ public sealed partial class WorkWriter(NpgsqlDataSource dataSource, BoardQueries
         await ApplyAsync(connection, transaction, item.Id, status, resolution, actor, cancellationToken);
 
         var claimLine = status == ItemStatus.InProgress
-            ? await AcquireAsync(connection, transaction, item, actor, cancellationToken)
+            ? await AcquireAsync(connection, transaction, item, actor, args.Tree, cancellationToken)
             : await ReleaseAsync(connection, transaction, item, status, cancellationToken);
 
         await EventAsync(
@@ -152,7 +212,7 @@ public sealed partial class WorkWriter(NpgsqlDataSource dataSource, BoardQueries
 
         await transaction.CommitAsync(cancellationToken);
 
-        return WriteResult.Ok(Wrote(item, status, args, forced, claimLine));
+        return WriteResult.Ok(Wrote(item, status, args, forced, claimLine, carried));
     }
 
     private static string Wrote(
@@ -160,12 +220,18 @@ public sealed partial class WorkWriter(NpgsqlDataSource dataSource, BoardQueries
         ItemStatus status,
         StatusArgs args,
         string[]? forced,
-        string? claimLine)
+        string? claimLine,
+        string? carried)
     {
         var lines = new List<string>
         {
             $"OK  {item.Ref}  {Transitions.Name(item.Status)} → {Transitions.Name(status)}",
         };
+
+        if (carried is { Length: > 0 })
+        {
+            lines.Add($"    backlog {Glyph.Clip(carried, 86)}");
+        }
 
         if (args.Reason is { Length: > 0 })
         {
@@ -225,7 +291,7 @@ public sealed partial class WorkWriter(NpgsqlDataSource dataSource, BoardQueries
                 return await ReadyRefusalAsync(connection, transaction, item, cancellationToken);
 
             case Move.InProgress:
-                return await ClaimRefusalAsync(connection, transaction, item, actor, cancellationToken);
+                return await ClaimRefusalAsync(connection, transaction, item, actor, args.Tree, cancellationToken);
 
             case Move.Blocked when string.IsNullOrWhiteSpace(args.Reason):
                 return Refusal.Blocked(
@@ -534,16 +600,35 @@ public sealed partial class WorkWriter(NpgsqlDataSource dataSource, BoardQueries
         return matches.Count switch
         {
             1 => (matches[0], null),
-            > 1 => (null, Refusal.Blocked(
-                $"ref \"{reference}\" matches {matches.Count} items across runs.",
-                "a bare ref is scoped to one run; this one exists in more than one",
-                [.. matches.Take(4).Select(m => $"retry with ref:\"{m.QualifiedRef ?? m.Ref}\"")])),
+            > 1 => (null, Ambiguous(
+                reference,
+                matches.Count,
+                await board.UniqueRefsAsync(workspaceId, matches.Take(4), cancellationToken))),
             _ => (null, Refusal.Blocked(
                 $"no item has ref \"{reference}\".",
                 "refs come from the server, never from invention",
                 $"work_search(q:\"{reference}\") to find it",
                 "work_tree() to see every ref that exists")),
         };
+    }
+
+    /// <summary>
+    /// ws/13. Each retry is a form <see cref="BoardQueries.UniqueRefsAsync"/> checked resolves to one
+    /// match alone; the work_get line shows which is which, and work_tree is the way to a match that
+    /// no form singles out.
+    /// </summary>
+    private static string Ambiguous(string reference, int count, IReadOnlyList<string> forms)
+    {
+        var routes = forms.Select(f => $"retry with ref:\"{f}\"").ToList();
+
+        routes.Add(forms.Count > 0
+            ? $"work_get(refs:[{string.Join(", ", forms.Select(f => $"\"{f}\""))}]) to see which is which"
+            : "work_tree() to see where each one sits");
+
+        return Refusal.Blocked(
+            $"ref \"{reference}\" matches {count} items.",
+            "a ref is numbered within its run, and a run within its project; this one names more than one item",
+            [.. routes]);
     }
 
     private static async Task EventAsync(
@@ -559,8 +644,8 @@ public sealed partial class WorkWriter(NpgsqlDataSource dataSource, BoardQueries
     {
         const string sql =
             """
-            INSERT INTO event (workspace_id, item_id, actor, role, kind, payload, summary)
-            VALUES (@workspace, @item, @actor, @role::actor_role, @kind, @payload::jsonb, @summary);
+            INSERT INTO event (workspace_id, item_id, actor, role, kind, payload, summary, session_id)
+            VALUES (@workspace, @item, @actor, @role::actor_role, @kind, @payload::jsonb, @summary, @session);
             """;
 
         await connection.ExecuteAsync(new CommandDefinition(
@@ -570,6 +655,7 @@ public sealed partial class WorkWriter(NpgsqlDataSource dataSource, BoardQueries
                 workspace = workspaceId,
                 item = itemId,
                 actor = actor.Name,
+                session = actor.SessionId,
                 role = Pg.Label(actor.Role),
                 kind,
                 payload = JsonSerializer.Serialize(payload),

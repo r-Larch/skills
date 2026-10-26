@@ -121,9 +121,47 @@ public sealed class RendererTests
         var text = BriefRenderer.Render(Sample([]));
 
         Assert.Contains("RUN entity-store", text, StringComparison.Ordinal);
-        Assert.Matches(@"(?m)^NEXT   work_get\(ref:""2\.8""\)", text);
+        Assert.Matches(@"(?m)^NEXT   work_get\(refs:\[""2\.8""\]\)", text);
         Assert.DoesNotContain("--- attention", text, StringComparison.Ordinal);
         Assert.DoesNotMatch(Uuid, text);
+    }
+
+    /// <summary>
+    /// U9.1. The block below BINDING prints <c>A3</c>; BINDING printed the text and nothing else, so
+    /// a rule could be read but never cited, questioned or retired.
+    /// </summary>
+    [Fact]
+    public void A_binding_line_carries_its_ref_between_the_marker_and_the_rule()
+    {
+        var line = BriefRenderer.Render(Sample([]))
+            .Split('\n')
+            .Single(l => l.Contains("never modify", StringComparison.Ordinal));
+
+        Assert.Equal("  ! C1   never modify Gaia.Web/Core/Rag/** — ask the owner", line);
+        Assert.True(line.Length <= Columns.Width, $"the line is {line.Length} columns");
+    }
+
+    /// <summary>
+    /// The ref column is four wide, so a ref that is already four characters consumes it entirely
+    /// and the separator has to be its own space. Without it the corpus — which runs to C258 —
+    /// rendered every line from C100 up as "C148Never connect to …". The test above uses C1 and
+    /// passes either way, which is precisely why this one exists.
+    /// </summary>
+    [Fact]
+    public void A_four_character_ref_does_not_collide_with_the_rule_it_names()
+    {
+        var model = Sample([]) with
+        {
+            Binding = [new BindingLine("C148", "never connect to production", true, "ask the owner")],
+        };
+
+        var line = BriefRenderer.Render(model)
+            .Split('\n')
+            .Single(l => l.Contains("never connect", StringComparison.Ordinal));
+
+        Assert.Equal("  ! C148 never connect to production — ask the owner", line);
+        Assert.DoesNotContain("C148never", line, StringComparison.OrdinalIgnoreCase);
+        Assert.True(line.Length <= Columns.Width, $"the line is {line.Length} columns");
     }
 
     [Fact]
@@ -200,8 +238,8 @@ public sealed class RendererTests
             Head: "7cd34161",
             Goal: "The voice agent answers from a curated entity store instead of page-chunked PDFs.",
             Where: "phase 2 of 9 — Ingestion. 6 of 8 tasks done.",
-            Next: "work_get(ref:\"2.8\")  then  work_status(ref:\"2.8\", to:\"in_progress\")",
-            Binding: [new BindingLine("never modify Gaia.Web/Core/Rag/**", true, "ask the owner")],
+            Next: "work_get(refs:[\"2.8\"])  then  work_status(ref:\"2.8\", to:\"in_progress\")",
+            Binding: [new BindingLine("C1", "never modify Gaia.Web/Core/Rag/**", true, "ask the owner")],
             BindingTotal: 1,
             Assumptions: [new AssumptionLine("A3", "DSS jsonexport reachable", "probed", "medium", "3.1")],
             AssumptionTotal: 1,

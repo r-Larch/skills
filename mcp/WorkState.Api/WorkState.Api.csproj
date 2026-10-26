@@ -2,6 +2,7 @@
 
   <PropertyGroup>
     <InvariantGlobalization>true</InvariantGlobalization>
+    <SpaRoot>$(MSBuildProjectDirectory)\..\frontend</SpaRoot>
   </PropertyGroup>
 
   <ItemGroup>
@@ -11,5 +12,35 @@
   <ItemGroup>
     <ProjectReference Include="..\WorkState.Mcp\WorkState.Mcp.csproj" />
   </ItemGroup>
+
+  <!--
+    ASP.NET Core resolves the web root once, at startup: if `wwwroot` is absent then, WebRootFileProvider
+    becomes a NullFileProvider and stays one for the life of the process. `wwwroot` is gitignored and a
+    clone has no such directory, so without this the SPA's own assets 404 until the API is restarted —
+    including when the frontend was built while the API was running. Creating the directory is not a
+    frontend step, which is why it is outside the opt-in target below.
+  -->
+  <Target Name="EnsureWebRoot" BeforeTargets="Build">
+    <MakeDir Directories="$(MSBuildProjectDirectory)\wwwroot" />
+  </Target>
+
+  <!--
+    Opt-in, so a plain `dotnet build` never needs Node:
+        dotnet build mcp/WorkState.Api/WorkState.Api.csproj -p:BuildSpa=true
+    Vite writes straight into wwwroot (its outDir), so there is nothing to copy afterwards.
+  -->
+  <Target Name="BuildSpa" BeforeTargets="Build" Condition="'$(BuildSpa)' == 'true'">
+    <!--
+      IgnoreStandardErrorWarningFormat: Node writes its own deprecation and env notices to stderr in a
+      shape MSBuild reads as `warning`, which would make this target dirty a clean build over nothing
+      it did. Failure is still detected, by the exit code, which is what Exec fails on.
+    -->
+    <Exec Command="pnpm install --frozen-lockfile"
+          WorkingDirectory="$(SpaRoot)"
+          IgnoreStandardErrorWarningFormat="true" />
+    <Exec Command="pnpm run build"
+          WorkingDirectory="$(SpaRoot)"
+          IgnoreStandardErrorWarningFormat="true" />
+  </Target>
 
 </Project>

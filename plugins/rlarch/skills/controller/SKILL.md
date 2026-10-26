@@ -1,6 +1,6 @@
 ---
 name: controller
-description: Drive a QUEUE of large, mostly independent undertakings to completion — a backlog of bugs, issues, TODOs, migrations or features — by sequencing them, briefing a nested Claude for each, steering it, independently verifying what it produced, landing it, and recording the decisions. One level above /rlarch:orchestrate: orchestrate executes ONE plan inside a session, a controller runs many plans across sessions and owns the integration, the verification and the record. USE FOR - a backlog too large for one session; several medium-to-large units that are unrelated to each other; work where each unit needs its own full context window; anything where you must be able to say afterwards what was done, what was deferred and why. DO NOT USE FOR - a single plan (use /rlarch:orchestrate), a task that fits one subagent (use the Agent tool), or a queue you intend to do yourself.
+description: Drive a QUEUE of large, mostly independent undertakings to completion — a backlog of bugs, issues, TODOs, migrations or features — by sequencing them, briefing a nested Claude for each, steering it, independently verifying what it produced, landing it, and recording the decisions in the WorkState store (the `work_*` MCP tools), which this skill requires. One level above /rlarch:orchestrate: orchestrate executes ONE plan inside a session, a controller runs many plans across sessions and owns the integration, the verification and the record. USE FOR - a backlog too large for one session; several medium-to-large units that are unrelated to each other; work where each unit needs its own full context window; anything where you must be able to say afterwards what was done, what was deferred and why. DO NOT USE FOR - a single plan (use /rlarch:orchestrate), a task that fits one subagent (use the Agent tool), or a queue you intend to do yourself.
 ---
 
 # Controller
@@ -26,7 +26,34 @@ launch. This skill is the **discipline** of running the queue on top of it, and 
 
 ---
 
+## 0. Preflight — before anything else
+
+**Call `work_brief`.** The queue, its order, the evidence and the record live in WorkState; this skill
+has no other place to keep them.
+
+- **No `work_*` tools in your list** → tell the human in one line: *"controller needs the WorkState
+  MCP server and this session cannot see it — run `/rlarch:workstate-setup`."* Then stop. There is no
+  markdown fallback.
+- **`work_brief` exists but `work_constrain` does not** → the server is older than this skill. Say so
+  in one line, point at `/rlarch:workstate-setup`, and stop.
+- **It answers** → read it. If a queue is already in flight, its NEXT line is where you resume — with
+  `/rlarch:nested-claude` §8 for the sessions that were running when yours stopped.
+
+**Refs come from the server** — `work_brief`, `work_next`, `work_tree`, `work_search`, or the result of
+the `work_create` that made them. Never invent one, in a call or in a brief.
+
+---
+
 ## 1. The queue is the unit of work
+
+**The queue is a run; each unit is an item under it.** Create them top-down, one `work_create` per
+level, reading back the refs each call prints: the project if none exists, the queue as a `run`
+(`parent:` the project ref), then each unit as a `task` (`parent:` the queue ref) — its outcome as `criteria`, the gate you will run yourself as `verify_cmd`, and
+where it is specified in `intent`. A unit's nested session may run `/rlarch:orchestrate` and keep its
+own run for the inside of the unit; the unit item is yours, and only you close it.
+
+The queue's standing rules — what no unit may touch, the verification commands, the stack facts —
+are `work_constrain(scope: "<queue ref>", …)`, written once.
 
 Before any agent starts, do three things with the whole list.
 
@@ -34,6 +61,8 @@ Before any agent starts, do three things with the whole list.
 change you can verify, and it is confined to what you control. Escalating means it needs a decision
 that is not yours — a product call, a schema or data change, a dependency, or a unit whose root cause
 is still open. **An agent handed an undecided question will decide it**, quietly and probably wrong.
+An escalating unit is `work_status(ref, "blocked", reason: "<the decision it needs, and whose>")`
+until it is answered.
 
 **Sequence by what unblocks what, not by severity.** Severity orders your *reporting*; dependency
 orders your *work*. The highest-value ordering decision is usually:
@@ -45,8 +74,12 @@ know why", the first is not lower priority than the second — it is a *prerequi
 turns the second from guesswork into reading. Look for that shape every time; it is common and easy
 to miss because the diagnostic fix looks cosmetic.
 
-**Get one approval for the queue, then run it.** Present the eligible list in severity order, the
-escalations with what each needs, and your proposed order. Then run to completion without asking
+Write the order into the store, not into a list: `work_link(from: "<prerequisite>", to: "<unit>",
+type: "blocks")` for every real dependency, and `priority` for the rest. `work_next` then hands you
+the next unit in that order.
+
+**Get one approval for the queue, then run it.** Present `work_tree(scope: "<queue ref>")` — the
+eligible units, the blocked ones with what each needs, and your proposed order. Then run to completion without asking
 again unless an escalation trigger fires (§8). Asking per unit burns the human's attention on
 decisions they already delegated.
 
@@ -57,8 +90,11 @@ plus "restructure how errors propagate" — **split it**: brief the part that st
 name the deferred part in the brief as **your decision, with the reason**. An agent given two of four
 items and no explanation will either do all four or stop to ask.
 
-Record the split where the unit is described, not only in your own notes. The next person to read it
-must find out *why* half of it is undone without having to reconstruct your reasoning.
+Record the split where the unit is described, not only in your own notes: the unit's `intent` says
+what was deferred and why, and the deferred half becomes its own item — `work_create` a `followup`
+under the queue, or `work_status(ref, "deferred", target: …)` if it already exists — so it cannot
+quietly disappear. The next person to read it must find out *why* half of it is undone without having
+to reconstruct your reasoning.
 
 ---
 
@@ -68,6 +104,11 @@ Run **one agent at a time** unless the units are genuinely independent all the w
 a database, a branch, a build output directory, a lock file — turns two agents into failures that
 belong to neither, and chasing those costs more than the parallelism saves.
 
+Each launch starts the same way: `work_next(scope: "<queue ref>")` names the unit, and
+`work_status(ref, "in_progress", tree: "<the unit's worktree path>")` claims it before the brief is
+written. The claim is per working tree, so pass `tree:` — without it the whole run is one tree and a
+second unit of the queue is refused while the first is in progress.
+
 **Integration strategy, decided before the first launch:**
 
 - Each unit gets its own branch **and its own worktree** (a background agent cannot edit your
@@ -76,6 +117,41 @@ belong to neither, and chasing those costs more than the parallelism saves.
   agent that caused them instead of piling up at the end.
 - Collect on an integration branch and land once, or land each as it passes — either is fine, but
   decide up front and tell the human which.
+
+**Launch with the `agent_launch` tool** (`/rlarch:nested-claude` §1; the scripts are its fallback when
+the agents server is unavailable). Per unit:
+
+- `permission_mode` — `auto` by default; `acceptEdits` for a unit where the classifier keeps refusing
+  routine work. It is set per launch, so choose it per unit.
+- `workstate.role: "worker"` for every unit. The agent then writes under its own minted token, its
+  evidence is a **worker's**, and it can never close the unit — the close stays yours.
+- `workstate.env_file` — the PATH of the WorkState clone's `mcp/.env`. A path, never a value: the
+  server reads the controller token from it in code, and neither token reaches your transcript.
+- `agent_stop` when the unit is done; it revokes the token.
+
+**Launch every agent in auto mode** unless the unit needs otherwise — the default of `agent_launch`'s
+`permission_mode` and of the scripts' `-PermissionMode`, i.e.
+`claude --bg --permission-mode auto`. Under `acceptEdits` every shell shape the allow-list did not foresee
+parks the agent until a human attaches: in one three-unit run that was five parks — a `;` inside a build
+argument, a commit-message file under `.claude/`, `New-Item` for a folder, a PowerShell byte read, a
+build flag in an unexpected order — each one harmless, each one an hour of nothing until someone clicked
+*Yes*. Auto mode's classifier approves routine commands itself and refuses risky ones instead of asking,
+so the agent gets an answer either way and keeps moving. It is a backstop, not the contract: the brief
+still forbids `git push`, production databases and migrations in words, and still routes artifacts away
+from paths that are refused whatever the mode (§3). Keep the `-Toolset` profile too — it is what the
+agent may do without the classifier's judgement at all.
+
+**In auto mode the brief is the authorization.** The classifier asks whether the *user* asked for an
+act, and to a nested agent the user is you: the brief is its first user message. An act that looks
+dangerous out of context is refused unless the brief grants it in words — a red-check that disables a
+guard to see its test go red was refused as "weakening security" in one run, and three red-checks went
+unrun. Grant it as the routine it is, in plain testing words — *"Permission granted to run red-checks
+on the code you wrote in this unit, as a normal testing routine: change the line with the Edit tool, run
+its test, restore the file with `git checkout -- <file>`, never commit the change."* — and describe each
+check by what it proves (*"show that the compatibility test catches a promote without the gate"*), not
+with words like "break", "disable" or "weaken". Even granted, a classifier may still refuse; then the
+agent skips that check and reports it, and you never run it yourself (§8). Grant only what the human
+approved — the red-checks of §5 are approved with the queue.
 
 **Reclaim resources between units.** Each agent building into its own output directory can leave a
 build server behind. A twelve-unit run accumulated 28 processes holding 5.4 GB and the machine began
@@ -87,6 +163,15 @@ killing background tasks mid-verification.
 
 The agent knows nothing you do not tell it. Everything in `/rlarch:nested-claude` §9 applies; these
 are the controller-level additions.
+
+**The store supplies the unit, not the brief.** `work_brief(scope: "<unit ref>", for: "worker")`
+renders the unit's criteria, its verification command, the queue's BINDING rules and any notes
+addressed to it — paste that in rather than retyping it. Everything below is what it cannot know: it
+renders an item's state, not which verbs the session you are about to launch may run.
+
+**Tell the agent the unit item is yours.** It may keep its own run for the work inside the unit, but
+it must not call `work_status`, `work_verify` or `work_report` on the unit's ref: those are your
+verdicts, and a nested session on the same registration would record its claim as your evidence.
 
 **Carry the baseline as numbers.** Not *"take a baseline"* — the exact failing test name and the
 exact counts, plus *"do not fix it, do not report it as a regression, and do not let a subagent clean
@@ -156,7 +241,11 @@ Check the tree before you act on a stopped agent.
 **Never take the agent's word for green.** Not because agents lie — the reports are usually accurate —
 but because the things that matter most are the things no report mentions.
 
-Run the build and the suite yourself, then read the diff against what the unit asked for. Look for:
+Run the build and the suite yourself, then read the diff against what the unit asked for. Record
+every run you make — red ones too — with `work_verify(ref: "<unit ref>", result_line: "<the line it
+printed>", passed: …, red_check: …)`; only your runs satisfy the unit's close. What you find in the
+diff is a finding: `work_finding(findings: [{target: "<unit ref>", title, severity, source:
+"review"}])`, and a blocker holds the unit open until it is dealt with. Look for:
 
 - **A test that was edited rather than added.** Updating an assertion because a type legitimately
   changed is fine; weakening one is not. The difference is visible and worth the minute.
@@ -206,6 +295,10 @@ Ask for red-check variants that are *plausible wrong implementations*, not straw
 would actually write. The most valuable one is usually the variant that **makes the symptom disappear
 while causing different damage** — it is the one that would have shipped.
 
+A red-check that removes an authorization check, a validation or a refusal reads like sabotage to an auto
+mode classifier. Grant red-checks in the brief in routine testing words (§2), or they are refused and the
+guard goes unproven.
+
 ---
 
 ## 6. Landing
@@ -214,33 +307,50 @@ Verify, merge, remove the worktree, delete the branch — in that order; a workt
 **Stop the agent before removing its worktree**, or the removal fails halfway and leaves the tree on
 disk and out of the registry.
 
-Green units land. Red or blocked units **do not** — leave the branch in place, record why, and move
-on. A half-fix on the integration branch costs more than an open unit.
+A landed unit closes with the commit that landed it: tick its criteria with `work_update(ref,
+criteria: [{id, checked: true, evidence}])`, then `work_status(ref, "done", commit: "<sha>")`. The
+close is refused until every criterion is checked, one of *your* verifications exists and no blocker
+finding targets it; the refusal names the call for each gap.
 
-At the end, run the full gate on the integrated result, not only per unit. Two changes that each
-passed alone can still fail together.
+Green units land. Red or blocked units **do not** — leave the branch in place, record why with
+`work_status(ref, "blocked", reason: …)`, and move on. A half-fix on the integration branch costs more
+than an open unit.
+
+At the end, run the full gate on the integrated result, not only per unit, and record it with
+`work_verify` against the queue. Two changes that each passed alone can still fail together.
 
 ---
 
 ## 7. The record is a deliverable
 
-The queue's durable output is not the commits — it is the account of what happened. Write one ledger
-per unit, as you go, containing:
+The queue's durable output is not the commits — it is the account of what happened. Write it into the
+store per unit, **as you go**, not at the end:
 
-- what changed, and the **reasoning** behind any judgement call
-- the red-check: each variant and what it defeated
-- the verification numbers you measured yourself
-- what was deliberately **not** done, and why
-- what the agent reported that you could not confirm — said as such
-- **your own mistakes**
+| What | Where |
+|---|---|
+| what the agent says it did — its `DONE` report | `work_report(ref, status, files, verify, red_check, deviations, assumptions, risks, not_done)`; each assumption becomes an open one |
+| the verification numbers you measured yourself | `work_verify` — one per run, red included |
+| the red-check: each variant and what it defeated | `red_check:` on the `work_verify` that ran it |
+| the **reasoning** behind any judgement call | `work_note(kind: "decision", from: "<unit ref>", body: …)` |
+| what was deliberately **not** done, and why | a deferred item — `work_status(ref, "deferred", target: …, reason: …)` or a `followup` |
+| **your own mistakes** | `work_note(kind: "correction", from: "<unit ref>", body: …)` |
+| the agent (name, id, branch, outcome) | `work_note(kind: "environment", from: "<unit ref>", body: …)` |
 
-That last one is not penance; it is the highest-value content in the file. A controller error —
-a wrong steer, a bad setup, an edit that changed something invisible — is exactly what the next run
-needs to avoid, and it appears nowhere else. A ledger that records only the agent's failures is a
-ledger someone will distrust as soon as they catch it being incomplete.
+The store now carries the distinction that used to need care: a `work_report` is the agent's
+**claim**, a `work_verify` is **your evidence**, and what the agent reported that you could not confirm
+is exactly the report with no verification beside it. Do not paper over that gap with a verification
+you did not run.
 
-Keep a run log across units: one line per agent (name, id, branch, outcome), plus the decisions taken
-and by whom. If your session restarts, that line plus the session registry is the whole recovery path.
+**Your own mistakes** are not penance; they are the highest-value content in the record. A controller
+error — a wrong steer, a bad setup, an edit that changed something invisible — is exactly what the
+next run needs to avoid, and it appears nowhere else. A record that holds only the agent's failures is
+one someone will distrust as soon as they catch it being incomplete.
+
+The run log writes itself: every transition, verification and closure is in the journal, and
+`work_history(scope: "<queue ref>")` reads it back. If your session restarts, `work_brief` plus the
+session registry (`/rlarch:nested-claude` §8) is the whole recovery path. Before you report the queue
+done, `work_threads(scope: "<queue ref>")` — every open assumption, finding and follow-up, each with
+the call that closes it — and decide each one.
 
 **Report to the human in outcomes, not activity.** What landed, what is parked and why, what needs
 them, and the one number they actually want — is the thing deployable, and is it pushed.
@@ -260,8 +370,8 @@ Stop and ask when:
 - a **dependency** would be added — that is the human's call, not an agent's, and not yours at 3am
 - the base branch moved under you
 
-If you cannot ask — non-interactive, or the human is away — **stop the unit, record the open question,
-and keep everything else you landed.** Do not answer it on their behalf and do not silently narrow the
+If you cannot ask — non-interactive, or the human is away — **stop the unit, record the open question
+with `work_status(ref, "blocked", reason: "<the question>")`, and keep everything else you landed.** Do not answer it on their behalf and do not silently narrow the
 work to avoid it.
 
 **Never launder permissions.** If an agent was refused something, do not do it for it, and do not
@@ -279,7 +389,8 @@ commands is disproportionate — finishing it yourself is legitimate, and honest
 - **Only complete what it started.** Removing a red-check mutation restores its intent; writing the
   feature does not.
 - **Verify from scratch**, not from its report.
-- **Say so in the commit**: who wrote it, what you did, and why it could not finish.
+- **Say so in the commit**: who wrote it, what you did, and why it could not finish — and in a
+  `work_note(kind: "decision", from: "<unit ref>")`, so the record says it too.
 
 If you find yourself doing this for every unit, the brief is wrong, not the agents.
 
@@ -291,7 +402,7 @@ If you find yourself doing this for every unit, the brief is wrong, not the agen
 |---|---|
 | Agent reports READY and has no instructions | a variadic flag ate the prompt — see `/rlarch:nested-claude` |
 | Agent reports READY from an empty folder | your setup step failed and the launch did not check |
-| Agent silent, then nothing for an hour | parked on a permission prompt; a parked agent never goes idle, so an idle subscription never fires |
+| Agent silent, then nothing for an hour | parked on a permission prompt; a parked agent never goes idle, so an idle subscription never fires — launch in auto mode (§2) |
 | Steer ignored | it is parked; your message is queued behind the prompt |
 | A fix that looks complete and changes nothing | a red-check mutation left in the tree, merged from the working tree instead of the commit |
 | Green suite, broken feature | the over-correction case had no guard; every test moved in the same direction |

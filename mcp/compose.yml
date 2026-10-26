@@ -1,8 +1,8 @@
 # The real thing: the API and its Postgres together (CONVENTIONS §"Two compose files, two jobs").
 # Copy .env.example to .env and fill it before `docker compose -f mcp/compose.yml up -d`.
 #
-# Postgres is NOT reached by any code yet — U1 writes the schema. The service is here so the
-# shape is right and the API's connection string has somewhere to point.
+# The api service owns this database: it applies the schema at startup, so the volume below starts
+# empty and stays the only copy of every project's plan, ledger and evidence (doc 08 §4).
 
 name: workstate
 
@@ -35,10 +35,14 @@ services:
       WorkState__Auth__WorkerToken: ${WORKSTATE_WORKER_TOKEN:?set WORKSTATE_WORKER_TOKEN in .env}
       WorkState__Auth__OrchestratorToken: ${WORKSTATE_ORCHESTRATOR_TOKEN:?set WORKSTATE_ORCHESTRATOR_TOKEN in .env}
       WorkState__Auth__ControllerToken: ${WORKSTATE_CONTROLLER_TOKEN:?set WORKSTATE_CONTROLLER_TOKEN in .env}
+      # Optional, unlike the three above: empty means no reader token exists (doc 10 rule 5).
+      WorkState__Auth__ReaderToken: ${WORKSTATE_READER_TOKEN:-}
+      WorkState__Dashboard__Username: ${WORKSTATE_DASHBOARD_USERNAME:?set WORKSTATE_DASHBOARD_USERNAME in .env}
+      WorkState__Dashboard__Password: ${WORKSTATE_DASHBOARD_PASSWORD:?set WORKSTATE_DASHBOARD_PASSWORD in .env}
       ConnectionStrings__WorkState: >-
         Host=db;Port=5432;Database=${POSTGRES_DB:-workstate};Username=${POSTGRES_USER:-workstate};Password=${POSTGRES_PASSWORD}
     ports:
-      - "${WORKSTATE_API_PORT:-5290}:8080"
+      - "${WORKSTATE_BIND:-127.0.0.1}:${WORKSTATE_API_PORT:-5290}:8080"
     restart: unless-stopped
 
 volumes:

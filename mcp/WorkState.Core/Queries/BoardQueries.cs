@@ -49,7 +49,8 @@ public sealed class BoardQueries(NpgsqlDataSource dataSource)
              LEFT JOIN item_rollup r ON r.id = i.id
              WHERE  i.workspace_id = @workspace AND i.kind IN ('run','project')
              ORDER BY (i.kind = 'run') DESC,
-                      (coalesce(r.open_count,0) + coalesce(r.doing_count,0)) DESC,
+                      (coalesce(r.open_count,0) + coalesce(r.doing_count,0)
+                       + coalesce(r.review_count,0)) DESC,
                       k.rank, i.seq
              LIMIT 1;
              """;
@@ -58,9 +59,38 @@ public sealed class BoardQueries(NpgsqlDataSource dataSource)
     }
 
     /// <summary>
+    /// Every project in the workspace, for the dashboard's switcher (doc 09 §5). Ordered by ref so
+    /// the switcher does not reshuffle itself between polls.
+    /// </summary>
+    public async Task<IReadOnlyList<ProjectRow>> ProjectsAsync(
+        Guid workspaceId,
+        CancellationToken cancellationToken = default)
+    {
+        const string sql =
+            """
+            SELECT p.id     AS "Id",
+                   p.ref    AS "Ref",
+                   p.title  AS "Title",
+                   p.status AS "Status",
+                   coalesce(r.runs, 0)::int AS "RunCount"
+            FROM   item p
+            LEFT   JOIN LATERAL (
+                     SELECT count(*) AS runs
+                     FROM   item c
+                     WHERE  c.kind = 'run' AND c.ancestors @> ARRAY[p.id]::uuid[]) r ON true
+            WHERE  p.workspace_id = @workspace AND p.kind = 'project'
+            ORDER  BY p.ref;
+            """;
+
+        return await ListAsync<ProjectRow>(sql, new { workspace = workspaceId }, cancellationToken);
+    }
+
+    /// <summary>
     /// Resolves a ref. <c>2.3</c> looks anywhere in the workspace; <c>entity-store/2.3</c> looks
-    /// inside that run only. More than one row back means the bare ref is ambiguous, which the
-    /// caller reports with the qualified alternatives rather than guessing.
+    /// inside that run only. A run (or project) numbers its own refs, so it is qualified by its
+    /// parent — <c>autowork/backlog</c> — or by itself, <c>backlog/backlog</c>. More than one row
+    /// back means the ref is ambiguous, which the caller reports with <see cref="UniqueRefsAsync"/>
+    /// rather than guessing.
     /// </summary>
     public async Task<IReadOnlyList<ScopeRef>> ResolveAsync(
         Guid workspaceId,
@@ -76,10 +106,13 @@ public sealed class BoardQueries(NpgsqlDataSource dataSource)
              SELECT {ScopeColumns}
              FROM   item i
              LEFT JOIN item s ON s.id = i.ref_scope_id AND s.id <> i.id
+             LEFT JOIN item p ON p.id = i.parent_id
              JOIN   item_kind k ON k.key = i.kind
              WHERE  i.workspace_id = @workspace
                AND  lower(i.ref) = lower(@leaf)
-               AND  (@qualifier IS NULL OR lower(coalesce(s.ref, i.ref)) = lower(@qualifier))
+               AND  (@qualifier IS NULL
+                     OR lower(coalesce(s.ref, i.ref)) = lower(@qualifier)
+                     OR (i.ref_scope_id = i.id AND lower(p.ref) = lower(@qualifier)))
              ORDER BY k.rank, i.seq;
              """;
 
@@ -87,6 +120,87 @@ public sealed class BoardQueries(NpgsqlDataSource dataSource)
             sql,
             new { workspace = workspaceId, leaf, qualifier },
             cancellationToken);
+    }
+
+    /// <summary>
+    /// ws/13. For each match of an ambiguous ref, a string that resolves to that item and nothing
+    /// else — checked by resolving it, because a run's <c>QualifiedRef</c> is its bare ref and was
+    /// printed back as the very string that had just been refused. A match no form can single out is
+    /// left out; the caller routes to <c>work_tree</c> for it.
+    /// </summary>
+    public async Task<IReadOnlyList<string>> UniqueRefsAsync(
+        Guid workspaceId,
+        IEnumerable<ScopeRef> matches,
+        CancellationToken cancellationToken = default)
+    {
+        var forms = new List<string>();
+        foreach (var match in matches)
+        {
+            if (await UniqueRefAsync(workspaceId, match, cancellationToken) is { } form)
+            {
+                forms.Add(form);
+            }
+        }
+
+        return forms;
+    }
+
+    /// <summary>The first of the bare ref, the run-qualified ref, and for a run its parent- and
+    /// self-qualified forms, that resolves to <paramref name="match"/> alone.</summary>
+    public async Task<string?> UniqueRefAsync(
+        Guid workspaceId,
+        ScopeRef match,
+        CancellationToken cancellationToken = default)
+    {
+        var forms = new List<string> { match.Ref };
+
+        if (match.QualifiedRef is { Length: > 0 } qualified)
+        {
+            forms.Add(qualified);
+        }
+
+        if (match.RefScopeId == match.Id)
+        {
+            if (match.ParentId is { } parentId
+                && await SingleAsync<string>("SELECT ref FROM item WHERE id = @id;", new { id = parentId }, cancellationToken)
+                    is { Length: > 0 } parent)
+            {
+                forms.Add($"{parent}/{match.Ref}");
+            }
+
+            forms.Add($"{match.Ref}/{match.Ref}");
+        }
+
+        foreach (var form in forms.Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            if (await ResolveAsync(workspaceId, form, cancellationToken) is [var only] && only.Id == match.Id)
+            {
+                return form;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// The ref to print where it will be called or read back (ws/10, ws/13, doc 10 rule 2): bare
+    /// while no other item shares it, else run-qualified — and for a run or project, which numbers
+    /// its own refs, the form <see cref="UniqueRefAsync"/> checked to resolve to it alone.
+    /// </summary>
+    public async Task<string> CallableRefAsync(
+        ScopeRef item,
+        bool refShared,
+        CancellationToken cancellationToken = default)
+    {
+        if (!refShared)
+        {
+            return item.Ref;
+        }
+
+        var qualified = item.QualifiedRef ?? item.Ref;
+        return item.RefScopeId == item.Id
+            ? await UniqueRefAsync(item.WorkspaceId, item, cancellationToken) ?? qualified
+            : qualified;
     }
 
     /// <summary>
@@ -151,7 +265,8 @@ public sealed class BoardQueries(NpgsqlDataSource dataSource)
     {
         const string sql =
             """
-            SELECT c.kind     AS "Kind",
+            SELECT c.ref      AS "Ref",
+                   c.kind     AS "Kind",
                    c.text     AS "Text",
                    c.route    AS "Route",
                    c.severity AS "Severity"
@@ -180,6 +295,8 @@ public sealed class BoardQueries(NpgsqlDataSource dataSource)
         const string sql =
             """
             SELECT a.ref            AS "Ref",
+                   CASE WHEN s.ref IS NULL THEN a.ref ELSE s.ref || '/' || a.ref END
+                                    AS "QualifiedRef",
                    a.statement      AS "Statement",
                    a.evidence       AS "Evidence",
                    a.evidence_note  AS "EvidenceNote",
@@ -187,8 +304,10 @@ public sealed class BoardQueries(NpgsqlDataSource dataSource)
                    a.state          AS "State",
                    r.ref            AS "RevisitRef",
                    r.status         AS "RevisitStatus",
-                   r.closed_at      AS "RevisitClosedAt"
+                   r.closed_at      AS "RevisitClosedAt",
+                   a.scope_item_id  AS "ScopeItemId"
             FROM   assumption a
+            LEFT   JOIN item s ON s.id = a.ref_scope_id
             LEFT   JOIN item r ON r.id = a.revisit_item_id
             WHERE  a.workspace_id = @workspace
               AND  (NOT @openOnly OR a.state = 'open')
@@ -211,23 +330,38 @@ public sealed class BoardQueries(NpgsqlDataSource dataSource)
     /// it alone left the whole block tied and the first line arbitrary. The kind is the ranking a
     /// reader can act on — a correction retracts something they would otherwise believe — and the id
     /// makes what is left deterministic rather than whatever the scan returned.
+    /// <para>
+    /// F-08: <paramref name="openAddresseesOnly"/> drops notes addressed to a closed item. Only the
+    /// addressee's worker brief consumes a note and nobody briefs a closed item, so for attention
+    /// such a note would be an obligation nobody can discharge. It stays readable everywhere else.
+    /// </para>
     /// </summary>
     public async Task<IReadOnlyList<NoteRow>> UnconsumedNotesAsync(
         Guid workspaceId,
         Guid? scopeItemId,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        bool openAddresseesOnly = false)
     {
         const string sql =
             """
             SELECT n.kind  AS "Kind",
                    n.body  AS "Body",
                    t.ref   AS "ToRef",
-                   f.ref   AS "FromRef"
+                   CASE WHEN ts.ref IS NULL THEN t.ref ELSE ts.ref || '/' || t.ref END
+                          AS "ToQualifiedRef",
+                   f.ref   AS "FromRef",
+                   n.id    AS "Id",
+                   n.to_item_id AS "ToItemId",
+                   n.created_at AS "CreatedAt"
             FROM   note n
-            LEFT   JOIN item t ON t.id = n.to_item_id
-            LEFT   JOIN item f ON f.id = n.from_item_id
+            LEFT   JOIN item t  ON t.id  = n.to_item_id
+            LEFT   JOIN item ts ON ts.id = t.ref_scope_id AND ts.id <> t.id
+            LEFT   JOIN item f  ON f.id  = n.from_item_id
             WHERE  n.workspace_id = @workspace
               AND  n.consumed_at IS NULL
+              AND  (NOT @openOnly
+                    OR n.to_item_id IS NULL
+                    OR t.status NOT IN ('done','cancelled','superseded'))
               AND  (@scope IS NULL
                     OR n.to_item_id = @scope
                     OR n.from_item_id = @scope
@@ -249,7 +383,7 @@ public sealed class BoardQueries(NpgsqlDataSource dataSource)
 
         return await ListAsync<NoteRow>(
             sql,
-            new { workspace = workspaceId, scope = scopeItemId },
+            new { workspace = workspaceId, scope = scopeItemId, openOnly = openAddresseesOnly },
             cancellationToken);
     }
 
@@ -259,7 +393,8 @@ public sealed class BoardQueries(NpgsqlDataSource dataSource)
     {
         const string sql =
             $"""
-             SELECT i.ref         AS "ItemRef",
+             SELECT i.id          AS "ItemId",
+                    i.ref         AS "ItemRef",
                     v.command     AS "Command",
                     v.result_line AS "ResultLine",
                     v.passed      AS "Passed",
@@ -281,7 +416,8 @@ public sealed class BoardQueries(NpgsqlDataSource dataSource)
     {
         const string sql =
             """
-            SELECT i.ref         AS "ItemRef",
+            SELECT i.id          AS "ItemId",
+                   i.ref         AS "ItemRef",
                    v.command     AS "Command",
                    v.result_line AS "ResultLine",
                    v.passed      AS "Passed",
@@ -303,21 +439,33 @@ public sealed class BoardQueries(NpgsqlDataSource dataSource)
     {
         const string sql =
             """
-            SELECT i.ref                        AS "Ref",
+            SELECT i.id                         AS "Id",
+                   i.ref                        AS "Ref",
+                   CASE WHEN s.ref IS NULL THEN i.ref ELSE s.ref || '/' || i.ref END
+                                                AS "QualifiedRef",
+                   EXISTS (SELECT 1 FROM item o
+                           WHERE  o.workspace_id = i.workspace_id
+                             AND  lower(o.ref) = lower(i.ref)
+                             AND  o.id <> i.id) AS "RefShared",
                    coalesce(c.total, 0)::int    AS "CriteriaTotal",
                    coalesce(c.ok, 0)::int       AS "CriteriaChecked",
                    coalesce(v.passed, 0)::int   AS "VerificationsPassed",
                    coalesce(v.orch, 0)::int     AS "OrchestratorVerifications",
                    a.value                      AS "Commit",
                    coalesce(r.open_count, 0) + coalesce(r.doing_count, 0)
-                     + coalesce(r.blocked_count, 0)                        AS "OpenChildren",
+                     + coalesce(r.blocked_count, 0)
+                     + coalesce(r.review_count, 0)                         AS "OpenChildren",
                    i.review_required            AS "ReviewRequired",
                    k.requires_verify            AS "RequiresVerify",
                    i.severity                   AS "Severity",
                    p.ref                        AS "ParentRef",
-                   i.started_at                 AS "StartedAt"
+                   i.started_at                 AS "StartedAt",
+                   coalesce(i.resolution = 'obsolete', false) AS "Moved",
+                   h.label                      AS "HeldBy",
+                   i.verify_cmd                 AS "VerifyCmd"
             FROM   item i
             JOIN   item_kind k ON k.key = i.kind
+            LEFT   JOIN item s ON s.id = i.ref_scope_id AND s.id <> i.id
             LEFT   JOIN item p ON p.id = i.parent_id
             LEFT   JOIN LATERAL (
                      SELECT count(*) AS total, count(*) FILTER (WHERE ic.checked) AS ok
@@ -330,6 +478,11 @@ public sealed class BoardQueries(NpgsqlDataSource dataSource)
                      SELECT aa.value FROM artifact aa
                      WHERE  aa.item_id = i.id AND aa.kind = 'commit'
                      ORDER  BY aa.at DESC LIMIT 1) a ON true
+            LEFT   JOIN LATERAL (
+                     SELECT coalesce(hs.name, cc.agent_name) AS label
+                     FROM   claim cc LEFT JOIN agent_session hs ON hs.id = cc.session_id
+                     WHERE  cc.item_id = i.id AND cc.released_at IS NULL AND cc.expires_at >= now()
+                     LIMIT  1) h ON true
             LEFT   JOIN item_rollup r ON r.id = i.id
             WHERE  i.id = ANY(@ids);
             """;
@@ -344,9 +497,13 @@ public sealed class BoardQueries(NpgsqlDataSource dataSource)
         const string sql =
             $"""
              SELECT i.ref   AS "FindingRef",
+                    CASE WHEN s.ref IS NULL THEN i.ref ELSE s.ref || '/' || i.ref END
+                           AS "QualifiedRef",
                     i.title AS "FindingTitle",
-                    t.ref   AS "TargetRef"
+                    t.ref   AS "TargetRef",
+                    i.id    AS "FindingId"
              FROM   item i
+             LEFT   JOIN item s ON s.id = i.ref_scope_id AND s.id <> i.id
              LEFT   JOIN item t ON t.id = i.parent_id
              WHERE  i.kind = 'finding'
                AND  i.severity = 'blocker'
@@ -358,25 +515,29 @@ public sealed class BoardQueries(NpgsqlDataSource dataSource)
         return await ListAsync<BlockerRow>(sql, new { scope = scopeItemId }, cancellationToken);
     }
 
-    /// <summary>The <c>← 2.4</c> flag: open blockers, per blocked item.</summary>
+    /// <summary>
+    /// The <c>← 2.4</c> flag: open blockers, per blocked item, under any of the scopes. Several
+    /// scopes because <c>work_get</c> renders items from unrelated subtrees in one call.
+    /// </summary>
     public async Task<IReadOnlyList<BlockedRow>> BlockedByAsync(
-        Guid scopeItemId,
+        IReadOnlyCollection<Guid> scopeItemIds,
         CancellationToken cancellationToken = default)
     {
         const string sql =
             """
-            SELECT i.ref AS "Ref",
+            SELECT i.id  AS "ItemId",
+                   i.ref AS "Ref",
                    b.ref AS "BlockedByRef"
             FROM   item_link l
             JOIN   item i ON i.id = l.to_item_id
             JOIN   item b ON b.id = l.from_item_id
             WHERE  l.type = 'blocks'
               AND  b.status NOT IN ('done','cancelled','superseded')
-              AND  (i.id = @scope OR i.ancestors @> ARRAY[@scope]::uuid[])
+              AND  (i.id = ANY(@scopes) OR i.ancestors && @scopes)
             ORDER  BY i.ref, b.ref;
             """;
 
-        return await ListAsync<BlockedRow>(sql, new { scope = scopeItemId }, cancellationToken);
+        return await ListAsync<BlockedRow>(sql, new { scopes = scopeItemIds.ToArray() }, cancellationToken);
     }
 
     /// <summary>
@@ -391,14 +552,19 @@ public sealed class BoardQueries(NpgsqlDataSource dataSource)
     {
         const string sql =
             $"""
-             SELECT "ItemRef", "AgentName", "ExpiresAt" FROM (
+             SELECT "ItemRef", "QualifiedRef", "AgentName", "ExpiresAt", "Tree", item_id AS "ItemId" FROM (
                SELECT DISTINCT ON (c.item_id)
                       i.ref        AS "ItemRef",
-                      c.agent_name AS "AgentName",
+                      CASE WHEN s.ref IS NULL THEN i.ref ELSE s.ref || '/' || i.ref END
+                                   AS "QualifiedRef",
+                      coalesce(hs.name, c.agent_name) AS "AgentName",
                       c.expires_at AS "ExpiresAt",
+                      c.tree       AS "Tree",
                       c.item_id
                FROM   claim c
                JOIN   item i ON i.id = c.item_id
+               LEFT   JOIN item s ON s.id = i.ref_scope_id AND s.id <> i.id
+               LEFT   JOIN agent_session hs ON hs.id = c.session_id
                WHERE  c.expires_at < now()
                  AND  (c.released_at IS NULL OR c.release_reason = 'expired')
                  AND  i.status NOT IN ('done','cancelled','superseded')
@@ -415,6 +581,43 @@ public sealed class BoardQueries(NpgsqlDataSource dataSource)
         return await ListAsync<ClaimRow>(sql, new { scope = scopeItemId }, cancellationToken);
     }
 
+    /// <summary>
+    /// The watch floor's WORKING NOW block (doc 09 §5): one row per claimed item, the live lease
+    /// preferred over a lapsed one. Lapsed leases stay in the result because the block's job is
+    /// "who is meant to be holding this", and a lease that ran out is the most interesting row on
+    /// the board — <see cref="ExpiredClaimsAsync"/> answers the narrower question of what to nag
+    /// about, and the two must not be collapsed.
+    /// </summary>
+    public async Task<IReadOnlyList<LiveClaimRow>> LiveClaimsAsync(
+        Guid scopeItemId,
+        CancellationToken cancellationToken = default)
+    {
+        const string sql =
+            $"""
+             SELECT "ItemRef", "QualifiedRef", "Title", "AgentName", "ExpiresAt" FROM (
+               SELECT DISTINCT ON (c.item_id)
+                      i.ref        AS "ItemRef",
+                      CASE WHEN s.ref IS NULL THEN i.ref ELSE s.ref || '/' || i.ref END
+                                   AS "QualifiedRef",
+                      i.title      AS "Title",
+                      coalesce(hs.name, c.agent_name) AS "AgentName",
+                      c.expires_at AS "ExpiresAt",
+                      c.item_id
+               FROM   claim c
+               JOIN   item i ON i.id = c.item_id
+               LEFT   JOIN item s ON s.id = i.ref_scope_id AND s.id <> i.id
+               LEFT   JOIN agent_session hs ON hs.id = c.session_id
+               WHERE  (c.released_at IS NULL OR c.release_reason = 'expired')
+                 AND  i.status NOT IN ('done','cancelled','superseded')
+                 AND  {InScope}
+               ORDER  BY c.item_id, (c.released_at IS NULL) DESC, c.expires_at DESC
+             ) held
+             ORDER  BY "ExpiresAt" DESC;
+             """;
+
+        return await ListAsync<LiveClaimRow>(sql, new { scope = scopeItemId }, cancellationToken);
+    }
+
     /// <summary><c>in_progress</c> with nothing holding it, older than the threshold.</summary>
     public async Task<IReadOnlyList<StaleRow>> StaleInProgressAsync(
         Guid scopeItemId,
@@ -424,8 +627,12 @@ public sealed class BoardQueries(NpgsqlDataSource dataSource)
         const string sql =
             $"""
              SELECT i.ref        AS "Ref",
-                    i.started_at AS "StartedAt"
+                    CASE WHEN s.ref IS NULL THEN i.ref ELSE s.ref || '/' || i.ref END
+                                 AS "QualifiedRef",
+                    i.started_at AS "StartedAt",
+                    i.id         AS "Id"
              FROM   item i
+             LEFT   JOIN item s ON s.id = i.ref_scope_id AND s.id <> i.id
              WHERE  i.status = 'in_progress'
                AND  i.started_at IS NOT NULL
                AND  i.started_at < now() - make_interval(hours => @hours)
@@ -451,13 +658,16 @@ public sealed class BoardQueries(NpgsqlDataSource dataSource)
         const string sql =
             $"""
              SELECT p.ref                 AS "PhaseRef",
+                    CASE WHEN s.ref IS NULL THEN p.ref ELSE s.ref || '/' || p.ref END
+                                          AS "QualifiedRef",
                     count(*)::int         AS "TaskCount"
              FROM   item p
              JOIN   item c ON c.ancestors @> ARRAY[p.id]::uuid[] AND c.kind IN ('task','subtask')
+             LEFT   JOIN item s ON s.id = p.ref_scope_id AND s.id <> p.id
              WHERE  p.kind = 'phase'
                AND  p.status NOT IN ('done','cancelled','superseded')
                AND  (p.id = @scope OR p.ancestors @> ARRAY[@scope]::uuid[])
-             GROUP  BY p.id, p.ref, p.seq
+             GROUP  BY p.id, p.ref, p.seq, s.ref
              HAVING count(*) FILTER (
                       WHERE c.status NOT IN ('done','cancelled','superseded')) = 0
              ORDER  BY p.seq;
@@ -469,17 +679,28 @@ public sealed class BoardQueries(NpgsqlDataSource dataSource)
     /// <summary>
     /// Closed without the orchestrator verification doc 07 §3 condition 2 demands. U4 makes this
     /// unwritable; until then it is the highest-value thing an audit can say about finished work.
+    /// <para>
+    /// A deferral closes its item <c>done/obsolete</c> without the guard, because the work moved
+    /// rather than finished (doc 07 §4). Verifying it would be a false claim, so it is not counted.
+    /// <see cref="ItemFacts.Moved"/> applies the same rule to the row flag.
+    /// </para>
     /// </summary>
-    public async Task<IReadOnlyList<string>> DoneUnverifiedAsync(
+    public async Task<IReadOnlyList<UnverifiedRow>> DoneUnverifiedAsync(
         Guid scopeItemId,
         CancellationToken cancellationToken = default)
     {
         const string sql =
             $"""
-             SELECT i.ref
+             SELECT i.ref AS "Ref",
+                    CASE WHEN s.ref IS NULL THEN i.ref ELSE s.ref || '/' || i.ref END
+                         AS "QualifiedRef",
+                    i.id        AS "Id",
+                    i.closed_at AS "ClosedAt"
              FROM   item i
              JOIN   item_kind k ON k.key = i.kind
+             LEFT   JOIN item s ON s.id = i.ref_scope_id AND s.id <> i.id
              WHERE  i.status = 'done'
+               AND  i.resolution <> 'obsolete'
                AND  k.requires_verify
                AND  {InScope}
                AND  NOT EXISTS (SELECT 1 FROM verification v
@@ -487,36 +708,45 @@ public sealed class BoardQueries(NpgsqlDataSource dataSource)
              ORDER  BY i.closed_at DESC NULLS LAST, i.ref;
              """;
 
-        return await ListAsync<string>(sql, new { scope = scopeItemId }, cancellationToken);
+        return await ListAsync<UnverifiedRow>(sql, new { scope = scopeItemId }, cancellationToken);
     }
 
+    /// <summary>
+    /// The journal after a cursor. <paramref name="oldestFirst"/> is not a formatting preference:
+    /// with <c>LIMIT</c> applied, descending returns the <em>newest</em> page after the cursor and
+    /// silently drops everything between, so a client catching up from its last seq would lose
+    /// exactly the events it reconnected to collect. Ascending makes the page contiguous from the
+    /// cursor, which is what makes the stream's monotonic seq worth having.
+    /// </summary>
     public async Task<IReadOnlyList<EventRow>> EventsAsync(
         Guid workspaceId,
         Guid? scopeItemId,
         long sinceSeq,
         int limit,
+        bool oldestFirst = false,
         CancellationToken cancellationToken = default)
     {
-        const string sql =
-            """
-            SELECT e.seq     AS "Seq",
-                   i.ref     AS "ItemRef",
-                   e.at      AS "At",
-                   e.actor   AS "Actor",
-                   e.role    AS "Role",
-                   e.kind    AS "Kind",
-                   e.summary AS "Summary"
-            FROM   event e
-            LEFT   JOIN item i ON i.id = e.item_id
-            WHERE  e.workspace_id = @workspace
-              AND  e.seq > @since
-              AND  (@scope IS NULL
-                    OR e.item_id = @scope
-                    OR EXISTS (SELECT 1 FROM item x
-                               WHERE x.id = e.item_id AND x.ancestors @> ARRAY[@scope]::uuid[]))
-            ORDER  BY e.seq DESC
-            LIMIT  @limit;
-            """;
+        var sql =
+            $"""
+             SELECT e.seq     AS "Seq",
+                    i.ref     AS "ItemRef",
+                    e.at      AS "At",
+                    coalesce(es.name, e.actor) AS "Actor",
+                    e.role    AS "Role",
+                    e.kind    AS "Kind",
+                    e.summary AS "Summary"
+             FROM   event e
+             LEFT   JOIN item i ON i.id = e.item_id
+             LEFT   JOIN agent_session es ON es.id = e.session_id
+             WHERE  e.workspace_id = @workspace
+               AND  e.seq > @since
+               AND  (@scope IS NULL
+                     OR e.item_id = @scope
+                     OR EXISTS (SELECT 1 FROM item x
+                                WHERE x.id = e.item_id AND x.ancestors @> ARRAY[@scope]::uuid[]))
+             ORDER  BY e.seq {(oldestFirst ? "ASC" : "DESC")}
+             LIMIT  @limit;
+             """;
 
         return await ListAsync<EventRow>(
             sql,
@@ -530,7 +760,8 @@ public sealed class BoardQueries(NpgsqlDataSource dataSource)
     {
         const string sql =
             """
-            SELECT i.ref      AS "ItemRef",
+            SELECT i.id       AS "ItemId",
+                   i.ref      AS "ItemRef",
                    c.seq      AS "Seq",
                    c.text     AS "Text",
                    c.checked  AS "Checked",
@@ -538,7 +769,7 @@ public sealed class BoardQueries(NpgsqlDataSource dataSource)
             FROM   item_criterion c
             JOIN   item i ON i.id = c.item_id
             WHERE  c.item_id = ANY(@ids)
-            ORDER  BY i.ref, c.seq;
+            ORDER  BY i.id, c.seq;
             """;
 
         return await ListAsync<CriterionRow>(sql, new { ids = itemIds.ToArray() }, cancellationToken);
@@ -550,7 +781,9 @@ public sealed class BoardQueries(NpgsqlDataSource dataSource)
     {
         const string sql =
             """
-            SELECT f.ref    AS "FromRef",
+            SELECT f.id     AS "FromId",
+                   t.id     AS "ToId",
+                   f.ref    AS "FromRef",
                    t.ref    AS "ToRef",
                    l.type   AS "Type",
                    f.status AS "FromStatus"
@@ -717,7 +950,7 @@ public sealed class BoardQueries(NpgsqlDataSource dataSource)
     /// record constructor by the reader's field types — so without this, every record carrying a
     /// <see cref="DateTimeOffset"/> fails to materialise at all rather than converting.
     /// </summary>
-    private sealed class TimestampHandler : SqlMapper.TypeHandler<DateTimeOffset>
+    internal sealed class TimestampHandler : SqlMapper.TypeHandler<DateTimeOffset>
     {
         public override DateTimeOffset Parse(object value) => value switch
         {
@@ -729,6 +962,60 @@ public sealed class BoardQueries(NpgsqlDataSource dataSource)
         public override void SetValue(IDbDataParameter parameter, DateTimeOffset value)
             => parameter.Value = value.UtcDateTime;
     }
+
+    /// <summary>
+    /// The fourth honesty number. Unlike the other three this one is not an accusation — a deferral
+    /// that became a tracked follow-up is the system working, and doc 07 §4 counts it as a move
+    /// rather than a failure. It is here because a strip that only ever shows what went wrong
+    /// teaches people to stop reading it.
+    /// </summary>
+    public async Task<int> OpenFollowupsAsync(
+        Guid scopeItemId,
+        CancellationToken cancellationToken = default)
+    {
+        const string sql =
+            $"""
+             SELECT count(*)::int
+             FROM   item i
+             WHERE  i.kind = 'followup'
+               AND  i.status NOT IN ('done','cancelled','superseded')
+               AND  {InScope};
+             """;
+
+        return await SingleAsync<int>(sql, new { scope = scopeItemId }, cancellationToken);
+    }
+
+    /// <summary>
+    /// Open items derived from the scope or anything beneath it, wherever they now sit: a deferral
+    /// moves work out of the subtree (doc 07 §4), and the backlog is usually under the project.
+    /// </summary>
+    public async Task<IReadOnlyList<ItemFacts>> OpenDerivedAsync(
+        Guid scopeItemId,
+        CancellationToken cancellationToken = default)
+    {
+        const string sql =
+            $"""
+             SELECT DISTINCT d.id, d.seq
+             FROM   item_link l
+             JOIN   item i ON i.id = l.to_item_id
+             JOIN   item d ON d.id = l.from_item_id
+             WHERE  l.type = 'derived_from'
+               AND  d.status NOT IN ('done','cancelled','superseded')
+               AND  {InScope}
+             ORDER  BY d.seq, d.id;
+             """;
+
+        var ids = await ListAsync<DerivedId>(sql, new { scope = scopeItemId }, cancellationToken);
+        if (ids.Count == 0)
+        {
+            return [];
+        }
+
+        var facts = (await FactsAsync([.. ids.Select(i => i.Id)], cancellationToken)).ToDictionary(f => f.Id);
+        return [.. ids.Select(i => facts[i.Id])];
+    }
+
+    private sealed record DerivedId(Guid Id, decimal Seq);
 
     private async Task<T?> SingleAsync<T>(string sql, object parameters, CancellationToken cancellationToken)
     {

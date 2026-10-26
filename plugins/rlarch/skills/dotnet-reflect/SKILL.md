@@ -56,6 +56,7 @@ dotnet run surface.cs <pkgId> <version> [typeFilter] [--inherited]
 dotnet run decompile.cs <pkgId> <version> [Namespace.TypeName]
 #   omit the type to list every public full type name.
 #   e.g. decompile.cs OpenAI 2.12.0 OpenAI.Chat.ChatClient
+#   a generic type takes its arity: Microsoft.Agents.AI.AgentClassSkill`1
 
 # DIFF — API changelog between two versions (added/removed types & members).
 dotnet run diff.cs <pkgId> <v1> <v2> [typeFilter]

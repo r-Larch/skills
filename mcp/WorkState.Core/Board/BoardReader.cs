@@ -1,6 +1,7 @@
 using WorkState.Core.Domain;
 using WorkState.Core.Queries;
 using WorkState.Core.Rendering;
+using WorkState.Core.Writing;
 
 namespace WorkState.Core.Board;
 
@@ -58,7 +59,8 @@ public sealed partial class BoardReader(WorkStateQueries queries, BoardQueries b
         var home = await board.DefaultScopeAsync(workspace, cancellationToken);
         return new ScopeResult.Ambiguous(
             asked,
-            [.. Prefer(matches, home).Select(m => m.QualifiedRef ?? m.Ref)]);
+            await board.UniqueRefsAsync(workspace, Prefer(matches, home), cancellationToken),
+            matches.Count);
     }
 
     /// <summary>
@@ -82,6 +84,16 @@ public sealed partial class BoardReader(WorkStateQueries queries, BoardQueries b
         ScopeResult.Found scope,
         string variant,
         CancellationToken cancellationToken = default)
+        => (await RenderBriefAsync(scope, variant, cancellationToken)).Text;
+
+    /// <summary>
+    /// The brief and the ids of the notes it rendered — what <see cref="BriefSessionAsync"/> may
+    /// consume, and nothing else.
+    /// </summary>
+    private async Task<(string Text, IReadOnlyList<Guid> RenderedNoteIds)> RenderBriefAsync(
+        ScopeResult.Found scope,
+        string variant,
+        CancellationToken cancellationToken)
     {
         var item = scope.Item;
         var header = await board.HeaderAsync(item.Id, cancellationToken);
@@ -92,6 +104,8 @@ public sealed partial class BoardReader(WorkStateQueries queries, BoardQueries b
         var notes = await board.UnconsumedNotesAsync(scope.WorkspaceId, item.Id, cancellationToken);
         var verify = await board.LastVerificationAsync(item.Id, cancellationToken);
         var attention = await AttentionAsync(scope, cancellationToken);
+        var shown = ShownNotes(notes, item.Id, IsWorkerVariant(variant));
+        var callable = IsWorkerVariant(variant) ? await CallableAsync(item, cancellationToken) : item.Ref;
 
         var model = new BriefModel(
             ScopeKind: item.Kind,
@@ -102,12 +116,14 @@ public sealed partial class BoardReader(WorkStateQueries queries, BoardQueries b
             Head: Short(header?.Head),
             Goal: header?.Goal ?? item.Intent,
             Where: Where(item, subtree),
-            Next: Next(item, frontier, subtree),
-            Binding: [.. constraints.Take(BriefBindingCap).Select(ToBinding)],
+            Next: IsWorkerVariant(variant)
+                ? WorkerNext(callable)
+                : Next(item, frontier, subtree, await board.OpenDerivedAsync(item.Id, cancellationToken)),
+            Binding: [.. constraints.Take(IsWorkerVariant(variant) ? constraints.Count : BriefBindingCap).Select(ToBinding)],
             BindingTotal: constraints.Count,
             Assumptions: [.. assumptions.Take(BriefAssumptionCap).Select(ToAssumption)],
             AssumptionTotal: assumptions.Count,
-            Notes: [.. notes.Take(BriefNoteCap).Select(n => Glyph.Flat(n.Body))],
+            Notes: [.. shown.Select(n => Glyph.Flat(n.Body))],
             NoteTotal: notes.Count,
             AddressedTotal: notes.Count(n => n.ToRef is { Length: > 0 }),
             AddressedTo: notes.FirstOrDefault(n => n.ToRef is { Length: > 0 })?.ToRef,
@@ -121,12 +137,79 @@ public sealed partial class BoardReader(WorkStateQueries queries, BoardQueries b
                     verify.Passed),
             Attention: attention);
 
-        var text = BriefRenderer.Render(model);
+        var text = BriefRenderer.Render(model, IsWorkerVariant(variant));
 
-        return variant.Equals("worker", StringComparison.OrdinalIgnoreCase)
-            ? text + "\n\n" + await WorkerSectionAsync(item, cancellationToken)
-            : text;
+        if (IsWorkerVariant(variant))
+        {
+            text += "\n\n" + await WorkerSectionAsync(item, callable, cancellationToken);
+        }
+
+        return (text, [.. shown.Select(n => n.Id)]);
     }
+
+    /// <summary>
+    /// The resume brief caps notes at <see cref="BriefNoteCap"/>. The worker brief renders every note
+    /// addressed to its own item, because rendering is what consumes them: a note past the cap would
+    /// never be shown, and a pasted brief has no pointer a worker can follow. Notes the item merely
+    /// carries keep the cap — they are not consumed, so the pointer to the rest stays true.
+    /// </summary>
+    private static IReadOnlyList<NoteRow> ShownNotes(IReadOnlyList<NoteRow> notes, Guid itemId, bool worker)
+    {
+        if (!worker)
+        {
+            return [.. notes.Take(BriefNoteCap)];
+        }
+
+        var carried = 0;
+        return [.. notes.Where(n => n.ToItemId == itemId || carried++ < BriefNoteCap)];
+    }
+
+    /// <summary>
+    /// A brief with the housekeeping a session owes around it: the sweep of doc 07 §5 before, and
+    /// the note consumption of doc 01 §3.4 after a worker variant.
+    /// <para>
+    /// <b>Every surface that serves a brief calls this and nothing else.</b> Both writes mutate the
+    /// attention block the brief ends with, so a second surface that rendered the brief without
+    /// them — or with its own copy of them — would return different bytes for the same scope
+    /// depending only on which surface was called first. The App API and <c>work_brief</c> are one
+    /// query layer with two presentations (doc 09 §8), and this method is where that is true.
+    /// </para>
+    /// </summary>
+    public async Task<string> BriefSessionAsync(
+        ScopeResult.Found scope,
+        string variant,
+        Housekeeping housekeeping,
+        CancellationToken cancellationToken = default,
+        bool signed = false)
+    {
+        await housekeeping.SweepAsync(scope.WorkspaceId, cancellationToken);
+
+        var (brief, rendered) = await RenderBriefAsync(scope, variant, cancellationToken);
+
+        if (IsWorkerVariant(variant))
+        {
+            await housekeeping.ConsumeNotesAsync(scope.Item.Id, rendered, cancellationToken);
+        }
+
+        return signed ? brief : Unsigned(brief);
+    }
+
+    /// <summary>
+    /// doc 11 — a caller with no session writes as its role alone, and two of them on one token
+    /// cannot be told apart. Said under the header, where every session looks first, and only here:
+    /// a write tool answers an unnamed caller without comment.
+    /// </summary>
+    private static string Unsigned(string brief)
+    {
+        var lines = brief.Split('\n').ToList();
+        lines.Insert(
+            Math.Min(1, lines.Count),
+            "session  unnamed — register WorkState with header X-WorkState-Agent:<name> to sign your work");
+        return string.Join("\n", lines);
+    }
+
+    public static bool IsWorkerVariant(string? variant)
+        => variant is not null && variant.Equals("worker", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
     /// doc 06 §5, ranked by cost of ignoring. Six sources, five lines: what gets dropped is decided
@@ -141,10 +224,16 @@ public sealed partial class BoardReader(WorkStateQueries queries, BoardQueries b
 
         foreach (var claim in await board.ExpiredClaimsAsync(item.Id, cancellationToken))
         {
+            var (on, tree) = claim.Tree is { } t
+                ? ($" on tree \"{Glyph.Clip(t, 40)}\"", $", tree:\"{t}\"")
+                : (string.Empty, string.Empty);
+
             lines.Add(new AttentionLine(
                 AttentionRank.ExpiredClaim,
-                $"{claim.ItemRef} claim by {claim.AgentName} expired {Glyph.Age(Since(claim.ExpiresAt))} ago",
-                $"work_status(ref:\"{claim.ItemRef}\", to:\"in_progress\") to retake it"));
+                $"{claim.ItemRef} claim by {claim.AgentName}{on} expired {Glyph.Age(Since(claim.ExpiresAt))} ago",
+                $"work_status(ref:\"{claim.ItemRef}\", to:\"in_progress\"{tree}) to retake it",
+                claim.ItemRef,
+                claim.QualifiedRef));
         }
 
         foreach (var blocker in await board.BlockerFindingsAsync(item.Id, cancellationToken))
@@ -153,7 +242,9 @@ public sealed partial class BoardReader(WorkStateQueries queries, BoardQueries b
             lines.Add(new AttentionLine(
                 AttentionRank.BlockerFinding,
                 $"{blocker.FindingRef} (BLOCKER) is open{target}: {Glyph.Clip(blocker.FindingTitle, 40)}",
-                $"work_status(ref:\"{blocker.FindingRef}\", to:\"done\")"));
+                $"work_status(ref:\"{blocker.FindingRef}\", to:\"done\")",
+                blocker.FindingRef,
+                blocker.QualifiedRef));
         }
 
         // doc 07 §2: nothing promoted this phase and nothing will. The obligation is named, with the
@@ -163,15 +254,19 @@ public sealed partial class BoardReader(WorkStateQueries queries, BoardQueries b
             lines.Add(new AttentionLine(
                 AttentionRank.PhaseGateNotRun,
                 $"{gate.PhaseRef}: all {gate.TaskCount} tasks done, gate not run",
-                $"work_brief(scope:\"{gate.PhaseRef}\") to run it"));
+                $"work_brief(scope:\"{gate.PhaseRef}\") to run it",
+                gate.PhaseRef,
+                gate.QualifiedRef));
         }
 
-        foreach (var reference in await board.DoneUnverifiedAsync(item.Id, cancellationToken))
+        foreach (var unverified in await board.DoneUnverifiedAsync(item.Id, cancellationToken))
         {
             lines.Add(new AttentionLine(
                 AttentionRank.DoneUnverified,
-                $"{reference} is done with no orchestrator verification",
-                $"work_verify(ref:\"{reference}\", result_line:\"…\", run_by:\"orchestrator\")"));
+                $"{unverified.Ref} is done with no orchestrator verification",
+                $"work_verify(ref:\"{unverified.Ref}\", result_line:\"…\", run_by:\"orchestrator\")",
+                unverified.Ref,
+                unverified.QualifiedRef));
         }
 
         var assumptions = await board.AssumptionsAsync(scope.WorkspaceId, item.Id, true, cancellationToken);
@@ -180,16 +275,33 @@ public sealed partial class BoardReader(WorkStateQueries queries, BoardQueries b
             lines.Add(new AttentionLine(
                 AttentionRank.AssumptionPastRevisit,
                 $"{assumption.Ref} is past revisit_when ({assumption.RevisitRef} is closed)",
-                $"work_assume(ref:\"{assumption.Ref}\", resolve:\"confirmed\", evidence:\"…\")"));
+                $"work_assume(ref:\"{assumption.Ref}\", resolve:\"confirmed\", evidence:\"…\")",
+                assumption.Ref,
+                assumption.QualifiedRef));
         }
 
-        var notes = await board.UnconsumedNotesAsync(scope.WorkspaceId, item.Id, cancellationToken);
-        foreach (var addressed in notes.Where(n => n.ToRef is { Length: > 0 }).GroupBy(n => n.ToRef!))
+        // ws/13: one line per addressee. Grouped on the bare ref, two runs' 4.1 merged into a line
+        // whose work_brief(scope:"4.1") is refused as ambiguous — and each brief consumes only its
+        // own notes anyway. A shared bare ref is printed qualified, as every other call is (ws/10).
+        var notes = await board.UnconsumedNotesAsync(
+            scope.WorkspaceId, item.Id, cancellationToken, openAddresseesOnly: true);
+        var addressees = notes.Where(n => n.ToItemId is not null).GroupBy(n => n.ToItemId!.Value).ToList();
+        var shared = (await board.FactsAsync([.. addressees.Select(a => a.Key)], cancellationToken))
+            .Where(f => f.RefShared)
+            .Select(f => f.Id)
+            .ToHashSet();
+
+        foreach (var addressed in addressees)
         {
+            var first = addressed.First();
+            var named = shared.Contains(addressed.Key) ? first.ToQualifiedRef ?? first.ToRef! : first.ToRef!;
+
             lines.Add(new AttentionLine(
                 AttentionRank.UnconsumedNote,
-                $"{addressed.Count()} note(s) addressed to {addressed.Key} unconsumed",
-                $"work_brief(scope:\"{addressed.Key}\", for:\"worker\")"));
+                $"{addressed.Count()} note(s) addressed to {named} unconsumed",
+                $"work_brief(scope:\"{named}\", for:\"worker\")",
+                first.ToRef,
+                first.ToQualifiedRef));
         }
 
         foreach (var stale in await board.StaleInProgressAsync(item.Id, StaleHours, cancellationToken))
@@ -197,30 +309,64 @@ public sealed partial class BoardReader(WorkStateQueries queries, BoardQueries b
             lines.Add(new AttentionLine(
                 AttentionRank.StaleInProgress,
                 $"{stale.Ref} has been in_progress {Glyph.Age(Since(stale.StartedAt))} with no live claim",
-                $"work_status(ref:\"{stale.Ref}\", to:\"in_progress\") to retake it"));
+                $"work_status(ref:\"{stale.Ref}\", to:\"in_progress\") to retake it",
+                stale.Ref,
+                stale.QualifiedRef));
         }
 
         return lines;
     }
 
-    private async Task<string> WorkerSectionAsync(ScopeRef item, CancellationToken cancellationToken)
+    /// <summary>
+    /// The ref a worker brief prints for calls and its URI: qualified once another run holds the same
+    /// bare ref, since a pasted brief that names an ambiguous ref sends its worker into a refusal.
+    /// </summary>
+    private async Task<string> CallableAsync(ScopeRef item, CancellationToken cancellationToken)
+    {
+        var facts = await board.FactsAsync([item.Id], cancellationToken);
+        return await CallableAsync(item, facts.FirstOrDefault(), cancellationToken);
+    }
+
+    private async Task<string> WorkerSectionAsync(
+        ScopeRef item,
+        string callable,
+        CancellationToken cancellationToken)
     {
         var criteria = await board.CriteriaAsync([item.Id], cancellationToken);
+        var facts = (await board.FactsAsync([item.Id], cancellationToken)).FirstOrDefault();
         var lines = new List<string> { $"YOUR TASK  {item.Ref} — {Glyph.Flat(item.Title)}" };
 
         if (item.Intent is { Length: > 0 })
         {
-            lines.Add($"  intent    {Glyph.Clip(item.Intent, 84)}");
+            lines.AddRange(BriefRenderer.Wrap("  intent    ", item.Intent, 12));
+        }
+
+        if (item.Status == ItemStatus.InProgress && facts?.HeldBy is { Length: > 0 } holder)
+        {
+            lines.Add($"  held by   {Glyph.Clip(holder, 86)}");
         }
 
         lines.Add(criteria.Count == 0
-            ? "  criteria  none recorded — work_update(ref:\"" + item.Ref + "\", criteria:[…]) before starting"
+            ? "  criteria  none recorded — work_update(ref:\"" + callable + "\", criteria:[…]) before starting"
             : "  criteria");
-        lines.AddRange(criteria.Select(c => $"    {(c.Checked ? "✓" : "✗")} c{c.Seq} {Glyph.Clip(c.Text, 80)}"));
+        // A done-criterion is what the work is judged against, so it wraps and never clips.
+        foreach (var c in criteria)
+        {
+            var label = $"    {(c.Checked ? "✓" : "✗")} c{c.Seq} ";
+            lines.AddRange(BriefRenderer.Wrap(label, c.Text, label.Length));
+        }
+
+        // Never clipped: the done guard compares the command recorded by work_verify to this one
+        // character for character, and a mismatch used to be invisible until the refusal.
+        if (facts?.VerifyCmd is { Length: > 0 } verifyCmd)
+        {
+            lines.Add($"  verify    {verifyCmd}");
+        }
 
         lines.Add("  report    status / files / verify / red_check / deviations / assumptions / risks / not_done");
-        lines.Add($"  brief     {WorkUris.ItemBrief(item.Ref)}");
-        lines.Add($"  Next: work_verify(ref:\"{item.Ref}\", …, run_by:\"worker\") — a report is a claim, not evidence.");
+        lines.Add($"  brief     {WorkUris.ItemBrief(callable)}");
+        lines.Add($"  Next: work_report(ref:\"{callable}\", …) with the fields above; closing is the orchestrator's call.");
+        lines.Add($"        work_verify(ref:\"{callable}\", …, run_by:\"worker\") records a claim, not evidence.");
 
         return string.Join("\n", lines);
     }
@@ -230,7 +376,7 @@ public sealed partial class BoardReader(WorkStateQueries queries, BoardQueries b
            && assumption.RevisitStatus is ItemStatus.Done or ItemStatus.Cancelled or ItemStatus.Superseded;
 
     private static BindingLine ToBinding(ConstraintRow row)
-        => new(row.Text, row.Kind == ConstraintKind.RedLine, row.Route);
+        => new(row.Ref, row.Text, row.Kind == ConstraintKind.RedLine, row.Route);
 
     private static AssumptionLine ToAssumption(AssumptionRow row)
         => new(
@@ -253,7 +399,7 @@ public sealed partial class BoardReader(WorkStateQueries queries, BoardQueries b
                 : $"{done} of {tasks.Count} tasks done.";
         }
 
-        var current = phases.FirstOrDefault(p => p.DoingCount > 0)
+        var current = phases.FirstOrDefault(p => p.DoingCount > 0 || p.ReviewCount > 0)
                       ?? phases.FirstOrDefault(p => p.OpenCount > 0 || p.BlockedCount > 0)
                       ?? phases[^1];
         var index = phases.IndexOf(current) + 1;
@@ -269,12 +415,13 @@ public sealed partial class BoardReader(WorkStateQueries queries, BoardQueries b
     private static string Next(
         ScopeRef item,
         IReadOnlyList<ReadyItem> frontier,
-        IReadOnlyList<SubtreeNode> subtree)
+        IReadOnlyList<SubtreeNode> subtree,
+        IReadOnlyList<ItemFacts> derived)
     {
         if (frontier.Count > 0)
         {
             var first = frontier[0];
-            return $"work_get(ref:\"{first.Ref}\")  then  work_status(ref:\"{first.Ref}\", to:\"in_progress\")";
+            return $"work_get(refs:[\"{first.Ref}\"])  then  work_status(ref:\"{first.Ref}\", to:\"in_progress\")";
         }
 
         var doing = subtree.FirstOrDefault(n => n.Status == ItemStatus.InProgress);
@@ -292,10 +439,30 @@ public sealed partial class BoardReader(WorkStateQueries queries, BoardQueries b
         }
 
         var open = subtree.Any(n => n.Id != item.Id && n.Status is ItemStatus.Open or ItemStatus.Ready);
-        return open
-            ? $"work_next(scope:\"{item.Ref}\")"
-            : $"work_status(ref:\"{item.Ref}\", to:\"done\") — every child is closed";
+        if (open)
+        {
+            return $"work_next(scope:\"{item.Ref}\")";
+        }
+
+        if (item.Status is ItemStatus.Done or ItemStatus.Cancelled or ItemStatus.Superseded)
+        {
+            var status = item.Status.ToString().ToLowerInvariant();
+            return derived is [var first, ..]
+                ? $"work_get(refs:[\"{Callable(first.Ref, first)}\"]) — {item.Ref} is {status}; "
+                  + $"{Callable(first.Ref, first)} derived from it is still open"
+                : $"nothing left — {item.Ref} is {status}";
+        }
+
+        return $"work_status(ref:\"{item.Ref}\", to:\"done\") — every child is closed";
     }
+
+    /// <summary>
+    /// The worker variant's next action. A worker does not own its task's status — the orchestrator
+    /// claims, verifies and closes, and a worker token cannot call <c>work_status</c> — so the line
+    /// names the hand-back, never a transition.
+    /// </summary>
+    private static string WorkerNext(string callable)
+        => $"do the task, then work_report(ref:\"{callable}\", status:\"done\", files:[…], verify:\"…\", …)";
 
     private async Task<IReadOnlyList<string>> NearbyAsync(
         Guid workspaceId,

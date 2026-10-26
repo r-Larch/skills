@@ -10,7 +10,7 @@ The subject of a retro is **this skill**, never the undertaking. "The migration 
 
 It runs at the very end of a long run, against a context that is nearly full. It is built **only** from what you already hold:
 
-- `LEDGER.md` — the verdicts, exceptions, assumptions and follow-ups you wrote as you went;
+- the run's record in the store — `work_history(scope: "<run ref>")` for the closures, resolutions and verifications, `work_threads(scope: "<run ref>")` for what was left open;
 - the worker and reviewer reports you already read;
 - the verification output you already ran.
 
@@ -24,17 +24,17 @@ Target cost for the whole step: **under ~2k tokens**. If it is costing more than
 
 ## Noise floor — skipping is the default
 
-**Run the retro only if at least one of these is true, read straight off the ledger:**
+**Run the retro only if at least one of these is true, read straight off the run's journal (`work_history(scope: "<run ref>")`):**
 
 | Trigger | Where it shows |
 |---|---|
-| ≥1 `REWORKED` verdict | task log |
-| ≥1 `RE-PLANNED` verdict | task log |
-| ≥1 verification came back red and needed chasing | task log `Verify` column |
-| A phase gate returned a blocker | gate entry |
-| A single traceable waste of **≥10k tokens** caused by this skill's guidance | exceptions / your own recollection of the run |
+| ≥1 task closed `reworked` | a `done` transition with that resolution |
+| ≥1 task closed `replanned` | a `done` transition with that resolution |
+| ≥1 verification came back red and needed chasing | a verification recorded `passed: false` |
+| A phase gate returned a blocker | a `blocker` finding with source `gate` |
+| A single traceable waste of **≥10k tokens** caused by this skill's guidance | your decision notes / your own recollection of the run |
 
-Otherwise **skip entirely**. No issue, no comment, no prose — one ledger line: `Retro: skipped — no reworks, no re-plans, no failed verifications.` Then stop.
+Otherwise **skip entirely**. No issue, no comment, no prose — one note: `work_note(kind: "decision", from: "<run ref>", body: "Retro: skipped — no reworks, no re-plans, no failed verifications.")`. Then stop.
 
 A run with no reworks, no re-plans and no failed verifications produced no evidence that the skill malfunctioned. Anything you wrote about it would be speculation, and speculation is exactly what bloats a skill.
 
@@ -98,14 +98,14 @@ gh repo view r-Larch/skills --json viewerPermission --jq .viewerPermission
 ```
 
 - **`ADMIN`, `MAINTAIN` or `WRITE`** → **post automatically, no confirmation prompt.** That is deliberate: do not add one, and do not ask "shall I file this?" — either the triggers fired and you file, or they didn't and you skip.
-- **Anything else** (`READ`, `NONE`, blank), or `gh` is absent, unauthenticated, or the command errors → **write the retro to `.claude/orchestration/<slug>/RETRO.md` and post nothing.** Same body, same headings as the issue schema below. Tell the user in one line where it is and that they can open an issue upstream if they think the finding generalises. This is a normal outcome, not a failure — do not retry, do not escalate, do not fall back to any other repo.
+- **Anything else** (`READ`, `NONE`, blank), or `gh` is absent, unauthenticated, or the command errors → **write the retro to `.claude/retro/<run ref>/RETRO.md` and post nothing.** Same body, same headings as the issue schema below. Tell the user in one line where it is and that they can open an issue upstream if they think the finding generalises. This is a normal outcome, not a failure — do not retry, do not escalate, do not fall back to any other repo.
 
-Either way the body carries **findings and ledger excerpts only** — the local file is written to be pasteable upstream, so the same redaction rules apply:
+Either way the body carries **findings and record excerpts only** — the local file is written to be pasteable upstream, so the same redaction rules apply:
 
-- **Allowed:** ledger rows, verdicts, verify commands and their result lines, worker-report lines (`DEVIATIONS`, `RED-CHECK`), and verbatim text from this skill's own files.
+- **Allowed:** journal events, resolutions, verify commands and their result lines, worker-report lines (`DEVIATIONS`, `RED-CHECK`), and verbatim text from this skill's own files.
 - **Never:** source file contents, diffs, code from the repo being worked on, credentials, tokens, connection strings, absolute paths outside the repo, customer or client names, anything from a private codebase.
 
-If a ledger row you want to quote contains any of that, redact the part and keep the shape (`… tenant `<redacted>` …`), or pick different evidence. When in doubt, cut the excerpt — the finding stands on the proposed edit, not on the quote.
+If an event you want to quote contains any of that, redact the part and keep the shape (`… tenant `<redacted>` …`), or pick different evidence. When in doubt, cut the excerpt — the finding stands on the proposed edit, not on the quote.
 
 ---
 
@@ -113,7 +113,7 @@ If a ledger row you want to quote contains any of that, redact the part and keep
 
 ### 0. Check the noise floor
 
-Read the ledger's task log. If no trigger fired, write the skip line and stop. This is the common outcome, and it costs nothing — do it before the access check.
+Read the run's journal. If no trigger fired, write the skip note and stop. This is the common outcome, and it costs nothing — do it before the access check.
 
 ### 1. Check access, then bootstrap the label
 
@@ -149,7 +149,7 @@ Match on **root cause, not wording** — the same `## Target` (same file *and* s
 | Matching issue | What you do |
 |---|---|
 | **`OPEN`** | Comment on it — do not open a near-duplicate. See below. |
-| **`CLOSED` / `NOT_PLANNED`** — rejected | **File nothing and comment nothing.** The owner judged this proposal and stated a reason. One ledger line: `Retro: skipped — #<n> already rejected (<reason>).` Then stop. |
+| **`CLOSED` / `NOT_PLANNED`** — rejected | **File nothing and comment nothing.** The owner judged this proposal and stated a reason. One `work_note(kind: "decision", from: "<run ref>", body: "Retro: skipped — #<n> already rejected (<reason>).")`. Then stop. |
 | **`CLOSED` / `COMPLETED`** — applied | A genuine recurrence: the edit landed and the failure happened anyway. File a new issue (step 3), and say in `## Symptom` that #`<n>` was applied and did not hold. |
 
 A rejection is the only judgment in this loop that did not come from a model reasoning about its own instructions. Re-filing past it is the mechanism arguing with its owner, and you have no budget to litigate it.
@@ -159,19 +159,19 @@ If an **open** match exists, **comment; do not open a near-duplicate**:
 ```bash
 gh issue comment <number> \
   --repo r-Larch/skills \
-  --body-file .claude/orchestration/<slug>/retro-comment.md
+  --body-file .claude/retro/<run ref>/retro-comment.md
 ```
 
 Comment body, exactly:
 
 ```markdown
-### Recurrence — <run-slug>, <YYYY-MM-DD>
+### Recurrence — <run ref>, <YYYY-MM-DD>
 <One line: how it manifested this run.>
-Evidence: <one ledger row or verify line>
+Evidence: <one journal event or verify line>
 Proposal: unchanged | revised — <what changed and the new token delta>
 ```
 
-If the issue already carries two recurrence comments, add yours and note in the ledger that this finding has now recurred three times. A third recurrence is the owner's signal that the proposed edit is under-specified, not that it is unimportant.
+If the issue already carries two recurrence comments, add yours and record with `work_note(kind: "observation", from: "<run ref>", …)` that this finding has now recurred three times. A third recurrence is the owner's signal that the proposed edit is under-specified, not that it is unimportant.
 
 ### 3. No match, or a `COMPLETED` one — create the issue
 
@@ -182,16 +182,16 @@ gh issue create \
   --repo r-Larch/skills \
   --title "retro: <file>#<section-slug> — <symptom in ≤8 words>" \
   --label orchestrate-retro \
-  --body-file .claude/orchestration/<slug>/retro-issue.md
+  --body-file .claude/retro/<run ref>/retro-issue.md
 ```
 
 ### 4. Record it
 
-One ledger line with the issue number or URL, and one line in your closing report to the user. Do not summarize the issue back to them — they can open it.
+One `work_note(kind: "decision", from: "<run ref>", body: "Retro: filed <issue URL>")`, and one line in your closing report to the user. Do not summarize the issue back to them — they can open it.
 
 ### 5. No push access — write it locally instead
 
-Write the body — same headings, same schema, nothing extra — to `.claude/orchestration/<slug>/RETRO.md`. Post nothing. One ledger line (`Retro: no push access to r-Larch/skills — written to RETRO.md`) and one line to the user naming the path and saying they can open an issue upstream if they think it generalises. Then stop; this outcome is finished, not degraded.
+Write the body — same headings, same schema, nothing extra — to `.claude/retro/<run ref>/RETRO.md`. Post nothing. One `work_note(kind: "decision", from: "<run ref>", body: "Retro: no push access to r-Larch/skills — written to .claude/retro/<run ref>/RETRO.md")` and one line to the user naming the path and saying they can open an issue upstream if they think it generalises. The file is theirs: do not commit it. Then stop; this outcome is finished, not degraded.
 
 ---
 
@@ -209,7 +209,7 @@ Both halves of this mechanism depend on this being exact: the retro **writes** i
 retro: <file>#<section-slug> — <symptom in ≤8 words>
 ```
 
-`<file>` is the skill file relative to the skill root: `SKILL.md`, `references/briefs.md`, `references/decompose.md`, `references/retro.md`, `assets/LEDGER.template.md`. `<section-slug>` is the target heading, lowercased and hyphenated.
+`<file>` is the skill file relative to the skill root: `SKILL.md`, `references/briefs.md`, `references/decompose.md`, `references/retro.md`. `<section-slug>` is the target heading, lowercased and hyphenated.
 
 ### Body — these headings, in this order, all required
 
@@ -220,8 +220,8 @@ retro: <file>#<section-slug> — <symptom in ≤8 words>
 | `## Root cause` | The sentence or omission in the target section that permitted it. Quote the offending text if it exists; say "no rule covers this" if it doesn't. |
 | `## Proposed edit` | `Mode:` one of `replace` / `tighten` / `move` / `add`, then a fenced `text` block labelled `BEFORE:` (verbatim from the file, or `n/a` for mode `add`) and a second fenced `text` block labelled `AFTER:`. The consumer applies these mechanically — BEFORE must match the file character for character. |
 | `## Token delta` | `+N` / `-N` / `±0` tokens, then one line on why this is the cheapest form of the fix. Net-additive proposals must justify why tightening existing text cannot achieve it. |
-| `## Evidence` | Ledger rows, verify lines, report lines. Nothing from the worked repo. 5 lines max. |
-| `## Run` | One line: `Repo: <name> · Slug: <run-slug> · Date: <YYYY-MM-DD> · Reworks: <n> · Re-plans: <n> · Failed verifications: <n>` |
+| `## Evidence` | Journal events, verify lines, report lines. Nothing from the worked repo. 5 lines max. |
+| `## Run` | One line: `Repo: <name> · Slug: <run ref> · Date: <YYYY-MM-DD> · Reworks: <n> · Re-plans: <n> · Failed verifications: <n>` |
 
 No other headings. No preamble above `## Target`. Nothing below `## Run`.
 
@@ -229,7 +229,7 @@ No other headings. No preamble above `## Target`. Nothing below `## Run`.
 
 ## Worked example
 
-This is a real finding from the run that produced this file, filed in full.
+This is a real finding from the run that produced this file, filed in full. That run predates the store, so its evidence cites a ledger and a conventions file; today the same lines would be journal events and a constraint.
 
 **Title:** `retro: references/briefs.md#recon-agents — recon claim nearly shipped unverified`
 
@@ -279,4 +279,4 @@ Standing rule then added to this run's CONVENTIONS.md — a per-run patch for a 
 Repo: r-Larch/skills · Slug: one-plugin · Date: 2026-08-06 · Reworks: 0 · Re-plans: 1 · Failed verifications: 0
 ````
 
-Note what makes it fileable: it names one section, quotes the exact line it changes, states a delta, and its evidence is two ledger rows — no source files, no diffs, no second read of anything.
+Note what makes it fileable: it names one section, quotes the exact line it changes, states a delta, and its evidence is two lines of the run's record — no source files, no diffs, no second read of anything.

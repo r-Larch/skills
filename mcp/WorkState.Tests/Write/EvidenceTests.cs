@@ -233,11 +233,9 @@ public sealed class EvidenceTests(PostgresFixture fixture)
         Assert.False(written.Refused, written.Text);
 
         var scope = await world.ScopeAsync("1.1");
-        var brief = await world.Reader.BriefAsync(scope, "worker", Ct);
+        var brief = await world.Reader.BriefSessionAsync(scope, "worker", WriteSeed.Keeper(fixture), Ct);
 
         Assert.Contains("truncate facet values", brief, StringComparison.Ordinal);
-
-        await WriteSeed.Keeper(fixture).ConsumeNotesAsync(world.TaskId, Ct);
 
         var again = await world.Reader.BriefAsync(await world.ScopeAsync("1.1"), "worker", Ct);
 

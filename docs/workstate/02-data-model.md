@@ -496,6 +496,7 @@ CREATE TABLE constraint_rule (
   id             uuid PRIMARY KEY,
   workspace_id   uuid NOT NULL REFERENCES workspace ON DELETE CASCADE,
   scope_item_id  uuid REFERENCES item ON DELETE CASCADE,   -- null = workspace-wide
+  ref            text NOT NULL,   -- 'C1', 'C2', … the handle the BINDING block prints
   kind           constraint_kind NOT NULL,
   text           text NOT NULL,
   route          text,            -- "no pipes — narrow with the tool's own --filter"
@@ -507,18 +508,33 @@ CREATE TABLE constraint_rule (
 );
 CREATE INDEX constraint_scope_idx ON constraint_rule (workspace_id, scope_item_id) WHERE active;
 CREATE INDEX constraint_risk_idx  ON constraint_rule USING gin (covers_risk);
+CREATE UNIQUE INDEX constraint_ref_unique ON constraint_rule (workspace_id, ref);
 ```
 
-Two things this enables that a file cannot:
+**The ref is numbered per WORKSPACE, not per run** — which is where it parts company with `item.ref`
+and `assumption.ref`, both of which are numbered inside their `ref_scope_id`. The reason is the
+rendering: one BINDING block shows the workspace-wide rules *together with* every rule scoped to the
+item's ancestors, so a per-run number would print two `C1`s side by side, and a ref that
+is ambiguous where it is read is not a ref. A1 is scoped to a run because two parallel orchestrators
+must each be able to open their own; C1 has no such pressure, because a rule is written once and
+read by everyone.
 
+Three things this enables that a file cannot:
+
+- **Citation.** `C7` is an address: it can be quoted in a brief, questioned in a finding, and retired
+  by `work_constrain(ref:"C7", retire:true, reason:…)`. A rule you can read but cannot name is one
+  you cannot retire, and the corpus is full of rules that outlived their reason because retiring them
+  meant editing a markdown file nobody owned.
 - **Scoped rendering.** A brief for item X gets the workspace rules plus every rule scoped to X's
   ancestors — no more *"repeating the same fifteen safety lines in twelve briefs"*, and no more
   briefs missing the rule that was added after they were written.
 - **Coverage checking** (plan-audit check #6). `covers_risk` vs the `risk_tags` of *upcoming* items
   answers *"does `CONVENTIONS.md` still forbid everything the remaining tasks can destroy?"* as a set
   difference. The `route` column is `nested-claude`'s hardest-won lesson made structural: a
-  prohibition row without a route is itself a flagged defect, because *"a rule that demands a
-  capability the agent does not have is a trap you set yourself."*
+  prohibition row without a route is itself a defect, because *"a rule that demands a capability the
+  agent does not have is a trap you set yourself."* `work_constrain` refuses a `red_line` that
+  carries no `route` — the one kind that is a prohibition, and the one case where the guard is
+  satisfiable every time, since *"stop and report it"* is a route.
 
 ---
 
@@ -563,7 +579,9 @@ Today they are two sections 500 lines apart and only one of them is ever found.
 CREATE TABLE claim (
   id           uuid PRIMARY KEY,
   item_id      uuid NOT NULL REFERENCES item ON DELETE CASCADE,
-  serialization_key text NOT NULL,   -- copied from the owning run_config at claim time
+  serialization_key text NOT NULL,   -- the tree: work_status's tree:, else run_config, else repo_root, else ref scope
+  key_workspace_id uuid,             -- set when the key is a name (branch, ref scope): lock is per workspace
+  tree         text,                 -- the normalised tree: the caller passed, if any
   writes       boolean NOT NULL DEFAULT true,   -- read-only recon claims do not serialize
   agent_name   text NOT NULL,
   agent_token_id uuid,
@@ -576,15 +594,34 @@ CREATE TABLE claim (
 );
 CREATE UNIQUE INDEX claim_one_live_per_item ON claim (item_id) WHERE released_at IS NULL;
 
--- One writer per working tree. Two runs in separate worktrees proceed in parallel;
--- two runs sharing a tree do not. This is the parallel-orchestrator rule, as an index.
+-- One writer per working tree. Two units in separate worktrees proceed in parallel, even
+-- in one run; two sharing a tree do not. The parallel-orchestrator rule, as an index.
+-- A null key_workspace_id is a path, and a path collides across workspaces.
 CREATE UNIQUE INDEX claim_one_writer_per_tree
-  ON claim (serialization_key) WHERE released_at IS NULL AND writes;
+  ON claim (serialization_key, key_workspace_id) NULLS NOT DISTINCT
+  WHERE released_at IS NULL AND writes;
 ```
 
 That second index is *"writing agents run one at a time, never two in parallel"* as a database
-constraint rather than a paragraph — and, correctly, it does **not** block the parallel runs you
-asked for, because they carry different `serialization_key`s.
+constraint rather than a paragraph — and, correctly, it does **not** block the parallel units you
+asked for, because they carry different working trees.
+
+**The key.** `work_status(ref, to:"in_progress", tree:"<worktree path or branch>")` makes the
+caller's tree the key. A path is normalised — trimmed; on Windows (`X:\…`, `\\server\…`) slashes
+become `/`, case is folded and a trailing slash dropped; a POSIX path keeps its case and loses a
+trailing slash — and locks **server-wide**, because it is a place on disk. A branch (`refs/heads/`
+stripped) is a name and locks **within its workspace**. Without `tree` the key is today's: the run's
+`serialization_key`, else the project's `repo_root` (both server-wide), else the ref scope — a name,
+so per workspace.
+
+> **Changed 2026-10-22 (ws/8).** Claims were per run: with no `tree` parameter, every unit of a run
+> fell back to the run's key (`30m lease on "m0"`), so a controller running parallel units in
+> separate git worktrees was refused the second one. And the index was on `serialization_key` alone,
+> server-wide, while the sweep is per workspace — two workspaces with same-named runs shared a lock.
+> Migration `ClaimPerTree` adds `key_workspace_id` and `tree`, rebuilds the index over
+> `(serialization_key, key_workspace_id) NULLS NOT DISTINCT`, and leaves every existing key as it
+> is; a live claim whose key came from the ref-scope fallback gets its workspace, so it keeps binding
+> its run across the upgrade.
 
 An expired lease is not silently reaped — it surfaces in `attention` and, on the next
 `work_status`/`work_brief`, is released with a `claim_expired` event. `nested-claude`'s
@@ -652,17 +689,21 @@ the `actor` on every event — so attribution is not self-declared. Compare with
 ## 13. Views the server leans on
 
 ```sql
--- per-item rollup, used by work_tree and the board
+-- per-item rollup, used by work_tree and the board. The four unclosed buckets plus done_count
+-- sum to the denominator of every "X of Y": 'review' is work in flight and counts, while
+-- 'cancelled' and 'superseded' are in no bucket — they are closed and were not done.
 CREATE VIEW item_rollup AS
 SELECT p.id,
        count(*) FILTER (WHERE c.status IN ('open','ready'))  AS open_count,
        count(*) FILTER (WHERE c.status = 'in_progress')      AS doing_count,
        count(*) FILTER (WHERE c.status = 'blocked')          AS blocked_count,
+       count(*) FILTER (WHERE c.status = 'review')           AS review_count,
        count(*) FILTER (WHERE c.status = 'done')             AS done_count
 FROM   item p LEFT JOIN item c ON c.ancestors @> ARRAY[p.id]
 GROUP  BY p.id;
 
--- everything unclosed that is not a task: the work_threads backbone
+-- everything unclosed that is not a task: the work_threads backbone. work_threads lists only the
+-- notes that name a to_item_id: no call consumes the others (doc 01 §3.1, ws/11).
 CREATE VIEW open_thread AS
   SELECT 'assumption' AS t, a.ref, a.statement AS text, a.scope_item_id AS scope, a.workspace_id
     FROM assumption a WHERE a.state = 'open'
@@ -691,7 +732,7 @@ CREATE VIEW open_thread AS
 | A superseded task still greppable and still collidable | `status = 'superseded'` + the unique ref |
 | A correction 500 lines from what it corrects | `note.corrects_note_id` |
 | An assumption closed by strikethrough, or never revisited | `assumption.state` + `revisit_item_id` |
-| A deferred follow-up that evaporates | deferral **creates an item**; nothing is a status |
+| A deferred follow-up that evaporates | deferral **creates an item**; nothing is a status. `"backlog"` is a run under the project (a plain `item` of kind `run` with a `run_config`), so the run the work left can still close (doc 07 §4, changed 2026-10-22 ws/12) |
 | Two writing agents in one repo | the claim's partial unique index over the run subtree |
 | A verify command that can never go red | `verification (workspace_id, command, passed)` |
 | "The record disagrees with the code" | the record *is* what the transitions produced, and every transition required evidence |

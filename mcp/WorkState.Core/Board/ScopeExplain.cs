@@ -45,8 +45,13 @@ public static class ScopeExplain
             routes.Add($"work_search(q:\"{ambiguous.Asked}\") for the rest");
         }
 
+        if (ambiguous.Matches > ambiguous.Candidates.Count)
+        {
+            routes.Add("work_tree() to see where the others sit — no ref names only them");
+        }
+
         return Refusal.Blocked(
-            $"{call} — \"{ambiguous.Asked}\" exists in {ambiguous.Candidates.Count} runs.",
+            $"{call} — \"{ambiguous.Asked}\" exists in {ambiguous.Matches} runs.",
             [new Unmet($"\"{ambiguous.Asked}\" is ambiguous — qualify it with the run it belongs to", routes)]);
     }
 

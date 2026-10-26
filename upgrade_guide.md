@@ -1,3 +1,54 @@
+# Upgrading from 1.x to 2.x
+
+**You need this if `claude plugin details rlarch` reports a 1.x version** and you use
+`orchestrate` or `controller`. The full list of changes is in [CHANGELOG.md](CHANGELOG.md).
+
+## What changes for you
+
+- **`orchestrate` and `controller` now require the WorkState server** — a .NET service plus a
+  Postgres, running in Docker on your own machine. They keep their plan, rules, evidence and record
+  there and nowhere else. There is **no markdown fallback**: they no longer write `PLAN.md` /
+  `LEDGER.md`, and if the `work_*` tools are missing they stop and point you at
+  `/rlarch:workstate-setup`.
+- Runs you started under 1.x as `PLAN.md` / `LEDGER.md` files are not read by the 2.x skills. The
+  files stay where they are. Finish those runs before upgrading, or start them again under 2.x; the
+  repo's one-way importer (`mcp/tools/WorkState.Import`) can load an old corpus into the store as a
+  record.
+- WorkState also serves an operator dashboard at **http://127.0.0.1:5290**, where you can watch a run.
+
+## What keeps working without WorkState
+
+`dotnet-reflect`, `dotnet-source`, `ts-source`, `code-comments` and `nested-claude` never touch
+WorkState. If those are all you use, update the plugin and stop here — no Docker needed.
+
+## What you must do
+
+1. **Update the plugin** and restart Claude Code:
+
+   ```bash
+   claude plugin marketplace update rlarch
+   claude plugin update rlarch@rlarch
+   ```
+
+   Confirm with `claude plugin details rlarch`: version `2.2.0`, eight skills.
+
+2. **Run `/rlarch:workstate-setup` once.** It needs Docker running (Docker Desktop, or the Docker
+   engine on Linux; Colima or OrbStack on macOS). It finds or asks for a clone of this repo — it never
+   clones without asking — writes the local-only `mcp/.env`, starts the stack with
+   `docker compose -f mcp/compose.yml up -d`, registers the server with `claude mcp add --scope user`,
+   and counts the tools the server returns. The stack restarts with Docker, so this is once per
+   machine, not once per session.
+
+3. **Restart the session.** MCP servers are resolved at session start, so the `work_*` tools appear
+   in the *next* session, not the one that ran the setup. In the new session, `work_brief` should
+   answer.
+
+If you registered WorkState by hand during 2.x testing with `http://localhost:5290/mcp`, re-register
+it with `http://127.0.0.1:5290/mcp`: the server binds IPv4 loopback only, and some clients try `::1`
+for `localhost` first.
+
+---
+
 # Upgrading to the single `rlarch` plugin
 
 The `rlarch` marketplace used to ship **two** plugins, `dotnet-reflect` and `dotnet-source`. It now

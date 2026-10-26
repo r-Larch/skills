@@ -29,10 +29,16 @@ public sealed record ScopeHeader(
     string? Head,
     string? Goal);
 
-public sealed record ConstraintRow(ConstraintKind Kind, string Text, string? Route, string Severity);
+public sealed record ConstraintRow(
+    string Ref,
+    ConstraintKind Kind,
+    string Text,
+    string? Route,
+    string Severity);
 
 public sealed record AssumptionRow(
     string Ref,
+    string? QualifiedRef,
     string Statement,
     EvidenceLevel Evidence,
     string? EvidenceNote,
@@ -40,11 +46,21 @@ public sealed record AssumptionRow(
     AssumptionState State,
     string? RevisitRef,
     ItemStatus? RevisitStatus,
-    DateTimeOffset? RevisitClosedAt);
+    DateTimeOffset? RevisitClosedAt,
+    Guid? ScopeItemId);
 
-public sealed record NoteRow(NoteKind Kind, string Body, string? ToRef, string? FromRef);
+public sealed record NoteRow(
+    NoteKind Kind,
+    string Body,
+    string? ToRef,
+    string? ToQualifiedRef,
+    string? FromRef,
+    Guid Id,
+    Guid? ToItemId,
+    DateTimeOffset CreatedAt);
 
 public sealed record VerificationRow(
+    Guid ItemId,
     string ItemRef,
     string? Command,
     string ResultLine,
@@ -52,9 +68,17 @@ public sealed record VerificationRow(
     VerifyRunner RunBy,
     DateTimeOffset At);
 
-/// <summary>Per-item evidence and shape, keyed by ref, for the flag vocabulary of doc 06 §2.</summary>
+/// <summary>
+/// Per-item evidence and shape for the flag vocabulary of doc 06 §2, keyed by <see cref="Id"/>: a
+/// bare ref names one item per run, and keying on it merged twins across runs (ws/10).
+/// <see cref="RefShared"/> says the bare ref is not unique in the workspace, so a printed URI or
+/// call must carry <see cref="QualifiedRef"/>.
+/// </summary>
 public sealed record ItemFacts(
+    Guid Id,
     string Ref,
+    string QualifiedRef,
+    bool RefShared,
     int CriteriaTotal,
     int CriteriaChecked,
     int VerificationsPassed,
@@ -65,18 +89,55 @@ public sealed record ItemFacts(
     bool RequiresVerify,
     string? Severity,
     string? ParentRef,
-    DateTimeOffset? StartedAt);
+    DateTimeOffset? StartedAt,
+    bool Moved,
+    string? HeldBy,
+    string? VerifyCmd);
 
-public sealed record BlockerRow(string FindingRef, string FindingTitle, string? TargetRef);
+public sealed record BlockerRow(
+    string FindingRef,
+    string QualifiedRef,
+    string FindingTitle,
+    string? TargetRef,
+    Guid FindingId);
 
-public sealed record BlockedRow(string Ref, string BlockedByRef);
+public sealed record BlockedRow(Guid ItemId, string Ref, string BlockedByRef);
 
-public sealed record ClaimRow(string ItemRef, string AgentName, DateTimeOffset ExpiresAt);
+public sealed record ClaimRow(
+    string ItemRef,
+    string QualifiedRef,
+    string AgentName,
+    DateTimeOffset ExpiresAt,
+    string? Tree,
+    Guid ItemId);
 
-public sealed record StaleRow(string Ref, DateTimeOffset StartedAt);
+/// <summary>
+/// A lease the watch floor shows (doc 09 §5): the claim itself, plus the title and qualified ref a
+/// human needs to know what is being worked on. <see cref="ExpiresAt"/> is the instant, never a
+/// remaining duration — the client counts down against it, and a number computed here is wrong by
+/// the time it is read.
+/// </summary>
+public sealed record LiveClaimRow(
+    string ItemRef,
+    string QualifiedRef,
+    string Title,
+    string AgentName,
+    DateTimeOffset ExpiresAt);
+
+public sealed record StaleRow(string Ref, string QualifiedRef, DateTimeOffset StartedAt, Guid Id);
+
+/// <summary>One entry of the dashboard's project switcher (doc 09 §5), with the runs under it.</summary>
+public sealed record ProjectRow(Guid Id, string Ref, string Title, ItemStatus Status, int RunCount);
 
 /// <summary>A phase with nothing left to do and no gate recorded against it (doc 07 §2).</summary>
-public sealed record GateRow(string PhaseRef, int TaskCount);
+public sealed record GateRow(string PhaseRef, string QualifiedRef, int TaskCount);
+
+/// <summary>
+/// One item closed without the orchestrator verification doc 07 §3 demands. A bare ref would do for
+/// the rendered line, which is always read inside one run — but not for doc 09 §5's queue, which
+/// spans every run under a project and where <c>phase-4</c> names four different phases.
+/// </summary>
+public sealed record UnverifiedRow(string Ref, string QualifiedRef, Guid Id, DateTimeOffset? ClosedAt);
 
 public sealed record EventRow(
     long Seq,
@@ -87,8 +148,8 @@ public sealed record EventRow(
     string Kind,
     string? Summary);
 
-public sealed record CriterionRow(string ItemRef, int Seq, string Text, bool Checked, string? Evidence);
+public sealed record CriterionRow(Guid ItemId, string ItemRef, int Seq, string Text, bool Checked, string? Evidence);
 
-public sealed record LinkRow(string FromRef, string ToRef, LinkType Type, ItemStatus FromStatus);
+public sealed record LinkRow(Guid FromId, Guid ToId, string FromRef, string ToRef, LinkType Type, ItemStatus FromStatus);
 
 public sealed record AuditRow(string Check, string Ref, string Problem, string Route);

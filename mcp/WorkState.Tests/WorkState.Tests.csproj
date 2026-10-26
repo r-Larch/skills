@@ -32,6 +32,12 @@
              Link="Fixtures\05-server-instructions.md"
              CopyToOutputDirectory="PreserveNewest"
              CopyToPublishDirectory="Never" />
+
+    <!-- doc 10 rule 6 lists the status and resolution strings; V1ContractTests compares them. -->
+    <Content Include="..\..\docs\workstate\10-read-api.md"
+             Link="Fixtures\10-read-api.md"
+             CopyToOutputDirectory="PreserveNewest"
+             CopyToPublishDirectory="Never" />
   </ItemGroup>
 
 </Project>

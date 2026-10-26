@@ -11,6 +11,15 @@ public sealed record Actor(string Name, ActorRole Role)
 {
     public static readonly Actor System = new("system", ActorRole.System);
 
+    /// <summary>doc 11 — which session wrote. It decides who holds a tree, never what the role may do.</summary>
+    public Guid? SessionId { get; init; }
+
+    /// <summary>The session's name, from <c>X-WorkState-Agent</c>.</summary>
+    public string? Session { get; init; }
+
+    /// <summary>What a surface prints for this writer: the session where there is one.</summary>
+    public string Label => Session ?? Name;
+
     /// <summary>
     /// doc 07 §3 condition 2, and the entire reason a worker may hold <c>work_verify</c>: a worker's
     /// evidence is recorded as a worker's, so it can never satisfy its own item's closure. The

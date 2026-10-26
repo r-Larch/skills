@@ -25,11 +25,18 @@ public class WorkStateDbContext(DbContextOptions<WorkStateDbContext> options) : 
     public DbSet<Note> Notes => Set<Note>();
     public DbSet<Claim> Claims => Set<Claim>();
     public DbSet<AgentToken> AgentTokens => Set<AgentToken>();
+    public DbSet<DataProtectionKey> DataProtectionKeys => Set<DataProtectionKey>();
+    public DbSet<AgentSession> AgentSessions => Set<AgentSession>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
         b.HasPostgresExtension("pg_trgm");
         b.HasPostgresExtension("btree_gin");
+
+        // claim_one_session_per_tree is an exclusion constraint over text and uuid columns, which
+        // only a GiST operator class from this extension can index. It is raw SQL in the Sessions
+        // migration because the model cannot express an exclusion constraint.
+        b.HasPostgresExtension("btree_gist");
 
         MapWorkspace(b);
         MapItemKind(b);
@@ -41,7 +48,44 @@ public class WorkStateDbContext(DbContextOptions<WorkStateDbContext> options) : 
         MapEvidence(b);
         MapJournal(b);
         MapThreads(b);
+        MapDataProtection(b);
+        MapSessions(b);
     }
+
+    private static void MapSessions(ModelBuilder b)
+    {
+        b.Entity<AgentSession>(e =>
+        {
+            e.ToTable("agent_session");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).ValueGeneratedNever();
+            e.Property(x => x.FirstSeenAt).HasDefaultValueSql("now()");
+            e.Property(x => x.LastSeenAt).HasDefaultValueSql("now()");
+            e.HasOne<Workspace>().WithMany().HasForeignKey(x => x.WorkspaceId).OnDelete(DeleteBehavior.Cascade);
+            e.HasIndex(x => new { x.WorkspaceId, x.Name })
+                .HasDatabaseName("agent_session_name_unique")
+                .IsUnique();
+            e.HasIndex(x => x.TokenHash)
+                .HasDatabaseName("agent_session_token_hash_unique")
+                .IsUnique();
+            e.HasOne<AgentSession>().WithMany().HasForeignKey(x => x.MintedBySessionId).OnDelete(DeleteBehavior.SetNull);
+        });
+
+        // Additive: every row written before doc 11 keeps a null session, and nothing backfills one.
+        b.Entity<Event>().HasOne<AgentSession>().WithMany().HasForeignKey(x => x.SessionId).OnDelete(DeleteBehavior.SetNull);
+        b.Entity<Claim>().HasOne<AgentSession>().WithMany().HasForeignKey(x => x.SessionId).OnDelete(DeleteBehavior.SetNull);
+        b.Entity<Verification>().HasOne<AgentSession>().WithMany().HasForeignKey(x => x.SessionId).OnDelete(DeleteBehavior.SetNull);
+        b.Entity<Report>().HasOne<AgentSession>().WithMany().HasForeignKey(x => x.SessionId).OnDelete(DeleteBehavior.SetNull);
+        b.Entity<Note>().HasOne<AgentSession>().WithMany().HasForeignKey(x => x.SessionId).OnDelete(DeleteBehavior.SetNull);
+        b.Entity<Assumption>().HasOne<AgentSession>().WithMany().HasForeignKey(x => x.SessionId).OnDelete(DeleteBehavior.SetNull);
+    }
+
+    private static void MapDataProtection(ModelBuilder b) => b.Entity<DataProtectionKey>(e =>
+    {
+        e.ToTable("data_protection_key");
+        e.HasKey(x => x.Id);
+        e.Property(x => x.Id).UseIdentityAlwaysColumn();
+    });
 
     private static void MapThreads(ModelBuilder b)
     {
@@ -81,6 +125,9 @@ public class WorkStateDbContext(DbContextOptions<WorkStateDbContext> options) : 
                 .HasDatabaseName("constraint_scope_idx")
                 .HasFilter("active");
             e.HasIndex(x => x.CoversRisk).HasDatabaseName("constraint_risk_idx").HasMethod("gin");
+            e.HasIndex(x => new { x.WorkspaceId, x.Ref })
+                .HasDatabaseName("constraint_ref_unique")
+                .IsUnique();
         });
 
         b.Entity<Note>(e =>
@@ -122,12 +169,16 @@ public class WorkStateDbContext(DbContextOptions<WorkStateDbContext> options) : 
                 .IsUnique()
                 .HasFilter("released_at IS NULL");
 
-            // One writer per working tree. Two runs in separate worktrees proceed in parallel; two
-            // runs sharing a tree do not. The parallel-orchestrator rule, as an index.
-            e.HasIndex(x => x.SerializationKey)
+            // One writer per working tree. Two units in separate worktrees proceed in parallel; two
+            // sharing a tree do not. The parallel-orchestrator rule, as an index. A null
+            // key_workspace_id is a path and collides across workspaces — NULLS NOT DISTINCT.
+            // doc 11 narrows it to claims with no session; claim_one_session_per_tree (Sessions
+            // migration) lets one session hold several items of its tree and refuses a second one.
+            e.HasIndex(x => new { x.SerializationKey, x.KeyWorkspaceId })
                 .HasDatabaseName("claim_one_writer_per_tree")
                 .IsUnique()
-                .HasFilter("released_at IS NULL AND writes");
+                .AreNullsDistinct(false)
+                .HasFilter("released_at IS NULL AND writes AND session_id IS NULL");
         });
 
         b.Entity<AgentToken>(e =>

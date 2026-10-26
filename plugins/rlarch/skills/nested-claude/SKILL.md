@@ -5,9 +5,18 @@ description: Run Claude Code inside Claude Code — spawn nested `claude` sessio
 
 # Nested Claude
 
-The three scripts referenced below live with this skill. Installed as a plugin they are at
+The scripts referenced below live with this skill. Installed as a plugin they are at
 `"$CLAUDE_PLUGIN_ROOT/skills/nested-claude/assets/"` — run `echo "$CLAUDE_PLUGIN_ROOT"` to confirm.
 A project may vendor a copy, but then the copy is the one that drifts; prefer calling these.
+
+**The primary path is the `agent_launch` / `agent_stop` / `agent_list` tools** of the plugin's
+`agents` MCP server (§1), which need **Node 18+** on PATH. The scripts are the fallback.
+
+**Platforms.** Windows: `Start-NestedAgent.ps1` / `Stop-NestedAgent.ps1`, under `pwsh` or Windows
+PowerShell. macOS/Linux: the bash twins `start-nested-agent.sh` / `stop-nested-agent.sh`, same flags
+in `--kebab-case` (`-PromptFile` is `--prompt-file`; repeat `--allowed-tools` / `--add-dir` once per
+value); `pwsh` is optional there. Both twins take a dry-run switch (`-DryRun` / `--dry-run`) that does
+everything except run `claude` and prints the exact argv — use it to check a launch before spending one.
 
 You are about to become a **controller**: a Claude Code session that starts other Claude Code
 sessions, addresses them, answers them, and stops them.
@@ -28,8 +37,55 @@ Otherwise use the `Agent` tool.
 
 ## 1. Launch — always `--bg`
 
+**Use the `agent_launch` tool** (`mcp__plugin_rlarch_agents__agent_launch`). It is the plugin's
+`agents` MCP server — Node 18+, no dependencies — and it does what the scripts below do, plus the one
+thing they cannot: it mints the agent **its own WorkState token**, so the child's writes are recorded
+under its name and role instead of yours. It builds the argv in code (no shell, so no quoting traps),
+prepends the same protocol header, grants the same `toolset` profiles, and returns `name`, `id`,
+`sessionId`, `brief` and the WorkState session — never a token.
+
+| Param | Default | Maps to |
+|---|---|---|
+| `name` | required | `--name`; the `SendMessage` address |
+| `brief` | required | a file inside `repo_root`; header prepended, written to `.claude/briefs/brief-<name>.txt` |
+| `repo_root` | required | absolute path of a git working tree (refused otherwise); the agent's cwd |
+| `controller` | required | your address from `ListAgents`, ref included: `'name [6-hex]'` |
+| `permission_mode` | `auto` | `--permission-mode`: `acceptEdits` `auto` `bypassPermissions` `manual` `dontAsk` `plan` |
+| `toolset` | `fix` | the §3 profile: `none` `readonly` `fix`; with a `workstate.role` other than `none`, `mcp__workstate` is added (the server limits the role's tools) |
+| `allowed_tools` / `disallowed_tools` | `[]` | merged into `--allowedTools` / `--disallowedTools` |
+| `add_dirs` | `[]` | `--add-dir` |
+| `model`, `effort`, `settings`, `append_system_prompt` | — | `--model`, `--effort` (`low`…`max`), `--settings` (path or JSON), `--append-system-prompt` |
+| `workstate` | `{role: "worker"}` | `role` (`worker` `orchestrator` `controller` `none`), `env_file` (the PATH of the WorkState clone's `mcp/.env`, never its contents), `url` (default `http://127.0.0.1:5290`), `ttl_hours` |
+| `dry_run` | `false` | validate and return the argv; mints and spawns nothing (the token shows as `<minted>`) |
+
+An auto-mode worker — the usual case:
+
+```
+agent_launch(name: "fix-B-07", brief: ".claude/briefs/B-07.md", repo_root: "P:/repo.worktrees/b-07",
+             controller: "prod-log-triage [9825b9]",
+             workstate: {role: "worker", env_file: "P:/WorkState/mcp/.env"})
+```
+
+An `acceptEdits` worker, for a unit where auto mode's classifier keeps refusing routine work:
+
+```
+agent_launch(name: "fix-B-08", brief: ".claude/briefs/B-08.md", repo_root: "P:/repo.worktrees/b-08",
+             controller: "prod-log-triage [9825b9]", permission_mode: "acceptEdits", toolset: "fix",
+             add_dirs: ["P:/packages/nuget"], workstate: {role: "worker", env_file: "P:/WorkState/mcp/.env"})
+```
+
+With `workstate.role` other than `none`, the token goes into `.claude/briefs/mcp-<name>.json` (refused
+unless git says that path is ignored) and reaches the agent through `--mcp-config`. **If minting
+fails the launch is refused** — it never falls back to your own registration. `role: "none"` mints
+nothing and passes no `--mcp-config`. `agent_list` joins `claude agents --json` with what was launched.
+
+### Fallback: the scripts
+
+When the agents server is not available — no Node, or no plugin — the launchers do the same launch
+without the WorkState token (the agent inherits your registration):
+
 ```powershell
-$a = & "$CLAUDE_PLUGIN_ROOT/skills/nested-claude/assets"/Start-NestedAgent.ps1 `
+$a = & "$env:CLAUDE_PLUGIN_ROOT/skills/nested-claude/assets/Start-NestedAgent.ps1" `
         -Name       fix-B-07 `
         -PromptFile .\brief-B-07.txt `
         -Controller 'prod-log-triage [9825b9]' `   # your address, from ListAgents, ref included
@@ -38,8 +94,21 @@ $a = & "$CLAUDE_PLUGIN_ROOT/skills/nested-claude/assets"/Start-NestedAgent.ps1 `
         -Watch                                      # optional: open a window attached to it
 ```
 
+```bash
+bash "$CLAUDE_PLUGIN_ROOT/skills/nested-claude/assets/start-nested-agent.sh" \
+        --name        fix-B-07 \
+        --prompt-file ./brief-B-07.txt \
+        --controller  'prod-log-triage [9825b9]' \
+        --repo-root   ../repo.worktrees/b-07 \
+        --toolset     fix \
+        --watch
+```
+
 Returns immediately, before the agent has done anything: `Name` (the address), `Id` (the short id
-claude's own commands take), `Brief`, `Started`.
+claude's own commands take), `Brief`, `Started` — an object from the `.ps1`, `Key=value` lines from
+the `.sh`. `-Watch` picks the terminal by OS (Windows: `pwsh`, else `powershell.exe`; macOS: Terminal
+via `osascript`; Linux: `gnome-terminal`, else `x-terminal-emulator`). If no window can be opened the
+launch still succeeds: you get a warning naming `claude attach <id>`, and the Id is returned.
 
 `claude --bg` is the right primitive and the alternatives are not:
 
@@ -78,7 +147,7 @@ sessions register under *your* name and are indistinguishable from each other.
 **Your own address needs its `[ref]`.** Remote Control mirrors your session under your own name, so a
 bare name matches several rows and `SendMessage` stops to ask which one — halting the agent on a human,
 the exact thing this protocol exists to prevent. Take the first line of `ListAgents` verbatim.
-`Start-NestedAgent.ps1` refuses a `-Controller` without a ref.
+`Start-NestedAgent.ps1` (and `start-nested-agent.sh`) refuses a `-Controller` without a ref.
 
 **Replying works too:** every incoming message carries
 `from="uds:\\.\pipe\LOCAL\cc-msg-…"`, and copying that as your `to` always reaches the sender. Use it
@@ -109,8 +178,9 @@ finished, send DONE saying where you stopped.* The brief already defines it.
 
 ### Permissions — the most common way a launch quietly fails
 
-A `--bg` agent has **no human at its keyboard**, and `--permission-mode acceptEdits` only covers
-*edits*. The first shell command it has not been granted parks it, and from the outside a parked
+The launcher's `-PermissionMode` defaults to `auto` (see `/rlarch:controller` §2). The rest of this
+section is what happens under any other mode. A `--bg` agent has **no human at its keyboard**, and
+`--permission-mode acceptEdits` only covers *edits*. The first shell command it has not been granted parks it, and from the outside a parked
 agent is indistinguishable from a busy one. On 2026-09-10 an agent stopped nine minutes in on
 `ls /p/packages/nuget/npgsql/` — exploration, not a dangerous act — and would have sat there forever.
 
@@ -344,6 +414,12 @@ Get-Content $t -Wait -Tail 0 | ForEach-Object {
 }
 ```
 
+```bash
+# needs jq
+tail -n 0 -f "$t" | jq -r --unbuffered '.message as $m | ($m.content | arrays)[]?
+  | select(.type == "text") | "\($m.role): \(.text)"'
+```
+
 Do not poll in a loop and do not send *"are you done?"*. `SendMessage` takes `notify_when_idle: true`
 for exactly that, one-shot — omit `message` and it is a pure subscription that costs the agent nothing.
 
@@ -355,10 +431,19 @@ goes idle, so the subscription never fires, and `status: waiting` is only visibl
 
 Arm a watchdog instead. It runs in the background and speaks only when something has happened:
 
-%spowershell
-Monitor(command: 'python -u "$CLAUDE_PLUGIN_ROOT/skills/nested-claude/assets/watch-nested-agent.py" cffcbd64 --beat 12 --stall 8',
+```
+# macOS / Linux
+Monitor(command: 'python3 -u "$CLAUDE_PLUGIN_ROOT/skills/nested-claude/assets/watch-nested-agent.py" cffcbd64 --beat 12 --stall 8',
         persistent: true, description: 'fix-B-02 watchdog')
-%s
+
+# Windows — `py` (the Python launcher), or `python` if that is what is on PATH
+Monitor(command: 'py -u "$CLAUDE_PLUGIN_ROOT/skills/nested-claude/assets/watch-nested-agent.py" cffcbd64 --beat 12 --stall 8',
+        persistent: true, description: 'fix-B-02 watchdog')
+```
+
+The command is shell syntax, as for the Bash tool (Git Bash on Windows), so `$CLAUDE_PLUGIN_ROOT` is
+written in its bash form on every OS. The script is stdlib-only and resolves `claude` with `shutil.which`, so an npm `claude.cmd` on Windows is
+found too.
 
 | It emits | When | What you do |
 |---|---|---|
@@ -386,11 +471,21 @@ hang — all three look exactly like "still working". Cover the failures first a
 1. `SendMessage(to: <name>, message: "WRAP UP")`
 2. Wait for `DONE`.
 3. Verify its claims yourself — never take an agent's word for green.
-4. Stop it.
+4. Stop it: `agent_stop(name: "fix-B-07")` (or `id:`; `remove: true` also deletes the session,
+   `keep_brief: true` keeps the brief). It runs `claude stop`, **revokes the agent's WorkState token**
+   and deletes `mcp-<name>.json` — always, even with `keep_brief`, because that file holds the secret.
+   A revoke that fails is reported as an error; run `agent_stop` again.
+
+For an agent started by the scripts:
 
 ```powershell
-& "$CLAUDE_PLUGIN_ROOT/skills/nested-claude/assets"/Stop-NestedAgent.ps1 -Id $a.Id -Name $a.Name
-& "$CLAUDE_PLUGIN_ROOT/skills/nested-claude/assets"/Stop-NestedAgent.ps1 -Id $a.Id -Name $a.Name -Remove   # and delete the session
+& "$env:CLAUDE_PLUGIN_ROOT/skills/nested-claude/assets/Stop-NestedAgent.ps1" -Id $a.Id -Name $a.Name
+& "$env:CLAUDE_PLUGIN_ROOT/skills/nested-claude/assets/Stop-NestedAgent.ps1" -Id $a.Id -Name $a.Name -Remove   # and delete the session
+```
+
+```bash
+bash "$CLAUDE_PLUGIN_ROOT/skills/nested-claude/assets/stop-nested-agent.sh" --id c88dd0c8 --name fix-B-07
+bash "$CLAUDE_PLUGIN_ROOT/skills/nested-claude/assets/stop-nested-agent.sh" --id c88dd0c8 --name fix-B-07 --remove
 ```
 
 `claude stop` **keeps the conversation** — `claude attach <id>` reopens it and `claude --resume` works
@@ -490,7 +585,9 @@ already there.
 
 When you do run several: distinct `-Name` each, keep each returned object, and branch each one off the
 previous agent's branch rather than the base, so conflicts get resolved once by the agent that caused
-them instead of piling up at the end.
+them instead of piling up at the end. If the work is tracked in WorkState, claim each unit with its own
+worktree — `work_status(ref, "in_progress", tree: "<-RepoRoot>")` — or the second claim in the same run
+is refused.
 
 ---
 
@@ -534,7 +631,9 @@ The launcher prepends the protocol; your file supplies the work. A good brief:
   Name it and say why.
 - **States the verification commands**, and demands a test that fails before the fix and passes after.
 - **Repeats the repo's binding conventions.** Agents default to narrating their own change in comments;
-  if the repo forbids that, say so — the agent does not inherit your instructions.
+  if the repo forbids that, say so — the agent does not inherit your instructions. When the work is
+  tracked in WorkState, the run's binding rules are its constraints, and `work_brief(scope: "<item
+  ref>", for: "worker")` prints them in its BINDING block — paste that rather than retyping them.
 - **Says what to do instead of guessing**: *"if you believe the finding is wrong, STOP and report that
   rather than fixing something else."*
 - **Carries the baseline you already measured**, as numbers. Not *"take a baseline"* — the exact

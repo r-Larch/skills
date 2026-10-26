@@ -39,7 +39,7 @@ public sealed partial class BoardReader
 
         foreach (var row in shown)
         {
-            facts.TryGetValue(row.Ref, out var fact);
+            facts.TryGetValue(row.Id, out var fact);
             lines.Add(BoardRenderer.Row(new BoardItem(
                 row.Ref,
                 row.Kind,
@@ -54,7 +54,7 @@ public sealed partial class BoardReader
         }
 
         lines.Add(string.Empty);
-        lines.Add($"Next: work_get(ref:\"{shown[0].Ref}\") for the full brief, "
+        lines.Add($"Next: work_get(refs:[\"{shown[0].Ref}\"]) for the full brief, "
                 + $"then work_status(ref:\"{shown[0].Ref}\", to:\"in_progress\").");
 
         return string.Join("\n", lines);
@@ -76,8 +76,8 @@ public sealed partial class BoardReader
 
         var root = subtree.First(n => n.Id == scope.Item.Id);
         var facts = await FactsAsync(subtree.Select(n => n.Id), cancellationToken);
-        var blocked = (await board.BlockedByAsync(scope.Item.Id, cancellationToken))
-            .ToLookup(b => b.Ref, b => b.BlockedByRef);
+        var blocked = (await board.BlockedByAsync([scope.Item.Id], cancellationToken))
+            .ToLookup(b => b.ItemId, b => b.BlockedByRef);
 
         var nodes = subtree
             .Where(n => n.Depth - root.Depth <= depth)
@@ -89,8 +89,9 @@ public sealed partial class BoardReader
         var lines = new List<string>();
         foreach (var node in nodes)
         {
-            facts.TryGetValue(node.Ref, out var fact);
-            var total = node.OpenCount + node.DoingCount + node.BlockedCount + node.DoneCount;
+            facts.TryGetValue(node.Id, out var fact);
+            var total = node.OpenCount + node.DoingCount + node.BlockedCount
+                      + node.ReviewCount + node.DoneCount;
             var rollup = includeCounts && total > 0 ? $"{node.DoneCount}/{total} done" : null;
 
             lines.Add(BoardRenderer.TreeRow(new TreeItem(
@@ -101,7 +102,7 @@ public sealed partial class BoardReader
                     node.Title,
                     DoingFor: node.Status == ItemStatus.InProgress ? Ago(fact?.StartedAt) : null,
                     Evidence: EvidenceOf(fact),
-                    Flags: FlagsFor(node.Ref, node.Status, fact, blocked)),
+                    Flags: FlagsFor(node.Id, node.Status, fact, blocked)),
                 node.Depth - root.Depth,
                 rollup)));
         }
@@ -139,11 +140,14 @@ public sealed partial class BoardReader
                     // ACCEPTANCE A-1. Every candidate, the caller's own run first — a single
                     // confidently-named wrong run is worse than naming none, because a careful
                     // agent acts on a callable line and this one is callable.
-                    var candidates = Prefer(matches, home.Item)
-                        .Take(5)
-                        .Select(m => $"\"{m.QualifiedRef ?? m.Ref}\"");
-                    problems.Add($"✗ \"{reference}\" exists in {matches.Count} runs — qualify it "
-                               + $"→ work_get(refs:[{string.Join(", ", candidates)}])");
+                    // ws/13: only forms that each resolve to one match alone.
+                    var candidates = await board.UniqueRefsAsync(
+                        workspaceId, Prefer(matches, home.Item).Take(5), cancellationToken);
+                    problems.Add(candidates.Count == 0
+                        ? $"✗ \"{reference}\" exists in {matches.Count} runs and no ref names only one "
+                          + "→ work_tree() to see where each sits"
+                        : $"✗ \"{reference}\" exists in {matches.Count} runs — qualify it "
+                          + $"→ work_get(refs:[{string.Join(", ", candidates.Select(c => $"\"{c}\""))}])");
                     break;
                 default:
                     problems.Add($"✗ no item has ref \"{reference}\" "
@@ -159,20 +163,23 @@ public sealed partial class BoardReader
                 : string.Join("\n", problems);
         }
 
-        var ids = resolved.Select(r => r.Id).ToList();
+        // ws/10: everything below is keyed by item id. Two runs each hold a "2", and keying these
+        // on the bare ref rendered both items' criteria and evidence under each of them.
+        var ids = resolved.Select(r => r.Id).Distinct().ToList();
         var facts = await FactsAsync(ids, cancellationToken);
-        var criteria = (await board.CriteriaAsync(ids, cancellationToken)).ToLookup(c => c.ItemRef);
+        var criteria = (await board.CriteriaAsync(ids, cancellationToken)).ToLookup(c => c.ItemId);
         var links = include.Contains("deps")
             ? await board.LinksAsync(ids, cancellationToken)
             : [];
-        var verifications = (await board.VerificationsAsync(ids, cancellationToken)).ToLookup(v => v.ItemRef);
-        var blocked = (await board.BlockedByAsync(resolved[0].Id, cancellationToken)).ToLookup(b => b.Ref, b => b.BlockedByRef);
+        var verifications = (await board.VerificationsAsync(ids, cancellationToken)).ToLookup(v => v.ItemId);
+        var blocked = (await board.BlockedByAsync(ids, cancellationToken)).ToLookup(b => b.ItemId, b => b.BlockedByRef);
 
         var lines = new List<string>(problems);
 
         foreach (var item in resolved)
         {
-            facts.TryGetValue(item.Ref, out var fact);
+            facts.TryGetValue(item.Id, out var fact);
+            var callable = await CallableAsync(item, fact, cancellationToken);
 
             lines.Add(BoardRenderer.Row(new BoardItem(
                 item.Ref,
@@ -181,20 +188,20 @@ public sealed partial class BoardReader
                 item.Title,
                 DoingFor: item.Status == ItemStatus.InProgress ? Ago(fact?.StartedAt) : null,
                 Evidence: EvidenceOf(fact),
-                Flags: FlagsFor(item.Ref, item.Status, fact, blocked))));
+                Flags: FlagsFor(item.Id, item.Status, fact, blocked))));
 
             if (item.Intent is { Length: > 0 })
             {
                 lines.Add($"  intent    {Glyph.Clip(item.Intent, 86)}");
             }
 
-            foreach (var criterion in criteria[item.Ref])
+            foreach (var criterion in criteria[item.Id])
             {
                 lines.Add($"  {(criterion.Checked ? "✓" : "✗")} c{criterion.Seq}     "
                         + Glyph.Clip(criterion.Text, 80));
             }
 
-            foreach (var verification in verifications[item.Ref].Take(2))
+            foreach (var verification in verifications[item.Id].Take(2))
             {
                 lines.Add($"  evidence  {(verification.Passed ? "✓" : "✗")} "
                         + $"{Glyph.Clip(verification.ResultLine, 44)} "
@@ -202,9 +209,9 @@ public sealed partial class BoardReader
                         + $"{Glyph.Age(Since(verification.At))} ago");
             }
 
-            foreach (var link in links.Where(l => l.FromRef == item.Ref || l.ToRef == item.Ref))
+            foreach (var link in links.Where(l => l.FromId == item.Id || l.ToId == item.Id))
             {
-                var arrow = link.FromRef == item.Ref
+                var arrow = link.FromId == item.Id
                     ? $"{link.Type.ToString().ToLowerInvariant()} → {link.ToRef}"
                     : $"← {link.FromRef} {link.Type.ToString().ToLowerInvariant()} this ({link.FromStatus.ToString().ToLowerInvariant()})";
                 lines.Add($"  link      {arrow}");
@@ -212,13 +219,16 @@ public sealed partial class BoardReader
 
             // doc 01 §8: templates are undiscoverable, so a tool that names an item prints the whole
             // URI for both projections rather than leaving the model to compose the second one.
-            lines.Add($"  uri       {WorkUris.Item(item.Ref)}");
-            lines.Add($"  brief     {WorkUris.ItemBrief(item.Ref)} — read it with ReadMcpResourceTool");
+            lines.Add($"  uri       {WorkUris.Item(callable)}");
+            lines.Add($"  brief     {WorkUris.ItemBrief(callable)} — read it with ReadMcpResourceTool");
         }
 
+        facts.TryGetValue(resolved[0].Id, out var head);
+        var next = await CallableAsync(resolved[0], head, cancellationToken);
+
         lines.Add(string.Empty);
-        lines.Add($"Next: work_status(ref:\"{resolved[0].Ref}\", to:\"in_progress\") to start it, "
-                + $"or work_brief(scope:\"{resolved[0].Ref}\", for:\"worker\") to hand it over.");
+        lines.Add($"Next: work_status(ref:\"{next}\", to:\"in_progress\") to start it, "
+                + $"or work_brief(scope:\"{next}\", for:\"worker\") to hand it over.");
 
         return string.Join("\n", lines);
     }
@@ -288,11 +298,13 @@ public sealed partial class BoardReader
 
         if (wanted.Contains("notes"))
         {
+            // Only the worker brief of its addressee consumes a note (Housekeeping.ConsumeNotesAsync),
+            // so a note with no addressee is a record that never closes — not a thread.
             var notes = await board.UnconsumedNotesAsync(scope.WorkspaceId, scope.Item.Id, cancellationToken);
-            lines.AddRange(notes.Take(20).Select(n =>
-                $"{Glyph.Pad(n.ToRef ?? n.FromRef ?? Glyph.None, 6)}  {Glyph.Pad("note", 6)}  "
+            lines.AddRange(notes.Where(n => n.ToItemId is not null).Take(20).Select(n =>
+                $"{Glyph.Pad(n.ToRef!, 6)}  {Glyph.Pad("note", 6)}  "
                 + $"{Glyph.Pad(Glyph.Clip(n.Body, 46), 46)}  "
-                + $"— work_brief(scope:\"{n.ToRef ?? scope.Item.Ref}\", for:\"worker\") consumes it"));
+                + $"— work_brief(scope:\"{n.ToQualifiedRef ?? n.ToRef}\", for:\"worker\") consumes it"));
         }
 
         if (wanted.Contains("deps"))
@@ -336,13 +348,13 @@ public sealed partial class BoardReader
         rows.AddRange(await board.UncoveredRiskAsync(scope.Item.Id, cancellationToken));
         rows.AddRange(await board.RouteLessConstraintsAsync(scope.WorkspaceId, scope.Item.Id, cancellationToken));
 
-        foreach (var reference in await board.DoneUnverifiedAsync(scope.Item.Id, cancellationToken))
+        foreach (var unverified in await board.DoneUnverifiedAsync(scope.Item.Id, cancellationToken))
         {
             rows.Add(new AuditRow(
                 "done-unverified",
-                reference,
+                unverified.Ref,
                 "closed with no passing orchestrator verification",
-                $"work_verify(ref:\"{reference}\", result_line:\"…\", run_by:\"orchestrator\")"));
+                $"work_verify(ref:\"{unverified.Ref}\", result_line:\"…\", run_by:\"orchestrator\")"));
         }
 
         foreach (var dep in await queries.UnclosedDependenciesAsync(scope.Item.Id, cancellationToken))
@@ -398,7 +410,12 @@ public sealed partial class BoardReader
         int limit,
         CancellationToken cancellationToken = default)
     {
-        var events = await board.EventsAsync(workspaceId, scope?.Item.Id, sinceSeq, limit, cancellationToken);
+        var events = await board.EventsAsync(
+            workspaceId,
+            scope?.Item.Id,
+            sinceSeq,
+            limit,
+            cancellationToken: cancellationToken);
         if (events.Count == 0)
         {
             return $"HISTORY  no events after seq {sinceSeq}.";
@@ -414,7 +431,7 @@ public sealed partial class BoardReader
             $"{Glyph.Pad(e.Seq.ToString(), 7)}  "
             + $"{Glyph.Pad(Glyph.Clip(e.ItemRef ?? Glyph.None, 6), 6)}  "
             + $"{Glyph.Pad(Glyph.Clip(e.Kind, 18), 18)}  "
-            + $"{Glyph.Pad(Glyph.Clip(e.Actor, 12), 12)}  "
+            + $"{Glyph.Pad(Glyph.Clip(e.Actor, 18), 18)}  "
             + Glyph.Clip(e.Summary ?? string.Empty, 40)));
 
         lines.Add(string.Empty);
@@ -443,7 +460,8 @@ public sealed partial class BoardReader
 
         foreach (var rule in rules)
         {
-            lines.Add($"{(rule.Kind == ConstraintKind.RedLine ? "!" : "·")} {Glyph.Clip(rule.Text, 96)}");
+            lines.Add($"{(rule.Kind == ConstraintKind.RedLine ? "!" : "·")} "
+                    + $"{Glyph.Pad(Glyph.Flat(rule.Ref), 4)}{Glyph.Clip(rule.Text, 92)}");
             if (rule.Route is { Length: > 0 })
             {
                 lines.Add($"    → {Glyph.Clip(rule.Route, 92)}");
@@ -453,19 +471,29 @@ public sealed partial class BoardReader
         return string.Join("\n", lines);
     }
 
-    private async Task<Dictionary<string, ItemFacts>> FactsAsync(
+    private async Task<Dictionary<Guid, ItemFacts>> FactsAsync(
         IEnumerable<Guid> ids,
         CancellationToken cancellationToken)
     {
         var rows = await board.FactsAsync([.. ids], cancellationToken);
-        var map = new Dictionary<string, ItemFacts>(StringComparer.Ordinal);
-        foreach (var row in rows)
-        {
-            map[row.Ref] = row;
-        }
-
-        return map;
+        return rows.ToDictionary(r => r.Id);
     }
+
+    /// <summary>
+    /// The ref to print where a model will call or read it back: bare while it is unique in the
+    /// workspace, qualified once another run holds the same one — a bare <c>work://item/2</c> over
+    /// two runs is a refusal waiting to happen (ws/10).
+    /// </summary>
+    private static string Callable(string reference, ItemFacts? facts)
+        => facts is { RefShared: true } ? facts.QualifiedRef : reference;
+
+    /// <summary>
+    /// <see cref="Callable"/> for an item that may be a run. A run numbers its own refs, so its
+    /// <c>QualifiedRef</c> is its bare ref; the form printed is one checked to resolve to it alone
+    /// (<c>autowork/backlog</c>), which is what the ambiguous-ref refusal suggests too (ws/13).
+    /// </summary>
+    private Task<string> CallableAsync(ScopeRef item, ItemFacts? facts, CancellationToken cancellationToken)
+        => board.CallableRefAsync(item, facts is { RefShared: true }, cancellationToken);
 
     private static string EvidenceOf(ItemFacts? facts) => facts switch
     {
@@ -477,20 +505,26 @@ public sealed partial class BoardReader
 
     /// <summary>doc 06 §2 — absent means normal, so only an exception earns a marker.</summary>
     private static IReadOnlyList<string>? FlagsFor(
-        string reference,
+        Guid itemId,
         ItemStatus status,
         ItemFacts? facts,
-        ILookup<string, string> blockedBy)
+        ILookup<Guid, string> blockedBy)
     {
         var flags = new List<string>();
 
-        var blockers = blockedBy[reference].ToList();
+        // doc 11 — who holds it, by session, so two controllers on one token are told apart.
+        if (status == ItemStatus.InProgress && facts?.HeldBy is { Length: > 0 } holder)
+        {
+            flags.Add($"held by {holder}");
+        }
+
+        var blockers = blockedBy[itemId].ToList();
         if (blockers.Count > 0)
         {
             flags.Add(Flag.BlockedBy(string.Join(" ", blockers.Take(2))));
         }
 
-        if (facts is { RequiresVerify: true, OrchestratorVerifications: 0 }
+        if (facts is { RequiresVerify: true, OrchestratorVerifications: 0, Moved: false }
             && status is ItemStatus.Done or ItemStatus.Review)
         {
             flags.Add(Flag.NoVerify);

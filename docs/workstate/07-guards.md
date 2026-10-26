@@ -23,6 +23,14 @@ default and U4 must not re-implement them in C#.
 **The test of where a rule belongs:** if violating it should be impossible, it is a constraint. If
 violating it should be possible but recorded, it is a guard.
 
+**A constraint firing is a refusal, never an exception** (doc 04 §3). Every write path that can reach
+one catches the `PostgresException` and answers `REFUSED` with a callable route. Where the tool layer
+can name more than the schema message — a claim index firing names the item holding the claim, its
+agent and when its lease lapses — it re-reads and says so. And because a concurrent writer can take a
+ref, seq or claim between any check and its insert, the MCP write tools carry a last net: an uncaught
+`PostgresException` comes back as `REFUSED … — the schema refused it.` with *retry the call* as its
+first route, not as *"An error occurred invoking …"*.
+
 ---
 
 ## 2. The transition table
@@ -43,16 +51,23 @@ open ──▶ ready ──▶ in_progress ──▶ review ──▶ done
 | From | To | Guard |
 |---|---|---|
 | `open` | `ready` | every `blocks` predecessor is `done`/`cancelled`/`superseded`. Otherwise refused, naming them. |
-| `ready`/`open` | `in_progress` | **acquires a claim** (§5). Refused if another live claim holds this item, or a write-claim holds this `serialization_key`. |
+| `ready`/`open` | `in_progress` | **acquires a claim** (§5) on the working tree: `tree:` if given (a worktree path or branch, normalised — doc 02 §10), else the run's key. Refused if another live claim holds this item, or a write-claim holds this tree — **including one the same agent holds on another item**, and a lapsed one another workspace has not swept yet (paths only: a name locks per workspace). The refusal names the holding item (qualified ref), its agent and when its lease lapses, and the moves: release it (`work_status(holder, review)`), retake once the lease lapses (with the same `tree:`), claim your own worktree with `tree:` if none was given, or work another tree. Only the holder re-taking its own item passes: that extends the lease. |
 | `in_progress` | `blocked` | requires `reason`. Records a `blocked` event. |
 | `in_progress` | `review` | free. |
 | `review`/`in_progress` | `done` | **the five conditions, §3.** |
 | `review`/`in_progress` | `in_progress` | rework. Records the attempt count; **a fresh worker, not the old one** — that is orchestration doctrine, not a schema rule. |
 | any non-terminal | `cancelled` | requires `reason`. `destructiveHint: true`. |
-| any | `superseded` | **not directly.** `work_link(supersedes)` sets it in the same transaction (U1 trigger). |
+| any | `superseded` | **not directly.** `work_link(supersedes)` sets it in the same transaction (U1 trigger), and the same transaction moves the target's unconsumed notes to the replacing item (F-08). |
 | any non-terminal | `deferred` | **a move, §4.** |
 
 **Releasing the claim** happens automatically on leaving `in_progress` by any route.
+
+> **Changed 2026-10-22 (ws/8).** The `in_progress` row locked the run: every unit fell back to the
+> run's key, so two units of one run in separate git worktrees could not both be in progress — the
+> shape `/rlarch:controller` runs. `work_status` now takes `tree:`; one writer per worktree, many per
+> run. Without it the behaviour is unchanged, except that a ref-scope fallback key no longer collides
+> with a same-named run in another workspace. An expired claim's attention line names its tree and
+> retakes with it.
 
 ---
 
@@ -64,7 +79,7 @@ Refused unless **all** hold. Each maps to a rule the corpus shows being broken:
 |---|---|---|
 | 1 | every `item_criterion` is `checked` | 424 unchecked boxes in "finished" runs |
 | 2 | ≥1 `verification` with `passed = true` and **`run_by = 'orchestrator'`**. If **both** the item's `verify_cmd` and the verification's `command` are present they must match; a null `command` does **not** fail the guard | *"worker self-reports of 'tests pass' are the claim you would most regret trusting"* |
-| 3 | no child item is open | a phase closed over unfinished tasks |
+| 3 | no child item is open — except a run's own `backlog` phase, which the close carries out (§4) | a phase closed over unfinished tasks |
 | 4 | no open `finding` with `severity = 'blocker'` targets it | gate blockers dissolved into prose |
 | 5 | for kinds with `requires_commit` **set**: ≥1 `artifact` of kind `commit`. **No seeded kind sets it, `task` included** — see below | *"every accepted task ends in a commit"* — a rule the corpus itself does not keep |
 
@@ -137,7 +152,8 @@ work_status(ref: "4.7", to: "deferred", target: <item ref | "backlog">, reason: 
 In one transaction:
 
 1. creates a **new open item** (`kind: followup`) under `target`, titled from the deferred item,
-   carrying its `intent` and criteria;
+   carrying its `intent` and criteria, and numbered `<ref>-d`, `<ref>-d2`, … in the **target's** run
+   (a target in another run numbers it there);
 2. links `new --derived_from--> 4.7`;
 3. closes `4.7` as `done` with `resolution = 'obsolete'`, **bypassing the §3 conditions** — which is
    sound, because the work did not vanish, it moved;
@@ -145,6 +161,34 @@ In one transaction:
 
 **`target` is required.** Deferring to nowhere is the failure this whole mechanism exists to prevent,
 so it is not expressible.
+
+**`target: "backlog"` is the project-level backlog run** of the deferred item's project — never a
+phase inside the item's run, which would hold that run open. It is, in order: an open run under the
+project whose ref is `backlog`; else the one the server made before (title `Backlog — work deferred
+out of the project's runs`); else a new run, created on first use with a `run_config` (empty
+`serialization_key`, so a follow-up claims the tree it is worked in — §5), and a ref no item in the
+project uses yet: `backlog`, else `<project>-backlog`, `<project>-backlog2`, …. The `OK` line's `Next`
+names `work_next(scope:…)` with a ref that resolves to that run alone.
+
+**A run that still holds an in-run `backlog` phase** (written before this change) stays closable. When
+`work_status(<run>, "done")` finds that the run's only open child is that phase, the same
+transaction, before the §3 conditions are read:
+
+1. moves every open item of the phase to the project-level backlog run above. Each item keeps its ref
+   if it is free there, else it is numbered `<ref>2`, `<ref>3`, …. Items move by id, so links and
+   addressed notes follow them;
+2. closes the emptied phase as `done` with `resolution = 'obsolete'`;
+3. writes a `carried` event on the run, and the `OK` line names where each item went:
+   `backlog carried 1 open item(s) to <run>/: 1.1-d`.
+
+Any other open child still fails condition 3 as before, and the refusal rolls back the carry.
+
+> **Changed 2026-10-22 (ws/12).** `target:"backlog"` created a `backlog` phase inside the item's run,
+> and that phase then refused the run's close (`1 child item(s) still open: backlog`). The controller
+> had to make a project-level run and move items by hand, and named it `backlog`, which then collided
+> with `m0/backlog`. "backlog" now means the project-level run, and a run left holding an in-run
+> backlog is carried out on close. A cancelled in-run `backlog` phase no longer makes the deferral
+> collide (ws/5's edge): the deferral does not go into the run at all.
 
 ---
 
@@ -163,10 +207,12 @@ so it is not expressible.
 Two Postgres guarantees from U1 carry this, and both are tested in **both directions**:
 
 - `claim_one_live_per_item` — one live claim per item;
-- `claim_one_writer_per_tree` — one live **write** claim per `serialization_key`.
+- `claim_one_writer_per_tree` — one live **write** claim per working tree (`serialization_key`,
+  scoped to its workspace when the key is a name rather than a path).
 
-That second is the parallel-orchestrator rule: **two runs in different worktrees proceed
-concurrently; two sharing a working tree do not.** Read-only claims (recon) do not take the lock.
+That second is the parallel-orchestrator rule: **two units in different worktrees proceed
+concurrently, even in one run; two sharing a working tree do not.** Read-only claims (recon) do not
+take the lock.
 
 > This is the machine answer to `nested-claude`'s *"a parked agent is indistinguishable from a busy
 > one"*. A parked agent stops writing, its lease lapses, and the store says so.
@@ -184,7 +230,7 @@ every one of them, so each needs its permissive twin:
 | `done` on worker-only verification | `done` on an orchestrator verification |
 | `done` with an open child | `done` once the child closes |
 | `done` with an open blocker finding | `done` once the finding is closed **or deferred** |
-| `in_progress` while another writer holds the tree | `in_progress` on a different `serialization_key` |
+| `in_progress` while another writer holds the tree | `in_progress` on a different tree — another run's key, or another `tree:` in the same run |
 | `ready` while a blocker is open | `ready` the moment the blocker closes |
 | deferral without a `target` | deferral **with** one, which creates a real open item |
 

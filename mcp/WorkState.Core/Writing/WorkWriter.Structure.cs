@@ -99,7 +99,7 @@ public sealed partial class WorkWriter
             if (!ladder.TryGetValue(kind, out var rules))
             {
                 return WriteResult.No(Refusal.Blocked(
-                    $"work_create(kind:\"{wanted.Kind}\") — no such kind.",
+                    $"work_create(items:[{{kind:\"{wanted.Kind}\"}}]) — no such kind.",
                     $"the ladder is fixed: {string.Join(", ", ladder.Keys.Order())}",
                     "work_create(items:[{kind:\"task\", parent:\"…\", title:\"…\", verify_cmd:\"…\", "
                     + "criteria:[\"…\"]}])"));
@@ -108,7 +108,7 @@ public sealed partial class WorkWriter
             if (Blank(wanted.Title))
             {
                 return WriteResult.No(Refusal.Blocked(
-                    $"work_create(kind:\"{kind}\") without a title.",
+                    $"work_create(items:[{{kind:\"{kind}\"}}]) without a title.",
                     "the title is the handle a board row is read by",
                     "work_create(items:[{kind:\"" + kind + "\", title:\"…\", …}])"));
             }
@@ -137,7 +137,7 @@ public sealed partial class WorkWriter
             else if (kind is not ("project" or "feature"))
             {
                 return WriteResult.No(Refusal.Blocked(
-                    $"work_create(kind:\"{kind}\") without a parent.",
+                    $"work_create(items:[{{kind:\"{kind}\"}}]) without a parent.",
                     "everything below a project hangs off something — an orphan is invisible to "
                     + "work_next and to every rollup",
                     $"work_create(items:[{{kind:\"{kind}\", parent:\"<a ref>\", title:\"…\"}}])",
@@ -171,7 +171,7 @@ public sealed partial class WorkWriter
             }
             catch (PostgresException refused)
             {
-                return WriteResult.No(FromPostgres(refused, $"work_create(ref:\"{reference}\")"));
+                return WriteResult.No(FromPostgres(refused, $"work_create(items:[{{ref:\"{reference}\"}}])"));
             }
 
             await CriteriaAsync(connection, transaction, row2.Id, wanted.Criteria ?? [], cancellationToken);
@@ -221,6 +221,16 @@ public sealed partial class WorkWriter
             return WriteResult.No(unresolved!);
         }
 
+        if (Fields(args).Length == 0 && args.RiskTags is null && args.Criteria is not { Length: > 0 })
+        {
+            return WriteResult.No(Refusal.Blocked(
+                $"work_update({scope.Ref}) — nothing changed: the call sets no field and no criterion.",
+                "every field it can patch was absent or blank, so there was nothing to write",
+                $"work_update(ref:\"{reference}\", criteria:[{{id:\"c1\", checked:true, evidence:\"…\"}}]) "
+                + "to tick a criterion",
+                $"work_update(ref:\"{reference}\", title:\"…\") — or intent, verify_cmd, risk_tags, priority"));
+        }
+
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
 
@@ -233,6 +243,13 @@ public sealed partial class WorkWriter
                 "someone else wrote to this item since you read it",
                 $"work_get(refs:[\"{item.Ref}\"]) to see it as it stands, then retry with "
                 + $"expected_revision:{item.Revision}"));
+        }
+
+        var unwritable = await CriteriaRefusalAsync(
+            connection, transaction, item, args.Criteria ?? [], cancellationToken);
+        if (unwritable is not null)
+        {
+            return WriteResult.No(unwritable);
         }
 
         const string sql =
@@ -512,7 +529,7 @@ public sealed partial class WorkWriter
         return unmet.Count == 0
             ? null
             : Refusal.Blocked(
-                $"work_create(kind:\"{kind}\", title:\"{Glyph.Clip(wanted.Title, 40)}\"). "
+                $"work_create(items:[{{kind:\"{kind}\", title:\"{Glyph.Clip(wanted.Title, 40)}\"}}]). "
                 + $"{unmet.Count} requirement(s) unmet.",
                 unmet);
     }
@@ -583,6 +600,81 @@ public sealed partial class WorkWriter
                 transaction,
                 cancellationToken: cancellationToken));
         }
+    }
+
+    /// <summary>
+    /// doc 01 §3.2 — an id addresses a criterion that exists; a text with no id appends. A row that
+    /// fits neither would write nothing, and an <c>OK</c> over a write that did not happen is the
+    /// silent drop this whole server exists to prevent — so the whole patch is refused before
+    /// anything is written, naming the ids that exist and the form that appends.
+    /// </summary>
+    private static async Task<string?> CriteriaRefusalAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        ItemRow item,
+        IReadOnlyList<CriterionArg> criteria,
+        CancellationToken cancellationToken)
+    {
+        if (criteria.Count == 0)
+        {
+            return null;
+        }
+
+        const string sql = "SELECT seq FROM item_criterion WHERE item_id = @id ORDER BY seq;";
+
+        var existing = (await connection.QueryAsync<int>(new CommandDefinition(
+            sql, new { id = item.Id }, transaction, cancellationToken: cancellationToken))).AsList();
+
+        var known = existing.Count == 0
+            ? "it has no criteria yet"
+            : $"it has {string.Join(", ", existing.Select(s => $"c{s}"))}";
+
+        var unmet = new List<Unmet>();
+
+        foreach (var criterion in criteria)
+        {
+            var text = Blank(criterion.Text) ? "…" : Glyph.Clip(criterion.Text, 40);
+            var append = $"work_update(ref:\"{item.Ref}\", criteria:[{{text:\"{text}\"}}]) appends it as "
+                         + $"c{(existing.Count == 0 ? 1 : existing.Max() + 1)} — the server numbers it";
+
+            if (Blank(criterion.Id))
+            {
+                if (Blank(criterion.Text))
+                {
+                    unmet.Add(new Unmet(
+                        "a criterion with neither an id nor a text addresses nothing",
+                        [append, $"work_update(ref:\"{item.Ref}\", criteria:[{{id:\"c1\", checked:true, "
+                                 + "evidence:\"…\"}]) to change one that exists"]));
+                }
+
+                continue;
+            }
+
+            if (Seq(criterion.Id) is not { } seq || !existing.Contains(seq))
+            {
+                unmet.Add(new Unmet(
+                    $"criterion \"{Glyph.Clip(criterion.Id, 12)}\" does not exist on {item.Ref} — {known}; "
+                    + "an id addresses an existing criterion, it never creates one",
+                    [
+                        append,
+                        $"work_get(refs:[\"{item.Ref}\"]) to see the criteria that exist and their ids",
+                    ]));
+                continue;
+            }
+
+            if (criterion.Checked is null && Blank(criterion.Text) && Blank(criterion.Evidence))
+            {
+                unmet.Add(new Unmet(
+                    $"criterion c{seq} is addressed but given nothing to write",
+                    $"work_update(ref:\"{item.Ref}\", criteria:[{{id:\"c{seq}\", checked:true, evidence:\"…\"}}])"));
+            }
+        }
+
+        return unmet.Count == 0
+            ? null
+            : Refusal.Blocked(
+                $"work_update({item.Ref}) — {unmet.Count} criterion row(s) would write nothing. Nothing was written.",
+                unmet);
     }
 
     private static async Task<int> PatchCriteriaAsync(
@@ -723,6 +815,32 @@ public sealed partial class WorkWriter
         }
 
         routes.Add("work_tree() to see the shape this has to fit");
+
+        return Refusal.Blocked(
+            $"{call} — the schema refused it.",
+            Glyph.Clip(refused.MessageText, 140),
+            [.. routes]);
+    }
+
+    /// <summary>
+    /// The transport's last line (doc 04 §3). A guard no writer path catches itself — in practice a
+    /// concurrent write taking a ref, seq or claim between this call's check and its insert — still
+    /// comes back as a refusal with a route, never as "An error occurred".
+    /// </summary>
+    public static string Uncaught(PostgresException refused, string call)
+    {
+        var routes = new List<string>
+        {
+            $"{call} again — a concurrent write can take a ref, a seq or a claim between this call's "
+            + "check and its insert, and the retry reads the new state",
+        };
+
+        if (!Blank(refused.Hint))
+        {
+            routes.Add(refused.Hint!);
+        }
+
+        routes.Add("work_brief() to see the state as it stands now");
 
         return Refusal.Blocked(
             $"{call} — the schema refused it.",
