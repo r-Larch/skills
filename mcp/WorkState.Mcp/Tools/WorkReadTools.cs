@@ -41,9 +41,15 @@ public sealed class WorkReadTools(
         string? scope = null,
         [Description("\"resume\" (default) for the session payload, or \"worker\" to add the task's own criteria, verification and report format.")]
         string? @for = null,
+        [Description("Without scope: your repo, {remote: git remote get-url origin, root: main checkout root}, opens its project.")]
+        RepoArg? repo = null,
         CancellationToken cancellationToken = default)
     {
-        var resolved = await reader.ResolveAsync(workspace.Slug, scope, cancellationToken);
+        var byRepo = string.IsNullOrWhiteSpace(scope)
+            ? await reader.ResolveRepoAsync(workspace.Slug, repo?.Keys() ?? [], caller.Actor.SessionId, cancellationToken)
+            : null;
+
+        var resolved = byRepo ?? await reader.ResolveAsync(workspace.Slug, scope, cancellationToken);
         if (resolved is not ScopeResult.Found found)
         {
             return Text(ScopeExplain.Text(resolved, "work_brief", scope));
@@ -52,8 +58,24 @@ public sealed class WorkReadTools(
         // The sweep of doc 07 §5 and the note consumption of doc 01 §3.4 both live in
         // BriefSessionAsync, because GET /api/v1/items/{id}/brief must perform the identical writes in
         // the identical order or the two surfaces return different bytes for the same scope.
-        return Text(await reader.BriefSessionAsync(
-            found, @for ?? "resume", housekeeping, cancellationToken, signed: caller.Actor.SessionId is not null));
+        var brief = await reader.BriefSessionAsync(
+            found, @for ?? "resume", housekeeping, cancellationToken, signed: caller.Actor.SessionId is not null);
+
+        return Text(string.IsNullOrWhiteSpace(scope) && byRepo is null ? WithoutRepo(brief) : brief);
+    }
+
+    /// <summary>
+    /// The busiest run of the whole workspace is a guess once it holds several projects, so the brief
+    /// that made it says how to stop guessing — under the header, after the session line.
+    /// </summary>
+    private static string WithoutRepo(string brief)
+    {
+        var lines = brief.Split('\n').ToList();
+        var at = lines.Count > 1 && lines[1].StartsWith("session  ", StringComparison.Ordinal) ? 2 : 1;
+        lines.Insert(
+            Math.Min(at, lines.Count),
+            "repo     not given — work_brief(repo:{remote, root}) opens your repo's project instead");
+        return string.Join("\n", lines);
     }
 
     [Authorize(Policy = WorkStatePolicies.Orchestrator)]

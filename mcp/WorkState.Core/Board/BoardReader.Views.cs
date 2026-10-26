@@ -180,6 +180,9 @@ public sealed partial class BoardReader
         var verifications = (await board.VerificationsAsync(ids, cancellationToken)).ToLookup(v => v.ItemId);
         var reports = (await board.ReportsAsync(ids, cancellationToken)).ToLookup(r => r.ItemId);
         var blocked = (await board.BlockedByAsync(ids, cancellationToken)).ToLookup(b => b.ItemId, b => b.BlockedByRef);
+        var projects = resolved.Where(r => r.Kind == "project").Select(r => r.Id).Distinct().ToList();
+        var repos = (projects.Count == 0 ? [] : await board.ProjectReposAsync(projects, cancellationToken))
+            .ToLookup(r => r.ProjectId);
 
         var lines = new List<string>(problems);
 
@@ -206,6 +209,11 @@ public sealed partial class BoardReader
             if (item.Intent is { Length: > 0 })
             {
                 lines.AddRange(BriefRenderer.Wrap("  intent    ", item.Intent, 12));
+            }
+
+            foreach (var repo in repos[item.Id])
+            {
+                lines.Add($"  repo      {Glyph.Pad(repo.Kind, 6)} {repo.Key}");
             }
 
             foreach (var criterion in criteria[item.Id])

@@ -16,7 +16,8 @@ public sealed record MintSessionRequest(
     string? ClaudeSessionId = null,
     string? ExternalRole = null,
     int? TtlHours = null,
-    bool? Replace = null);
+    bool? Replace = null,
+    RepoArg? Repo = null);
 
 public sealed record MintSessionResponse(Guid SessionId, string Name, string Role, string Token, DateTimeOffset ExpiresAt);
 
@@ -87,7 +88,8 @@ public static class AgentSessionEndpoints
                 request.Origin,
                 request.Cwd,
                 request.ExternalRole,
-                request.ClaudeSessionId),
+                request.ClaudeSessionId,
+                request.Repo),
             cancellationToken);
 
         if (result.Minted is not { } minted)

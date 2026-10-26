@@ -21,6 +21,7 @@ public static class ScopeExplain
     public static string Text(ScopeResult result, string call, string? asked) => result switch
     {
         ScopeResult.Empty => BriefRenderer.Onboarding(),
+        ScopeResult.Unbound unbound => BriefRenderer.Unbound(unbound.Keys, unbound.Projects),
         ScopeResult.Ambiguous ambiguous => Ambiguous(ambiguous, call),
         ScopeResult.Missing missing => Missing(missing, call),
         _ => Refusal.Blocked(

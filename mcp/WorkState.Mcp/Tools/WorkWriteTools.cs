@@ -142,7 +142,7 @@ public sealed class WorkWriteTools(
         Next: work_link if any depends on another, then work_next.
         """)]
     public async Task<CallToolResult> CreateAsync(
-        [Description("Each: kind, title; a task also needs verify_cmd and criteria[].")]
+        [Description("Each: kind, title; a task also needs verify_cmd and criteria[]; a project takes repo:{remote, root}.")]
         NewItemArg[] items,
         CancellationToken cancellationToken = default)
     {
@@ -174,13 +174,15 @@ public sealed class WorkWriteTools(
         [Description("Higher sorts earlier on the frontier. -9..9.")] int? priority = null,
         [Description("The revision you read. A mismatch is reported, not overwritten.")]
         int? expected_revision = null,
+        [Description("A project only: {remote, root} of one more repo it holds.")]
+        RepoArg? repo = null,
         CancellationToken cancellationToken = default)
         => await WriteAsync(
             "work_update",
             @ref,
             id => writer.UpdateAsync(
                 id, caller.Actor, @ref,
-                new UpdateArgs(title, intent, verify_cmd, risk_tags, priority, criteria, expected_revision),
+                new UpdateArgs(title, intent, verify_cmd, risk_tags, priority, criteria, expected_revision, repo),
                 cancellationToken),
             cancellationToken);
 

@@ -85,6 +85,62 @@ CREATE TABLE project_config (
 );
 ```
 
+`project_config.repo_root` is written only by the importer and read only as a claim's fallback tree.
+It is not how a session finds its project; `project_repo` is.
+
+### Project per repository — `project_repo`
+
+**One project per repository, bound on the server.** A project may hold several repositories; a
+repository belongs to one project per workspace. A session finds its project from its repo, never
+from a title:
+
+```sql
+CREATE TABLE project_repo (
+  id              uuid PRIMARY KEY,
+  workspace_id    uuid NOT NULL REFERENCES workspace ON DELETE CASCADE,
+  project_item_id uuid NOT NULL REFERENCES item ON DELETE CASCADE,   -- kind = 'project'
+  kind            text NOT NULL CHECK (kind IN ('remote','root')),
+  key             text NOT NULL,                                     -- normalised, below
+  added_at        timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (workspace_id, key)
+);
+-- agent_session gains repo_remote, repo_root: the keys a launcher minted the session with.
+```
+
+**Identity.** A repository is known by up to two keys, and either one matching is enough:
+
+- **remote** — `git remote get-url origin`, normalised: strip the scheme, `user@`, a trailing `.git`
+  and `/`; the scp form `host:owner/name` becomes `host/owner/name`; lowercase.
+  `git@github.com:r-Larch/skills.git` and `https://github.com/r-Larch/skills` are both
+  `github.com/r-larch/skills`. A repo with no `origin` has no remote key.
+- **root** — the **main** checkout's root: the parent of
+  `git rev-parse --path-format=absolute --git-common-dir`, which is the same for every worktree of
+  the repo (worktrees live outside the root, so a cwd prefix would not match). Normalised: forward
+  slashes, no trailing `/` or `/.git`, and a Windows path (drive letter or UNC) lowercased whole.
+
+The server cannot run git, so the client computes the keys and the server normalises whatever it
+receives. The rule exists twice — `RepoKeys` in `WorkState.Core/Domain/Repos.cs` and
+`nested-claude/server/repo.mjs` — and both test suites run the one table in
+[`repo-keys.json`](repo-keys.json).
+
+**Binding.** `work_create(items:[{kind:"project", …, repo:{remote, root}}])` binds the keys it is
+given; `work_update(ref:"<project>", repo:{…})` adds more. A key already bound to another project is
+refused, naming it: *this repo is project X — `work_brief(scope:"X")`*. There is no unbind tool.
+`work_get` of a project prints its repos; `work_tree` rows never do. The v1 overview carries them
+as `projects[].repos`.
+
+**Resolution — `work_brief` with no `scope`:**
+
+1. `repo:` given → the project bound to it: its run with the most unfinished work, else the project.
+   When the two keys name different projects, the remote wins.
+2. no `repo:`, but the caller is a minted session minted with one (`POST /api/agent-sessions
+   {…, repo:{remote, root}}`, which `agent_launch` always sends) → the same, from the stored keys.
+3. a repo is known but unbound → onboarding naming `work_create(… repo: <the same keys>)`, and
+   `work_update(ref:"<project>", repo:…)` with the projects that exist.
+4. no repo known → the busiest run of the workspace, as before, plus one line: pass `repo:`.
+
+`scope` given → unchanged; the repo plays no part.
+
 ### Ref scoping — short handles that cannot collide across parallel runs
 
 Agents type `2.3` all day; they will not type `gaia/entity-store/2.3`. But two runs in one project

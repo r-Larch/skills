@@ -18,7 +18,8 @@ public sealed record MintRequest(
     string? Origin = null,
     string? Cwd = null,
     string? ExternalRole = null,
-    string? ClaudeSessionId = null);
+    string? ClaudeSessionId = null,
+    RepoArg? Repo = null);
 
 /// <summary>The only place the token exists in the clear; the caller returns it once and drops it.</summary>
 public sealed record MintedToken(Guid SessionId, string Name, ActorRole Role, string Token, DateTimeOffset ExpiresAt);
@@ -120,6 +121,8 @@ public sealed partial class SessionStore
                                                ELSE @external END,
                    origin               = coalesce(@origin, s.origin),
                    cwd                  = coalesce(@cwd, s.cwd),
+                   repo_remote          = coalesce(@remote, s.repo_remote),
+                   repo_root            = coalesce(@root, s.repo_root),
                    last_seen_at         = now()
              WHERE s.id = @id
             RETURNING token_expires_at;
@@ -138,6 +141,8 @@ public sealed partial class SessionStore
                 external = SessionFacts.Clean(request.ExternalRole),
                 origin = SessionFacts.Clean(request.Origin),
                 cwd = SessionFacts.Clean(request.Cwd),
+                remote = RepoKeys.NormaliseRemote(request.Repo?.Remote),
+                root = RepoKeys.NormaliseRoot(request.Repo?.Root),
             },
             transaction,
             cancellationToken: cancellationToken));

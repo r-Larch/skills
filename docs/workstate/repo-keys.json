@@ -1,0 +1,32 @@
+{
+  "about": "doc 02 project_repo - the repo identity rule as a table. RepoKeyTests (mcp/) and repo.test.mjs (nested-claude server) both run every row; change the rule here first.",
+  "remote": [
+    ["git@github.com:r-Larch/skills.git", "github.com/r-larch/skills"],
+    ["https://github.com/r-Larch/skills", "github.com/r-larch/skills"],
+    ["https://github.com/r-Larch/skills.git/", "github.com/r-larch/skills"],
+    ["https://rene@github.com/r-Larch/skills/", "github.com/r-larch/skills"],
+    ["ssh://git@github.com/r-Larch/skills.git", "github.com/r-larch/skills"],
+    ["github.com:r-Larch/skills", "github.com/r-larch/skills"],
+    ["  https://GitHub.com/R-Larch/Skills.git  ", "github.com/r-larch/skills"],
+    ["git@github.com:/r-Larch/skills.git", "github.com/r-larch/skills"],
+    ["https://dev.azure.com/org/Proj/_git/Repo", "dev.azure.com/org/proj/_git/repo"],
+    ["ssh://git@host.example:2222/team/app.git", "host.example:2222/team/app"],
+    ["C:/repos/local.git", "c:/repos/local"],
+    ["github.com/r-larch/skills", "github.com/r-larch/skills"],
+    ["", null],
+    ["   ", null]
+  ],
+  "root": [
+    ["P:\\Projects\\LarchSys\\Skills", "p:/projects/larchsys/skills"],
+    ["P:/Projects/LarchSys/Skills/", "p:/projects/larchsys/skills"],
+    ["p:/projects/larchsys/skills/.git", "p:/projects/larchsys/skills"],
+    ["P:/Projects/LarchSys/Skills/.git/", "p:/projects/larchsys/skills"],
+    ["P:/Projects/LarchSys/AutoWork", "p:/projects/larchsys/autowork"],
+    ["/home/rene/src/Skills", "/home/rene/src/Skills"],
+    ["/home/rene/src/Skills/", "/home/rene/src/Skills"],
+    ["/home/rene/src/Skills/.git", "/home/rene/src/Skills"],
+    ["\\\\Server\\Share\\Repo", "//server/share/repo"],
+    ["p:/projects/larchsys/skills", "p:/projects/larchsys/skills"],
+    ["", null]
+  ]
+}
