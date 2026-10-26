@@ -74,6 +74,8 @@ Shape what you keep:
 - A standing rule is a **rule**; give it `route` (what to do instead) when it is a prohibition — that
   makes it a red_line. A decision a later agent must not re-derive is a **note**. An unverified
   belief the work rests on is an **assumption**.
+- Give every item a readable kebab-case `ref` (`repo-map-stale`, `pg-backup`) — a numbered ref like
+  `1` collides across runs and says nothing in a brief.
 - Every record carries `source: {path, anchor}` — repo-relative path, anchor a heading text or
   `L<line>` — and `why`: one line naming what in the code bears it out. Two records never share a
   source; the source is the key a re-import updates by.
