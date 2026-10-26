@@ -62,6 +62,7 @@ Everything a human needs on landing, in one call.
 { "asOf": "…", "seq": 1234,
   "projects": [{
     "item": ItemRef, "rollup": Rollup,
+    "repos": [{ "kind": "remote" | "root", "key": "github.com/r-larch/skills" }],   // doc 02 project_repo; may be []
     "runs": [{ "item": ItemRef, "rollup": Rollup, "branch": "feat/x" | null, "worktree": "P:/…" | null,
                "activeClaims": 1, "lastEventAt": "…", "inboxCount": 2,
                "lastVerification": { "passed": true, "at": "…" } | null }]

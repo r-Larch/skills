@@ -20,7 +20,8 @@ public sealed record NewItemArg(
     [property: JsonPropertyName("verify_cmd")] string? VerifyCmd = null,
     [property: JsonPropertyName("criteria")] string[]? Criteria = null,
     [property: JsonPropertyName("risk_tags")] string[]? RiskTags = null,
-    [property: JsonPropertyName("priority")] int? Priority = null);
+    [property: JsonPropertyName("priority")] int? Priority = null,
+    [property: JsonPropertyName("repo")] RepoArg? Repo = null);
 
 /// <summary>One criterion as <c>work_update</c> addresses it: <c>c2</c>, checked, with its evidence.</summary>
 public sealed record CriterionArg(
@@ -36,7 +37,8 @@ public sealed record UpdateArgs(
     string[]? RiskTags = null,
     int? Priority = null,
     CriterionArg[]? Criteria = null,
-    int? ExpectedRevision = null);
+    int? ExpectedRevision = null,
+    RepoArg? Repo = null);
 
 public sealed partial class WorkWriter
 {
@@ -119,6 +121,12 @@ public sealed partial class WorkWriter
                 return WriteResult.No(shortfall);
             }
 
+            var repo = wanted.Repo?.Keys() ?? [];
+            if (repo.Count > 0 && kind != "project")
+            {
+                return WriteResult.No(NotAProject("work_create(items:[{repo:…}])", wanted.Title, kind));
+            }
+
             Guid? parentId = null;
             ScopeRefLite? parent = null;
 
@@ -176,10 +184,22 @@ public sealed partial class WorkWriter
 
             await CriteriaAsync(connection, transaction, row2.Id, wanted.Criteria ?? [], cancellationToken);
 
+            if (repo.Count > 0)
+            {
+                var (_, taken) = await BindReposAsync(
+                    connection, transaction, workspaceId, row2.Id, reference, repo, cancellationToken);
+                if (taken is not null)
+                {
+                    return WriteResult.No(taken);
+                }
+            }
+
             await EventAsync(
                 connection, transaction, workspaceId, row2.Id, actor, "created",
                 $"{reference} ({kind}) created under {parent?.Ref ?? "—"}: {Glyph.Flat(wanted.Title)}",
-                new { kind, parent = parent?.Ref, title = wanted.Title },
+                repo.Count > 0
+                    ? (object)new { kind, parent = parent?.Ref, title = wanted.Title, repo = repo.Select(k => k.Key).ToArray() }
+                    : new { kind, parent = parent?.Ref, title = wanted.Title },
                 cancellationToken);
 
             if (firstRef.Length == 0)
@@ -189,6 +209,11 @@ public sealed partial class WorkWriter
 
             written.Add($"{Glyph.Pad(reference, 8)}  {Glyph.Pad(Glyph.Kind(kind), 6)}  "
                       + Glyph.Row(wanted.Title, 60));
+
+            if (repo.Count > 0)
+            {
+                written.Add($"          {RepoLine(repo)}");
+            }
         }
 
         await transaction.CommitAsync(cancellationToken);
@@ -221,7 +246,9 @@ public sealed partial class WorkWriter
             return WriteResult.No(unresolved!);
         }
 
-        if (Fields(args).Length == 0 && args.RiskTags is null && args.Criteria is not { Length: > 0 })
+        var repo = args.Repo?.Keys() ?? [];
+
+        if (Fields(args).Length == 0 && args.RiskTags is null && args.Criteria is not { Length: > 0 } && repo.Count == 0)
         {
             return WriteResult.No(Refusal.Blocked(
                 $"work_update({scope.Ref}) — nothing changed: the call sets no field and no criterion.",
@@ -250,6 +277,24 @@ public sealed partial class WorkWriter
         if (unwritable is not null)
         {
             return WriteResult.No(unwritable);
+        }
+
+        IReadOnlyList<RepoKey> bound = [];
+        if (repo.Count > 0)
+        {
+            if (item.Kind != "project")
+            {
+                return WriteResult.No(NotAProject($"work_update({item.Ref})", item.Ref, item.Kind));
+            }
+
+            var (added, taken) = await BindReposAsync(
+                connection, transaction, item.WorkspaceId, item.Id, item.Ref, repo, cancellationToken);
+            if (taken is not null)
+            {
+                return WriteResult.No(taken);
+            }
+
+            bound = added;
         }
 
         const string sql =
@@ -289,18 +334,27 @@ public sealed partial class WorkWriter
         await EventAsync(
             connection, transaction, item.WorkspaceId, item.Id, actor, "updated",
             $"{item.Ref} updated" + (touched > 0 ? $", {touched} criterion(s)" : string.Empty),
-            new { fields = Fields(args), criteria = touched },
+            repo.Count > 0
+                ? (object)new { fields = Fields(args), criteria = touched, repo = bound.Select(k => k.Key).ToArray() }
+                : new { fields = Fields(args), criteria = touched },
             cancellationToken);
 
         await transaction.CommitAsync(cancellationToken);
 
+        var already = repo.Where(k => !bound.Contains(k)).ToList();
         return WriteResult.Ok(string.Join(
             "\n",
-            $"OK  {item.Ref}  updated (revision {item.Revision + 1})"
-            + (touched > 0 ? $", {touched} criterion(s) written" : string.Empty),
-            string.Empty,
-            $"Next: work_status(ref:\"{item.Ref}\", to:\"done\") when the criteria are met — "
-            + "the guard will tell you what is still missing."));
+            [
+                $"OK  {item.Ref}  updated (revision {item.Revision + 1})"
+                + (touched > 0 ? $", {touched} criterion(s) written" : string.Empty),
+                .. bound.Count > 0 ? [$"    {RepoLine(bound)} — bound"] : Array.Empty<string>(),
+                .. already.Count > 0 ? [$"    {RepoLine(already)} — already this project's"] : Array.Empty<string>(),
+                string.Empty,
+                repo.Count > 0 && Fields(args).Length == 0 && args.Criteria is not { Length: > 0 }
+                    ? $"Next: work_brief(repo:{RepoKeys.Literal(repo)}) — a session in that repo now opens {item.Ref}."
+                    : $"Next: work_status(ref:\"{item.Ref}\", to:\"done\") when the criteria are met — "
+                      + "the guard will tell you what is still missing.",
+            ]));
     }
 
     /// <summary>

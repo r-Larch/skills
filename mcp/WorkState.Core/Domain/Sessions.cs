@@ -57,4 +57,9 @@ public class AgentSession
 
     /// <summary>The minted session that minted this one; null when a static token did.</summary>
     public Guid? MintedBySessionId { get; set; }
+
+    /// <summary>The repository the session was launched in, normalised by <see cref="RepoKeys"/>.</summary>
+    public string? RepoRemote { get; set; }
+
+    public string? RepoRoot { get; set; }
 }

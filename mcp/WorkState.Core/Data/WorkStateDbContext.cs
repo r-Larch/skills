@@ -9,6 +9,7 @@ public class WorkStateDbContext(DbContextOptions<WorkStateDbContext> options) : 
     public DbSet<ItemKind> ItemKinds => Set<ItemKind>();
     public DbSet<Item> Items => Set<Item>();
     public DbSet<ProjectConfig> ProjectConfigs => Set<ProjectConfig>();
+    public DbSet<ProjectRepo> ProjectRepos => Set<ProjectRepo>();
     public DbSet<RunConfig> RunConfigs => Set<RunConfig>();
     public DbSet<ItemCriterion> ItemCriteria => Set<ItemCriterion>();
     public DbSet<ItemLink> ItemLinks => Set<ItemLink>();
@@ -284,6 +285,21 @@ public class WorkStateDbContext(DbContextOptions<WorkStateDbContext> options) : 
             e.Property(x => x.VerifyCatalog).HasColumnType("jsonb").HasDefaultValueSql("'{}'::jsonb");
             e.HasOne<Item>().WithOne().HasForeignKey<ProjectConfig>(x => x.ItemId)
                 .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        b.Entity<ProjectRepo>(e =>
+        {
+            e.ToTable("project_repo");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).ValueGeneratedNever();
+            e.Property(x => x.AddedAt).HasDefaultValueSql("now()");
+            e.HasOne<Workspace>().WithMany().HasForeignKey(x => x.WorkspaceId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne<Item>().WithMany().HasForeignKey(x => x.ProjectItemId).OnDelete(DeleteBehavior.Cascade);
+            e.HasIndex(x => new { x.WorkspaceId, x.Key })
+                .HasDatabaseName("project_repo_key_unique")
+                .IsUnique();
+            e.HasIndex(x => x.ProjectItemId).HasDatabaseName("project_repo_project_idx");
+            e.ToTable(t => t.HasCheckConstraint("project_repo_kind", "kind IN ('remote','root')"));
         });
 
         b.Entity<RunConfig>(e =>

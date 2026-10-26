@@ -33,6 +33,12 @@
              CopyToOutputDirectory="PreserveNewest"
              CopyToPublishDirectory="Never" />
 
+    <!-- The repo identity table; RepoKeyTests and the nested-claude server's repo.test.mjs both run it. -->
+    <Content Include="..\..\docs\workstate\repo-keys.json"
+             Link="Fixtures\repo-keys.json"
+             CopyToOutputDirectory="PreserveNewest"
+             CopyToPublishDirectory="Never" />
+
     <!-- doc 10 rule 6 lists the status and resolution strings; V1ContractTests compares them. -->
     <Content Include="..\..\docs\workstate\10-read-api.md"
              Link="Fixtures\10-read-api.md"

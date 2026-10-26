@@ -64,6 +64,38 @@ public sealed partial class BoardReader(WorkStateQueries queries, BoardQueries b
     }
 
     /// <summary>
+    /// <c>work_brief</c> with no scope, for a caller whose repository is known — from its
+    /// <c>repo:</c> argument, else from the minted session it was launched as. Null when neither
+    /// names a repository, which leaves the caller on <see cref="ResolveAsync"/>'s busiest run.
+    /// </summary>
+    public async Task<ScopeResult?> ResolveRepoAsync(
+        string? workspaceSlug,
+        IReadOnlyList<RepoKey> asked,
+        Guid? sessionId,
+        CancellationToken cancellationToken = default)
+    {
+        var keys = asked.Count > 0 || sessionId is not { } session
+            ? asked
+            : (await board.SessionRepoAsync(session, cancellationToken))?.Keys() ?? [];
+
+        if (keys.Count == 0)
+        {
+            return null;
+        }
+
+        var workspaceId = await board.WorkspaceAsync(workspaceSlug, cancellationToken);
+        if (workspaceId is not { } workspace)
+        {
+            return new ScopeResult.Unbound(keys, []);
+        }
+
+        var project = await board.ProjectByRepoAsync(workspace, keys, cancellationToken);
+        return project is null
+            ? new ScopeResult.Unbound(keys, await board.ProjectRefsAsync(workspace, cancellationToken))
+            : new ScopeResult.Found(workspace, await board.ProjectScopeAsync(project, cancellationToken));
+    }
+
+    /// <summary>
     /// A bare ref that exists in several runs is disambiguated in favour of the caller's own run.
     /// ACCEPTANCE A-1: the refusal named <c>document-store/3.1</c> to an agent working in
     /// <c>entity-store</c> — a callable line that satisfies doc 04 §3 and sends the caller to the

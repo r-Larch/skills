@@ -67,7 +67,13 @@ public sealed record RunOverviewView(
     int InboxCount,
     LastVerificationView? LastVerification);
 
-public sealed record ProjectOverviewView(ItemRefView Item, RollupView Rollup, IReadOnlyList<RunOverviewView> Runs);
+public sealed record RepoView(string Kind, string Key);
+
+public sealed record ProjectOverviewView(
+    ItemRefView Item,
+    RollupView Rollup,
+    IReadOnlyList<RunOverviewView> Runs,
+    IReadOnlyList<RepoView> Repos);
 
 public sealed record OverviewView(
     DateTimeOffset AsOf,

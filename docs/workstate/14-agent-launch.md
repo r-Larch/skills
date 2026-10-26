@@ -16,7 +16,7 @@ controller model ──▶ agent_launch(name, brief, repo_root, controller, perm
                      │  plugin stdio MCP server "agents" (Node, no dependencies) — a host process
                      │  started by Claude Code for the session; the model never sees what it handles
                      ├─ reads WORKSTATE_CONTROLLER_TOKEN from env_file (mcp/.env)        [code]
-                     ├─ POST /api/agent-sessions {name, role, launchedBy, cwd} → per-session token
+                     ├─ POST /api/agent-sessions {name, role, launchedBy, cwd, repo} → per-session token
                      ├─ writes <repo_root>/.claude/briefs/mcp-<name>.json  (that token; owner-only)
                      ├─ writes <repo_root>/.claude/briefs/brief-<name>.txt (protocol header + brief)
                      ├─ runs  claude --bg --name <name> … --mcp-config <file> --permission-mode <mode> "<prompt>"
@@ -36,7 +36,7 @@ All new; additive; **not** under `/api/v1` (v1 is read-only by rule).
 
 | Call | Who | Does |
 |---|---|---|
-| `POST /api/agent-sessions` `{name, role, launchedBy?, origin?, cwd?, externalRole?, claudeSessionId?, ttlHours?, replace?}` | a bearer with **orchestrator or controller** role (static or minted) | creates/updates the `agent_session` row for `name`, issues a token `wss_<base64url 32 bytes>`, stores only its SHA-256, returns `201 {sessionId, name, role, token, expiresAt}` **once** |
+| `POST /api/agent-sessions` `{name, role, launchedBy?, origin?, cwd?, externalRole?, claudeSessionId?, ttlHours?, replace?, repo?:{remote?, root?}}` | a bearer with **orchestrator or controller** role (static or minted) | creates/updates the `agent_session` row for `name`, issues a token `wss_<base64url 32 bytes>`, stores only its SHA-256, returns `201 {sessionId, name, role, token, expiresAt}` **once** |
 | `PATCH /api/agent-sessions/{id}` `{claudeSessionId}` | the same principal, or a controller | sets the Claude session uuid (history kept as an event, doc 11) |
 | `DELETE /api/agent-sessions/{id}` | the same principal, or a controller | revokes: `revoked_at = now()`, live claims of that session released (`release_reason = 'revoked'`) |
 
@@ -64,6 +64,11 @@ Rules:
   or revoked token is never renewed — it is refused like an unknown one, however often presented. A
   row minted before the window was stored slides by 72. `expiresAt` in the mint response is the
   current expiry, not a deadline.
+- **Repo:** `repo:{remote?, root?}` is the repository the session works in (doc 02 `project_repo`),
+  stored normalised on the row; that session's `work_brief()` with no scope and no `repo:` opens the
+  project bound to it. `agent_launch` computes it from `repo_root` with `git -C <repo_root> remote
+  get-url origin` and `git -C <repo_root> rev-parse --path-format=absolute --git-common-dir` (argv,
+  no shell), so a worktree sends its main checkout's root; a repo with no origin sends `root` only.
 - **Authentication:** the bearer handler accepts the three static tokens as today, and a `wss_` token
   by hash lookup (not revoked, not expired). A minted token's principal carries the granted role
   (with the nesting the static tokens have) **and the session** — `CallerSession` takes the session

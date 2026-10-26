@@ -96,6 +96,14 @@ namespace WorkState.Core.Migrations
                         .HasColumnType("text")
                         .HasColumnName("origin");
 
+                    b.Property<string>("RepoRemote")
+                        .HasColumnType("text")
+                        .HasColumnName("repo_remote");
+
+                    b.Property<string>("RepoRoot")
+                        .HasColumnType("text")
+                        .HasColumnName("repo_root");
+
                     b.Property<DateTimeOffset?>("RevokedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("revoked_at");
@@ -689,7 +697,7 @@ namespace WorkState.Core.Migrations
                         .ValueGeneratedOnAddOrUpdate()
                         .HasColumnType("tsvector")
                         .HasColumnName("search")
-                        .HasComputedColumnSql("setweight(to_tsvector('english', coalesce(heading, '')), 'A') ||\r\nsetweight(to_tsvector('english', body), 'B')", true);
+                        .HasComputedColumnSql("setweight(to_tsvector('english', coalesce(heading, '')), 'A') ||\nsetweight(to_tsvector('english', body), 'B')", true);
 
                     b.Property<decimal>("Seq")
                         .HasColumnType("numeric")
@@ -922,7 +930,7 @@ namespace WorkState.Core.Migrations
                         .ValueGeneratedOnAddOrUpdate()
                         .HasColumnType("tsvector")
                         .HasColumnName("search")
-                        .HasComputedColumnSql("setweight(to_tsvector('simple', coalesce(ref, '')), 'A') ||\r\nsetweight(to_tsvector('english', coalesce(title, '')), 'B') ||\r\nsetweight(to_tsvector('english', coalesce(intent, '')), 'C')", true);
+                        .HasComputedColumnSql("setweight(to_tsvector('simple', coalesce(ref, '')), 'A') ||\nsetweight(to_tsvector('english', coalesce(title, '')), 'B') ||\nsetweight(to_tsvector('english', coalesce(intent, '')), 'C')", true);
 
                     b.Property<decimal>("Seq")
                         .HasColumnType("numeric")
@@ -1290,6 +1298,52 @@ namespace WorkState.Core.Migrations
                         .HasName("pk_project_config");
 
                     b.ToTable("project_config", (string)null);
+                });
+
+            modelBuilder.Entity("WorkState.Core.Domain.ProjectRepo", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("AddedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("added_at")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<string>("Key")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("key");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("kind");
+
+                    b.Property<Guid>("ProjectItemId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("project_item_id");
+
+                    b.Property<Guid>("WorkspaceId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("workspace_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_project_repo");
+
+                    b.HasIndex("ProjectItemId")
+                        .HasDatabaseName("project_repo_project_idx");
+
+                    b.HasIndex("WorkspaceId", "Key")
+                        .IsUnique()
+                        .HasDatabaseName("project_repo_key_unique");
+
+                    b.ToTable("project_repo", null, t =>
+                        {
+                            t.HasCheckConstraint("project_repo_kind", "kind IN ('remote','root')");
+                        });
                 });
 
             modelBuilder.Entity("WorkState.Core.Domain.Report", b =>
@@ -1840,6 +1894,23 @@ namespace WorkState.Core.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("fk_project_config_item_item_id");
+                });
+
+            modelBuilder.Entity("WorkState.Core.Domain.ProjectRepo", b =>
+                {
+                    b.HasOne("WorkState.Core.Domain.Item", null)
+                        .WithMany()
+                        .HasForeignKey("ProjectItemId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_project_repo_item_project_item_id");
+
+                    b.HasOne("WorkState.Core.Domain.Workspace", null)
+                        .WithMany()
+                        .HasForeignKey("WorkspaceId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_project_repo_workspace_workspace_id");
                 });
 
             modelBuilder.Entity("WorkState.Core.Domain.Report", b =>

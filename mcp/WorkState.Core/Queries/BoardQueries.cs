@@ -10,7 +10,7 @@ namespace WorkState.Core.Queries;
 /// it, the notes addressed to it, the evidence behind each row and the six things the attention
 /// block ranks. Everything here is a projection — no statement in this file writes.
 /// </summary>
-public sealed class BoardQueries(NpgsqlDataSource dataSource)
+public sealed partial class BoardQueries(NpgsqlDataSource dataSource)
 {
     /// <summary>Self or anything beneath it. The subtree predicate every query below repeats.</summary>
     private const string InScope = "(i.id = @scope OR i.ancestors @> ARRAY[@scope]::uuid[])";

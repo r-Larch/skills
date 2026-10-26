@@ -1,4 +1,5 @@
 using System.Text;
+using WorkState.Core.Domain;
 
 namespace WorkState.Core.Rendering;
 
@@ -194,6 +195,50 @@ public static class BriefRenderer
              work_create the project, then its run, then decompose the run into phases and tasks.
              work_brief again once anything exists — it becomes the recovery payload for the session.
            """;
+
+    /// <summary>How many existing projects the unbound-repo onboarding names before it routes to a search.</summary>
+    private const int UnboundProjectCap = 8;
+
+    /// <summary>
+    /// <c>work_brief(repo:…)</c> for a repository no project holds. The routes carry the caller's own
+    /// keys, normalised, so the call that binds it is the one printed here — never a guess at which
+    /// project it belongs to.
+    /// </summary>
+    public static string Unbound(IReadOnlyList<RepoKey> keys, IReadOnlyList<string> projects)
+    {
+        var repo = RepoKeys.Literal(keys);
+        var lines = new List<string>
+        {
+            "RUN —  ·  this repo is not bound to a project",
+            string.Empty,
+        };
+
+        lines.AddRange(keys.Select((k, i) => $"{(i == 0 ? "REPO   " : "       ")}{Glyph.Pad(k.Kind, 6)} {k.Key}"));
+        lines.Add(string.Empty);
+        lines.AddRange(Wrap(
+            "WHERE  ",
+            "No project holds this repository. One project per repository: once bound, every later "
+            + "session here, in any worktree of it, opens that project from work_brief(repo:…).",
+            7));
+        lines.Add($"NEXT   work_create(items:[{{kind:\"project\", ref:\"<slug>\", title:\"<what the repo is>\", repo:{repo}}}])");
+
+        if (projects.Count > 0)
+        {
+            var shown = projects.Take(UnboundProjectCap).ToList();
+            var more = projects.Count > shown.Count
+                ? $" +{projects.Count - shown.Count} more — work_search(q:\"…\")"
+                : string.Empty;
+
+            lines.Add($"OR     work_update(ref:\"<project>\", repo:{repo}) when it belongs to one that exists:");
+            lines.AddRange(Wrap("         ", string.Join(", ", shown) + more, 9));
+            return string.Join("\n", lines);
+        }
+
+        var onboarding = Onboarding();
+        lines.Add(string.Empty);
+        lines.Add(onboarding[onboarding.IndexOf("WHAT GOES IN", StringComparison.Ordinal)..]);
+        return string.Join("\n", lines);
+    }
 
     /// <summary>
     /// One aligned row while the statement fits its column. A longer statement wraps whole across the

@@ -44,6 +44,7 @@ public static partial class ApiV1
             followupsOpen += await board.OpenFollowupsAsync(scope, cancellationToken);
         }
 
+        var repos = (await board.ProjectReposAsync(scopes, cancellationToken)).ToLookup(r => r.ProjectId);
         var projectViews = new List<ProjectOverviewView>();
         foreach (var project in projects)
         {
@@ -63,7 +64,10 @@ public static partial class ApiV1
             }
 
             projectViews.Add(new ProjectOverviewView(
-                book.Item(project.Id), Rollup(rollups.GetValueOrDefault(project.Id)), runViews));
+                book.Item(project.Id),
+                Rollup(rollups.GetValueOrDefault(project.Id)),
+                runViews,
+                [.. repos[project.Id].Select(r => new RepoView(r.Kind, r.Key))]));
         }
 
         var claims = await book.ClaimsAsync(

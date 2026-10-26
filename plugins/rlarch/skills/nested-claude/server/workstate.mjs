@@ -84,13 +84,14 @@ async function call(url, init) {
 
 /**
  * POST /api/agent-sessions. Throws Refusal with the reason on any failure.
- * @param {{url: string, controllerToken: string, name: string, role: string, launchedBy: string, cwd: string, ttlHours?: number}} a
+ * @param {{url: string, controllerToken: string, name: string, role: string, launchedBy: string, cwd: string, ttlHours?: number, repo?: {remote?: string, root?: string}}} a
  * @returns {Promise<Minted>}
  */
 export async function mintSession(a) {
     /** @type {Record<string, unknown>} */
     const body = { name: a.name, role: a.role, launchedBy: a.launchedBy, cwd: a.cwd }
     if (a.ttlHours !== undefined) body.ttlHours = a.ttlHours
+    if (a.repo && (a.repo.remote || a.repo.root)) body.repo = a.repo
     let res
     try {
         res = await call(`${a.url}/api/agent-sessions`, {
