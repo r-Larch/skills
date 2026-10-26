@@ -49,7 +49,7 @@ export const TOOLS = [
                     description: 'Per-session WorkState credentials. Default {role: "worker"}',
                     properties: {
                         role: { type: 'string', enum: ROLES, default: 'worker', description: '"none" mints nothing and passes no --mcp-config' },
-                        env_file: { type: 'string', description: "PATH of the WorkState clone's mcp/.env (never its contents)" },
+                        env_file: { type: 'string', description: "PATH of WorkState's .env: ~/.workstate/.env, or <clone>/mcp/.env (never its contents)" },
                         url: { type: 'string', default: DEFAULT_WORKSTATE_URL },
                         ttl_hours: { type: 'integer', minimum: 1, maximum: 720, description: 'Idle window in hours (server default 72): the token lapses after this long unused; every use renews it, no hard cap' },
                         grants: { type: 'array', items: { type: 'string', enum: GRANTS }, description: 'Capabilities on the minted token. "import" shows work_import; the server allows it only on role orchestrator or controller' },
