@@ -73,6 +73,13 @@ namespace WorkState.Core.Migrations
                         .HasColumnType("actor_role")
                         .HasColumnName("granted_role");
 
+                    b.PrimitiveCollection<string[]>("Grants")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("text[]")
+                        .HasColumnName("grants")
+                        .HasDefaultValueSql("'{}'::text[]");
+
                     b.Property<DateTimeOffset>("LastSeenAt")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
@@ -95,6 +102,14 @@ namespace WorkState.Core.Migrations
                     b.Property<string>("Origin")
                         .HasColumnType("text")
                         .HasColumnName("origin");
+
+                    b.Property<string>("RepoRemote")
+                        .HasColumnType("text")
+                        .HasColumnName("repo_remote");
+
+                    b.Property<string>("RepoRoot")
+                        .HasColumnType("text")
+                        .HasColumnName("repo_root");
 
                     b.Property<DateTimeOffset?>("RevokedAt")
                         .HasColumnType("timestamp with time zone")
@@ -138,7 +153,10 @@ namespace WorkState.Core.Migrations
                         .IsUnique()
                         .HasDatabaseName("agent_session_name_unique");
 
-                    b.ToTable("agent_session", (string)null);
+                    b.ToTable("agent_session", null, t =>
+                        {
+                            t.HasCheckConstraint("agent_session_grants_known", "grants <@ ARRAY['import']::text[]");
+                        });
                 });
 
             modelBuilder.Entity("WorkState.Core.Domain.AgentToken", b =>
@@ -825,6 +843,116 @@ namespace WorkState.Core.Migrations
                     b.ToTable("event", (string)null);
                 });
 
+            modelBuilder.Entity("WorkState.Core.Domain.ImportRecord", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid?>("AssumptionId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("assumption_id");
+
+                    b.Property<Guid?>("ConstraintId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("constraint_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<string>("ImportedBy")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("imported_by");
+
+                    b.Property<string>("ImportedStatus")
+                        .HasColumnType("text")
+                        .HasColumnName("imported_status");
+
+                    b.Property<Guid?>("ItemId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("item_id");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("kind");
+
+                    b.Property<Guid?>("NoteId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("note_id");
+
+                    b.Property<Guid>("ProjectItemId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("project_item_id");
+
+                    b.Property<Guid?>("SessionId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("session_id");
+
+                    b.Property<string>("SourceAnchor")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("text")
+                        .HasDefaultValue("")
+                        .HasColumnName("source_anchor");
+
+                    b.Property<string>("SourcePath")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("source_path");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<string>("Why")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("why");
+
+                    b.Property<Guid>("WorkspaceId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("workspace_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_import_record");
+
+                    b.HasIndex("AssumptionId")
+                        .HasDatabaseName("ix_import_record_assumption_id");
+
+                    b.HasIndex("ConstraintId")
+                        .HasDatabaseName("ix_import_record_constraint_id");
+
+                    b.HasIndex("ItemId")
+                        .HasDatabaseName("import_record_item_idx");
+
+                    b.HasIndex("NoteId")
+                        .HasDatabaseName("ix_import_record_note_id");
+
+                    b.HasIndex("SessionId")
+                        .HasDatabaseName("ix_import_record_session_id");
+
+                    b.HasIndex("WorkspaceId")
+                        .HasDatabaseName("ix_import_record_workspace_id");
+
+                    b.HasIndex("ProjectItemId", "SourcePath", "SourceAnchor")
+                        .IsUnique()
+                        .HasDatabaseName("import_record_source_unique");
+
+                    b.ToTable("import_record", null, t =>
+                        {
+                            t.HasCheckConstraint("import_record_kind", "kind IN ('run','phase','task','followup','note','assumption','rule')");
+
+                            t.HasCheckConstraint("import_record_one_target", "num_nonnulls(item_id, note_id, assumption_id, constraint_id) = 1");
+                        });
+                });
+
             modelBuilder.Entity("WorkState.Core.Domain.Item", b =>
                 {
                     b.Property<Guid>("Id")
@@ -837,6 +965,10 @@ namespace WorkState.Core.Migrations
                         .HasColumnType("uuid[]")
                         .HasColumnName("ancestors")
                         .HasDefaultValueSql("'{}'::uuid[]");
+
+                    b.Property<DateTimeOffset?>("ArchivedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("archived_at");
 
                     b.Property<Guid?>("BodyDocId")
                         .HasColumnType("uuid")
@@ -1001,6 +1133,8 @@ namespace WorkState.Core.Migrations
 
                     b.ToTable("item", null, t =>
                         {
+                            t.HasCheckConstraint("item_archived_only_project", "archived_at IS NULL OR kind = 'project'");
+
                             t.HasCheckConstraint("item_closed_at_set", "(status IN ('done','cancelled','superseded')) = (closed_at IS NOT NULL)");
 
                             t.HasCheckConstraint("item_resolution_only_when_done", "(status = 'done') = (resolution IS NOT NULL)");
@@ -1290,6 +1424,52 @@ namespace WorkState.Core.Migrations
                         .HasName("pk_project_config");
 
                     b.ToTable("project_config", (string)null);
+                });
+
+            modelBuilder.Entity("WorkState.Core.Domain.ProjectRepo", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("AddedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("added_at")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<string>("Key")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("key");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("kind");
+
+                    b.Property<Guid>("ProjectItemId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("project_item_id");
+
+                    b.Property<Guid>("WorkspaceId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("workspace_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_project_repo");
+
+                    b.HasIndex("ProjectItemId")
+                        .HasDatabaseName("project_repo_project_idx");
+
+                    b.HasIndex("WorkspaceId", "Key")
+                        .IsUnique()
+                        .HasDatabaseName("project_repo_key_unique");
+
+                    b.ToTable("project_repo", null, t =>
+                        {
+                            t.HasCheckConstraint("project_repo_kind", "kind IN ('remote','root')");
+                        });
                 });
 
             modelBuilder.Entity("WorkState.Core.Domain.Report", b =>
@@ -1711,6 +1891,53 @@ namespace WorkState.Core.Migrations
                         .HasConstraintName("fk_event_workspace_workspace_id");
                 });
 
+            modelBuilder.Entity("WorkState.Core.Domain.ImportRecord", b =>
+                {
+                    b.HasOne("WorkState.Core.Domain.Assumption", null)
+                        .WithMany()
+                        .HasForeignKey("AssumptionId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .HasConstraintName("fk_import_record_assumption_assumption_id");
+
+                    b.HasOne("WorkState.Core.Domain.ConstraintRule", null)
+                        .WithMany()
+                        .HasForeignKey("ConstraintId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .HasConstraintName("fk_import_record_constraint_rule_constraint_id");
+
+                    b.HasOne("WorkState.Core.Domain.Item", null)
+                        .WithMany()
+                        .HasForeignKey("ItemId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .HasConstraintName("fk_import_record_item_item_id");
+
+                    b.HasOne("WorkState.Core.Domain.Note", null)
+                        .WithMany()
+                        .HasForeignKey("NoteId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .HasConstraintName("fk_import_record_note_note_id");
+
+                    b.HasOne("WorkState.Core.Domain.Item", null)
+                        .WithMany()
+                        .HasForeignKey("ProjectItemId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_import_record_item_project_item_id");
+
+                    b.HasOne("WorkState.Core.Domain.AgentSession", null)
+                        .WithMany()
+                        .HasForeignKey("SessionId")
+                        .OnDelete(DeleteBehavior.SetNull)
+                        .HasConstraintName("fk_import_record_agent_session_session_id");
+
+                    b.HasOne("WorkState.Core.Domain.Workspace", null)
+                        .WithMany()
+                        .HasForeignKey("WorkspaceId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_import_record_workspace_workspace_id");
+                });
+
             modelBuilder.Entity("WorkState.Core.Domain.Item", b =>
                 {
                     b.HasOne("WorkState.Core.Domain.Doc", null)
@@ -1840,6 +2067,23 @@ namespace WorkState.Core.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("fk_project_config_item_item_id");
+                });
+
+            modelBuilder.Entity("WorkState.Core.Domain.ProjectRepo", b =>
+                {
+                    b.HasOne("WorkState.Core.Domain.Item", null)
+                        .WithMany()
+                        .HasForeignKey("ProjectItemId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_project_repo_item_project_item_id");
+
+                    b.HasOne("WorkState.Core.Domain.Workspace", null)
+                        .WithMany()
+                        .HasForeignKey("WorkspaceId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_project_repo_workspace_workspace_id");
                 });
 
             modelBuilder.Entity("WorkState.Core.Domain.Report", b =>

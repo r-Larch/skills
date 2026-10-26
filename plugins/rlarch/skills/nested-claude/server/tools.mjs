@@ -10,11 +10,12 @@ import path from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { protocolHeader } from './header.mjs'
 import {
-    Refusal, validateLaunch, buildArgv, PERMISSION_MODES, TOOLSETS, EFFORTS, ROLES, DEFAULT_WORKSTATE_URL,
+    Refusal, validateLaunch, buildArgv, PERMISSION_MODES, TOOLSETS, EFFORTS, ROLES, DEFAULT_WORKSTATE_URL, GRANTS,
 } from './launch-args.mjs'
 import { runClaude, parseBackgroundId, listLiveAgents, stripAnsi, resolveClaude } from './claude.mjs'
 import { readControllerToken, mintSession, bindClaudeSession, revokeSession, mcpConfigJson } from './workstate.mjs'
 import { saveRecord, loadRecords, findRecord, deleteRecord } from './state.mjs'
+import { repoKeys } from './repo.mjs'
 
 /** @param {string} line */
 export function log(line) {
@@ -51,6 +52,7 @@ export const TOOLS = [
                         env_file: { type: 'string', description: "PATH of the WorkState clone's mcp/.env (never its contents)" },
                         url: { type: 'string', default: DEFAULT_WORKSTATE_URL },
                         ttl_hours: { type: 'integer', minimum: 1, maximum: 720, description: 'Idle window in hours (server default 72): the token lapses after this long unused; every use renews it, no hard cap' },
+                        grants: { type: 'array', items: { type: 'string', enum: GRANTS }, description: 'Capabilities on the minted token. "import" shows work_import; the server allows it only on role orchestrator or controller' },
                     },
                     additionalProperties: false,
                 },
@@ -190,6 +192,8 @@ async function agentLaunch(input) {
             launchedBy: p.controller.replace(/\s\[[0-9a-fA-F]{6}\]$/, ''),
             cwd: p.repoRoot,
             ttlHours: p.workstate.ttlHours,
+            grants: p.workstate.grants,
+            repo: repoKeys(p.repoRoot),
         })
     }
 

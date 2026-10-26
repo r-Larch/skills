@@ -20,7 +20,8 @@ public sealed record NewItemArg(
     [property: JsonPropertyName("verify_cmd")] string? VerifyCmd = null,
     [property: JsonPropertyName("criteria")] string[]? Criteria = null,
     [property: JsonPropertyName("risk_tags")] string[]? RiskTags = null,
-    [property: JsonPropertyName("priority")] int? Priority = null);
+    [property: JsonPropertyName("priority")] int? Priority = null,
+    [property: JsonPropertyName("repo")] RepoArg? Repo = null);
 
 /// <summary>One criterion as <c>work_update</c> addresses it: <c>c2</c>, checked, with its evidence.</summary>
 public sealed record CriterionArg(
@@ -36,7 +37,9 @@ public sealed record UpdateArgs(
     string[]? RiskTags = null,
     int? Priority = null,
     CriterionArg[]? Criteria = null,
-    int? ExpectedRevision = null);
+    int? ExpectedRevision = null,
+    RepoArg? Repo = null,
+    bool? Archived = null);
 
 public sealed partial class WorkWriter
 {
@@ -119,6 +122,12 @@ public sealed partial class WorkWriter
                 return WriteResult.No(shortfall);
             }
 
+            var repo = wanted.Repo?.Keys() ?? [];
+            if (repo.Count > 0 && kind != "project")
+            {
+                return WriteResult.No(NotAProject("work_create(items:[{repo:…}])", wanted.Title, kind));
+            }
+
             Guid? parentId = null;
             ScopeRefLite? parent = null;
 
@@ -159,7 +168,7 @@ public sealed partial class WorkWriter
                 kind,
                 reference,
                 await NextSeqAsync(connection, transaction, parentId, cancellationToken),
-                Glyph.Clip(wanted.Title, 180),
+                Glyph.Flat(wanted.Title),
                 wanted.Intent,
                 wanted.VerifyCmd,
                 wanted.RiskTags,
@@ -176,10 +185,25 @@ public sealed partial class WorkWriter
 
             await CriteriaAsync(connection, transaction, row2.Id, wanted.Criteria ?? [], cancellationToken);
 
+            var restored = await UnarchiveForNewWorkAsync(
+                connection, transaction, workspaceId, row2.Id, reference, actor, cancellationToken);
+
+            if (repo.Count > 0)
+            {
+                var (_, taken) = await BindReposAsync(
+                    connection, transaction, workspaceId, row2.Id, reference, repo, cancellationToken);
+                if (taken is not null)
+                {
+                    return WriteResult.No(taken);
+                }
+            }
+
             await EventAsync(
                 connection, transaction, workspaceId, row2.Id, actor, "created",
-                $"{reference} ({kind}) created under {parent?.Ref ?? "—"}: {Glyph.Clip(wanted.Title, 40)}",
-                new { kind, parent = parent?.Ref, title = wanted.Title },
+                $"{reference} ({kind}) created under {parent?.Ref ?? "—"}: {Glyph.Flat(wanted.Title)}",
+                repo.Count > 0
+                    ? (object)new { kind, parent = parent?.Ref, title = wanted.Title, repo = repo.Select(k => k.Key).ToArray() }
+                    : new { kind, parent = parent?.Ref, title = wanted.Title },
                 cancellationToken);
 
             if (firstRef.Length == 0)
@@ -188,7 +212,14 @@ public sealed partial class WorkWriter
             }
 
             written.Add($"{Glyph.Pad(reference, 8)}  {Glyph.Pad(Glyph.Kind(kind), 6)}  "
-                      + Glyph.Clip(wanted.Title, 60));
+                      + Glyph.Row(wanted.Title, 60));
+
+            if (repo.Count > 0)
+            {
+                written.Add($"          {RepoLine(repo)}");
+            }
+
+            written.AddRange(restored.Select(r => $"          project {r} unarchived — new work arrived"));
         }
 
         await transaction.CommitAsync(cancellationToken);
@@ -221,7 +252,11 @@ public sealed partial class WorkWriter
             return WriteResult.No(unresolved!);
         }
 
-        if (Fields(args).Length == 0 && args.RiskTags is null && args.Criteria is not { Length: > 0 })
+        var repo = args.Repo?.Keys() ?? [];
+
+        var patching = Fields(args).Length > 0 || args.RiskTags is not null || args.Criteria is { Length: > 0 } || repo.Count > 0;
+
+        if (!patching && args.Archived is null)
         {
             return WriteResult.No(Refusal.Blocked(
                 $"work_update({scope.Ref}) — nothing changed: the call sets no field and no criterion.",
@@ -252,55 +287,112 @@ public sealed partial class WorkWriter
             return WriteResult.No(unwritable);
         }
 
-        const string sql =
-            """
-            UPDATE item
-               SET title      = coalesce(@title, title),
-                   intent     = coalesce(@intent, intent),
-                   verify_cmd = coalesce(@verify, verify_cmd),
-                   risk_tags  = coalesce(@risk, risk_tags),
-                   priority   = coalesce(@priority, priority),
-                   revision   = revision + 1
-             WHERE id = @id;
-            """;
-
-        await using (var command = new NpgsqlCommand(sql, connection, transaction))
+        IReadOnlyList<RepoKey> bound = [];
+        if (repo.Count > 0)
         {
-            Bind(command, "id", item.Id);
-            Bind(command, "title", Blank(args.Title) ? null : Glyph.Clip(args.Title, 180));
-            Bind(command, "intent", Blank(args.Intent) ? null : args.Intent);
-            Bind(command, "verify", Blank(args.VerifyCmd) ? null : args.VerifyCmd);
-            Bind(command, "risk", args.RiskTags);
-            Bind(command, "priority", args.Priority is { } p ? (short)Math.Clamp(p, -9, 9) : null);
-            await command.ExecuteNonQueryAsync(cancellationToken);
+            if (item.Kind != "project")
+            {
+                return WriteResult.No(NotAProject($"work_update({item.Ref})", item.Ref, item.Kind));
+            }
+
+            var (added, taken) = await BindReposAsync(
+                connection, transaction, item.WorkspaceId, item.Id, item.Ref, repo, cancellationToken);
+            if (taken is not null)
+            {
+                return WriteResult.No(taken);
+            }
+
+            bound = added;
         }
 
-        var touched = await PatchCriteriaAsync(
-            connection, transaction, item.Id, args.Criteria ?? [], cancellationToken);
+        if (args.Archived is not null && item.Kind != "project")
+        {
+            return WriteResult.No(NotArchivable(item.Ref, item.Kind));
+        }
 
-        await HeartbeatAsync(
-            connection,
-            transaction,
-            item.Id,
-            actor,
-            await TtlAsync(connection, transaction, item.WorkspaceId, cancellationToken),
-            cancellationToken);
+        var touched = 0;
+        if (patching)
+        {
+            const string sql =
+                """
+                UPDATE item
+                   SET title      = coalesce(@title, title),
+                       intent     = coalesce(@intent, intent),
+                       verify_cmd = coalesce(@verify, verify_cmd),
+                       risk_tags  = coalesce(@risk, risk_tags),
+                       priority   = coalesce(@priority, priority),
+                       revision   = revision + 1
+                 WHERE id = @id;
+                """;
 
-        await EventAsync(
-            connection, transaction, item.WorkspaceId, item.Id, actor, "updated",
-            $"{item.Ref} updated" + (touched > 0 ? $", {touched} criterion(s)" : string.Empty),
-            new { fields = Fields(args), criteria = touched },
-            cancellationToken);
+            await using (var command = new NpgsqlCommand(sql, connection, transaction))
+            {
+                Bind(command, "id", item.Id);
+                Bind(command, "title", Blank(args.Title) ? null : Glyph.Flat(args.Title));
+                Bind(command, "intent", Blank(args.Intent) ? null : args.Intent);
+                Bind(command, "verify", Blank(args.VerifyCmd) ? null : args.VerifyCmd);
+                Bind(command, "risk", args.RiskTags);
+                Bind(command, "priority", args.Priority is { } p ? (short)Math.Clamp(p, -9, 9) : null);
+                await command.ExecuteNonQueryAsync(cancellationToken);
+            }
+
+            touched = await PatchCriteriaAsync(
+                connection, transaction, item.Id, args.Criteria ?? [], cancellationToken);
+
+            await HeartbeatAsync(
+                connection,
+                transaction,
+                item.Id,
+                actor,
+                await TtlAsync(connection, transaction, item.WorkspaceId, cancellationToken),
+                cancellationToken);
+
+            await EventAsync(
+                connection, transaction, item.WorkspaceId, item.Id, actor, "updated",
+                $"{item.Ref} updated" + (touched > 0 ? $", {touched} criterion(s)" : string.Empty),
+                repo.Count > 0
+                    ? (object)new { fields = Fields(args), criteria = touched, repo = bound.Select(k => k.Key).ToArray() }
+                    : new { fields = Fields(args), criteria = touched },
+                cancellationToken);
+        }
+
+        var archiveLine = string.Empty;
+        if (args.Archived is { } archived)
+        {
+            var (_, changed) = await ArchiveRowAsync(
+                connection, transaction, item.WorkspaceId, item.Id, item.Ref, archived, actor, "work_update",
+                cancellationToken);
+
+            archiveLine = (archived, changed) switch
+            {
+                (true, true) => "    archived — hidden from the dashboard's lists; its ref and repo still open it",
+                (true, false) => "    already archived",
+                (false, true) => "    unarchived — back in the dashboard's lists",
+                _ => "    not archived — nothing to restore",
+            };
+        }
 
         await transaction.CommitAsync(cancellationToken);
 
+        var already = repo.Where(k => !bound.Contains(k)).ToList();
         return WriteResult.Ok(string.Join(
             "\n",
-            $"OK  {item.Ref}  updated (revision {item.Revision + 1})"
-            + (touched > 0 ? $", {touched} criterion(s) written" : string.Empty),
-            string.Empty,
-            $"Next: work_status(ref:\"{item.Ref}\", to:\"done\") when the criteria are met — "
-            + "the guard will tell you what is still missing."));
+            [
+                patching
+                    ? $"OK  {item.Ref}  updated (revision {item.Revision + 1})"
+                      + (touched > 0 ? $", {touched} criterion(s) written" : string.Empty)
+                    : $"OK  {item.Ref}",
+                .. bound.Count > 0 ? [$"    {RepoLine(bound)} — bound"] : Array.Empty<string>(),
+                .. already.Count > 0 ? [$"    {RepoLine(already)} — already this project's"] : Array.Empty<string>(),
+                .. archiveLine.Length > 0 ? [archiveLine] : Array.Empty<string>(),
+                string.Empty,
+                !patching
+                    ? $"Next: work_brief(scope:\"{item.Ref}\") still opens it; work_create under it unarchives it."
+                    : repo.Count > 0 && Fields(args).Length == 0 && args.Criteria is not { Length: > 0 }
+                    ? $"Next: work_brief(repo:{RepoKeys.Literal(repo)}) — a session in that repo now opens {item.Ref}."
+                    : $"Next: work_status(ref:\"{item.Ref}\", to:\"done\") when the criteria are met — "
+                      + "the guard will tell you what is still missing.",
+            ]));
     }
 
     /// <summary>
@@ -513,7 +605,7 @@ public sealed partial class WorkWriter
         {
             unmet.Add(new Unmet(
                 $"a {kind} without a verify_cmd cannot be closed honestly — nothing would judge it",
-                $"work_create(items:[{{kind:\"{kind}\", title:\"{Glyph.Clip(wanted.Title, 30)}\", "
+                $"work_create(items:[{{kind:\"{kind}\", title:\"{Glyph.Flat(wanted.Title)}\", "
                 + "verify_cmd:\"dotnet test --filter …\", criteria:[\"…\"]}]) — and it must be a "
                 + "command that is RED before the work"));
         }
@@ -522,14 +614,14 @@ public sealed partial class WorkWriter
         {
             unmet.Add(new Unmet(
                 $"a {kind} without done-criteria is a brief nobody can check off",
-                $"work_create(items:[{{kind:\"{kind}\", title:\"{Glyph.Clip(wanted.Title, 30)}\", "
+                $"work_create(items:[{{kind:\"{kind}\", title:\"{Glyph.Flat(wanted.Title)}\", "
                 + "criteria:[\"the observable thing that is true when this is done\"]}])"));
         }
 
         return unmet.Count == 0
             ? null
             : Refusal.Blocked(
-                $"work_create(items:[{{kind:\"{kind}\", title:\"{Glyph.Clip(wanted.Title, 40)}\"}}]). "
+                $"work_create(items:[{{kind:\"{kind}\", title:\"{Glyph.Flat(wanted.Title)}\"}}]). "
                 + $"{unmet.Count} requirement(s) unmet.",
                 unmet);
     }
@@ -633,7 +725,7 @@ public sealed partial class WorkWriter
 
         foreach (var criterion in criteria)
         {
-            var text = Blank(criterion.Text) ? "…" : Glyph.Clip(criterion.Text, 40);
+            var text = Blank(criterion.Text) ? "…" : Glyph.Flat(criterion.Text);
             var append = $"work_update(ref:\"{item.Ref}\", criteria:[{{text:\"{text}\"}}]) appends it as "
                          + $"c{(existing.Count == 0 ? 1 : existing.Max() + 1)} — the server numbers it";
 
@@ -653,7 +745,7 @@ public sealed partial class WorkWriter
             if (Seq(criterion.Id) is not { } seq || !existing.Contains(seq))
             {
                 unmet.Add(new Unmet(
-                    $"criterion \"{Glyph.Clip(criterion.Id, 12)}\" does not exist on {item.Ref} — {known}; "
+                    $"criterion \"{Glyph.Flat(criterion.Id)}\" does not exist on {item.Ref} — {known}; "
                     + "an id addresses an existing criterion, it never creates one",
                     [
                         append,
@@ -818,7 +910,7 @@ public sealed partial class WorkWriter
 
         return Refusal.Blocked(
             $"{call} — the schema refused it.",
-            Glyph.Clip(refused.MessageText, 140),
+            Glyph.Flat(refused.MessageText),
             [.. routes]);
     }
 
@@ -844,7 +936,7 @@ public sealed partial class WorkWriter
 
         return Refusal.Blocked(
             $"{call} — the schema refused it.",
-            Glyph.Clip(refused.MessageText, 140),
+            Glyph.Flat(refused.MessageText),
             [.. routes]);
     }
 }

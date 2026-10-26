@@ -18,7 +18,9 @@ public sealed record MintRequest(
     string? Origin = null,
     string? Cwd = null,
     string? ExternalRole = null,
-    string? ClaudeSessionId = null);
+    string? ClaudeSessionId = null,
+    RepoArg? Repo = null,
+    IReadOnlyList<string>? Grants = null);
 
 /// <summary>The only place the token exists in the clear; the caller returns it once and drops it.</summary>
 public sealed record MintedToken(Guid SessionId, string Name, ActorRole Role, string Token, DateTimeOffset ExpiresAt);
@@ -26,7 +28,7 @@ public sealed record MintedToken(Guid SessionId, string Name, ActorRole Role, st
 public sealed record MintResult(MintedToken? Minted, string? Conflict);
 
 /// <summary>A live minted token, as the bearer handler sees it.</summary>
-public sealed record TokenSession(Guid SessionId, string Name, ActorRole Role, Guid WorkspaceId);
+public sealed record TokenSession(Guid SessionId, string Name, ActorRole Role, Guid WorkspaceId, IReadOnlyList<string> Grants);
 
 /// <summary>What the endpoints need to judge who may PATCH or DELETE a session.</summary>
 public sealed record MintedSession(Guid Id, string Name, ActorRole? GrantedRole, Guid? MintedBySessionId);
@@ -47,7 +49,7 @@ public sealed partial class SessionStore
     public const int MaxTtlHours = 720;
 
     private sealed record MintRow(Guid Id, string? ClaudeSessionId, string? LaunchedBy, bool Live);
-    private sealed record TokenRow(Guid SessionId, string Name, string Role, Guid WorkspaceId);
+    private sealed record TokenRow(Guid SessionId, string Name, string Role, Guid WorkspaceId, string Grants);
     private sealed record BoundRow(Guid WorkspaceId, string Name, string? ClaudeSessionId);
     private sealed record FoundRow(Guid Id, string Name, string? Role, Guid? MintedBy);
 
@@ -120,6 +122,9 @@ public sealed partial class SessionStore
                                                ELSE @external END,
                    origin               = coalesce(@origin, s.origin),
                    cwd                  = coalesce(@cwd, s.cwd),
+                   repo_remote          = coalesce(@remote, s.repo_remote),
+                   repo_root            = coalesce(@root, s.repo_root),
+                   grants               = coalesce(string_to_array(nullif(@grants, ''), ','), '{}'),
                    last_seen_at         = now()
              WHERE s.id = @id
             RETURNING token_expires_at;
@@ -138,6 +143,9 @@ public sealed partial class SessionStore
                 external = SessionFacts.Clean(request.ExternalRole),
                 origin = SessionFacts.Clean(request.Origin),
                 cwd = SessionFacts.Clean(request.Cwd),
+                remote = RepoKeys.NormaliseRemote(request.Repo?.Remote),
+                root = RepoKeys.NormaliseRoot(request.Repo?.Root),
+                grants = string.Join(',', request.Grants ?? []),
             },
             transaction,
             cancellationToken: cancellationToken));
@@ -170,7 +178,8 @@ public sealed partial class SessionStore
             SELECT id                 AS "SessionId",
                    name               AS "Name",
                    granted_role::text AS "Role",
-                   workspace_id       AS "WorkspaceId"
+                   workspace_id       AS "WorkspaceId",
+                   array_to_string(grants, ',') AS "Grants"
             FROM   agent_session
             WHERE  token_hash = @hash
               AND  revoked_at IS NULL
@@ -185,7 +194,12 @@ public sealed partial class SessionStore
                 cancellationToken: cancellationToken));
 
         return row is { } r
-            ? new TokenSession(r.SessionId, r.Name, Enum.Parse<ActorRole>(r.Role, ignoreCase: true), r.WorkspaceId)
+            ? new TokenSession(
+                r.SessionId,
+                r.Name,
+                Enum.Parse<ActorRole>(r.Role, ignoreCase: true),
+                r.WorkspaceId,
+                r.Grants.Split(',', StringSplitOptions.RemoveEmptyEntries))
             : null;
     }
 

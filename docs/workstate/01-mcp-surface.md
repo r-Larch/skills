@@ -188,7 +188,12 @@ suggested; the refusal routes to `work_tree` or `work_threads` instead.
 | Tool | Notes |
 |---|---|
 | **`work_init`** | Create/configure a workspace: repo root, default branch, item-kind ladder, verification command catalogue. |
-| **`work_import`** | Parse an existing `.claude/orchestration/<slug>/` directory into items + docs, best-effort, preserving every original line verbatim as blocks. 181 files exist; this is how they arrive. |
+| **`work_import`** | `{project, items[], dry_run?}`. One transactional batch of what an **agent** read in a repo's planning material and judged still true of the current code — the server parses nothing (the `/rlarch:workstate-import` skill is the procedure). Each record: `source:{path, anchor?}` (repo-relative), `kind` (`run\|phase\|task\|followup\|note\|assumption\|rule`), `why` (one line: why it is still true), `title` (items) or `body` (note/assumption/rule), optional `ref`, `parent` (an existing ref in the project, or one created by an earlier row of the same batch), `intent`, `status` (`open\|ready\|blocked` only — there is no imported `done` and no imported verification, so nothing it writes can satisfy a done guard), `criteria[]`, `verify_cmd`, `route` (a rule with one is a `red_line`, without a `domain_rule`). Writes go through `work_create`'s guards (a task without `verify_cmd` or criteria is **refused**, routed to `kind:"followup"`), the note, assumption (`asserted`, reversal `medium`) and constraint inserts. `project` must exist **and be bound to a repo**, else refused with the call that creates or binds it. **Idempotent by source:** a second import of the same `project + path + anchor` updates title, intent, criteria and body; an item whose status is not the one the import left, or that was started, checked or verified since, is reported `skipped: moved since import` and left alone (a consumed note, a resolved assumption, a retired rule likewise). Provenance: `item.source = "import:<path>#<anchor>"` and an `import_record` row (doc 02 §9a); journal kind `import` under the importing session. `dry_run` runs the batch and rolls it back. **Visible only to a session minted with `grants:["import"]`** (§6). |
+
+> **Changed 2026-10-26 (agent-import).** The row above used to describe a parser of
+> `.claude/orchestration/`. Owner decision: no parser — an agent discovers planning material anywhere
+> in the repo, keeps only what is true of the current code, asks the human, and writes through this
+> tool. `mcp/tools/WorkState.Import` is unchanged and not used by it.
 
 ### 3.6 Arguments that cannot bind
 
@@ -316,6 +321,13 @@ Per-request bearer token; `tools/list` varies by the token's grants. Three profi
 | **orchestrator** | everything except `work_init`, and no cross-run links | **its own run subtree** | Judges, transitions, commits. Many run in parallel; each sees its own run by default. |
 | **controller** | everything, every project | global | Owns the queue tier, and is the only role that may create `blocks` edges **across runs** — the integration ordering in `controller` §2. |
 
+**Grants — capabilities beside the role.** A minted session may carry `grants` (doc 14 §2); `import`
+is the one there is. The `importer` policy needs the orchestrator role **and** the `import` grant
+claim, which only a minted token can carry, so `work_import` is listed for a session launched for an
+import and for nobody else: every static token's and every ungranted session's `tools/list` is
+byte-for-byte what it was before the tool existed (pinned by `ImportVisibilityTests`). The tool costs
+538 tokens of `tools/list`; a granted orchestrator's `work_*` list is 6,849.
+
 Tokens are minted per agent with a scope and a TTL, so a nested `claude --bg` launch carries a token
 that only reaches its own unit. The `actor` on every event comes from the token, never from a
 self-declared argument — which is what makes the web UI's audit trail trustworthy when six agents are
@@ -394,6 +406,14 @@ URI scheme `work://`. Read-only projections, `cacheScope: "private"`, short `ttl
 | `work://item/{ref}/brief` | the fully rendered worker brief (see §9) |
 | `work://doc/{id}` | a document with block ids inline |
 | `work://workspace/{slug}/handoff` | the "competent stranger could continue from this alone" document |
+| `work://attention` | the busiest run's attention block, uncapped — every line, ranked, each with its call |
+| `work://attention/{scope}` | the same for one scope; the URI a capped attention block prints (doc 06 §5) |
+
+> **Changed 2026-10-26 (attention-cap).** The attention block capped at 5 lines with no route to
+> the rest — the one count cap that broke the noclip rule. No tool lists exactly those lines (expired
+> claims and phase gates appear nowhere else), and a new tool parameter would move `tools/list`, so
+> the route is a resource: fixed `work://attention` (listed) plus the `{+scope}` template, both
+> readable by any agent role.
 
 **Measured, 2026-09-18 — what actually works:**
 

@@ -32,6 +32,13 @@ public static class WorkUris
 
     public const string BriefSuffix = "/brief";
 
+    /// <summary>The attention block of the busiest run, uncapped; the template names a scope.</summary>
+    public const string Attention = "work://attention";
+
+    public const string AttentionTemplate = "work://attention/{+scope}";
+
+    public static string AttentionFor(string? scope) => scope is null ? Attention : $"{Attention}/{Escape(scope)}";
+
     public static string Item(string reference) => $"work://item/{Escape(reference)}";
 
     public static string ItemBrief(string reference) => $"work://item/{Escape(reference)}{BriefSuffix}";

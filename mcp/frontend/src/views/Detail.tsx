@@ -6,8 +6,9 @@ import { load } from '../store.ts'
 import { CLOSED, pageInput, refState, rowState, state } from '../state.ts'
 import { ago, cap, clock, day } from '../format.ts'
 import { CheckIcon } from '../icons.tsx'
-import { Dot, Pill } from '../ui.tsx'
+import { Dot, Pill, ProjectName } from '../ui.tsx'
 import { EventLine } from './Activity.tsx'
+import { PromptActions } from './Prompts.tsx'
 
 export type Tab = 'overview' | 'evidence' | 'notes' | 'activity' | 'brief'
 
@@ -66,7 +67,11 @@ export default function Detail(props: Props) {
             {(step, i) => (
               <>
                 {i() > 0 ? ' / ' : ''}
-                <A href={props.href(step)}>{step.ref}</A>
+                <A href={props.href(step)}>
+                  <Show when={step.kind === 'project'} fallback={step.ref}>
+                    <ProjectName project={step} />
+                  </Show>
+                </A>
               </>
             )}
           </For>
@@ -87,6 +92,10 @@ export default function Detail(props: Props) {
             )}
           </For>
         </div>
+        {/* A run's and a project's own actions sit in their page headers. */}
+        <Show when={p().item.kind !== 'run' && p().item.kind !== 'project'}>
+          <PromptActions scope={p().item.id} />
+        </Show>
       </div>
 
       <nav class="tabs" aria-label="Item sections">
@@ -165,7 +174,7 @@ function OverviewTab(props: Props) {
     return row ? rowState(row) : refState(item)
   }
   const empty = () =>
-    !p().intent && blockers().length === 0 && p().criteria.length === 0 && !p().verifyCmd && p().children.length === 0 && p().findings.length === 0
+    !p().intent && !p().imported && blockers().length === 0 && p().criteria.length === 0 && !p().verifyCmd && p().children.length === 0 && p().findings.length === 0
 
   return (
     <>
@@ -173,6 +182,18 @@ function OverviewTab(props: Props) {
         {(intent) => (
           <Section title="What this is for">
             <div class="prose">{intent()}</div>
+          </Section>
+        )}
+      </Show>
+
+      <Show when={p().imported}>
+        {(imported) => (
+          <Section title="Imported from">
+            <div class="prose">
+              <code>{imported().anchor ? `${imported().path}#${imported().anchor}` : imported().path}</code> by{' '}
+              {imported().session?.name ?? imported().importedBy}, {day(imported().at)}
+            </div>
+            <div class="prose">{imported().why}</div>
           </Section>
         )}
       </Show>

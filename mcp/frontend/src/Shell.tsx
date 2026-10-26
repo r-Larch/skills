@@ -1,17 +1,28 @@
-import { For, Show, createEffect, on as onChange, type ParentProps } from 'solid-js'
+import { For, Show, createEffect, createSignal, on as onChange, type ParentProps } from 'solid-js'
 import { A, useLocation } from '@solidjs/router'
 import { boards, failure, overview } from './store.ts'
 import { link } from './live.ts'
 import { toggleTheme } from './theme.ts'
 import { tally } from './state.ts'
-import { runHref } from './nav.ts'
+import { projectHref, runHref } from './nav.ts'
 import { clock, short } from './format.ts'
+import { ProjectName } from './ui.tsx'
 import { ActivityIcon, CheckIcon, InboxIcon, OverviewIcon } from './icons.tsx'
-import type { RunOverview } from './api.ts'
+import {
+  archivedOpen,
+  byActivity,
+  matchesQuery,
+  projectGroup,
+  runIsOpen,
+  setArchivedOpen,
+  type ProjectGroup,
+} from './projects.ts'
+import type { ProjectOverview, RunOverview } from './api.ts'
 
 export default function Shell(props: ParentProps) {
   const location = useLocation()
   const on = (path: string) => location.pathname === path
+  const [query, setQuery] = createSignal('')
 
   // The page scrolls inside <main>, which the router's own scroll-to-top never touches. Moving
   // between items of one run keeps the plan where it is; any other move starts at the top.
@@ -55,18 +66,44 @@ export default function Shell(props: ParentProps) {
         </nav>
 
         <div class="side-h">Projects</div>
-        <For each={overview()?.projects}>
-          {(project) => (
-            <>
-              <div class="proj" title={project.item.title}>
-                {project.item.ref}
-              </div>
-              <For each={project.runs}>
-                {(run) => <RunLink run={run} current={location.pathname.startsWith(runHref(run.item.id))} />}
-              </For>
-            </>
-          )}
-        </For>
+        <input
+          class="side-search"
+          type="search"
+          placeholder="Find a project"
+          aria-label="Find a project by name or ref"
+          value={query()}
+          onInput={(e) => setQuery(e.currentTarget.value)}
+        />
+        <Show when={overview()}>
+          {(o) => {
+            const shown = () => [...o().projects].filter((p) => matchesQuery(p, query())).sort(byActivity)
+            const group = (g: ProjectGroup) => shown().filter((p) => projectGroup(p, o().asOf) === g)
+            const searching = () => query().trim() !== ''
+            return (
+              <>
+                <SideGroup label="Active" projects={group('active')} path={location.pathname} />
+                <SideGroup label="Quiet" projects={group('quiet')} path={location.pathname} />
+                <Show when={group('archived').length > 0}>
+                  <button
+                    type="button"
+                    class="side-toggle"
+                    aria-expanded={archivedOpen() || searching()}
+                    onClick={() => setArchivedOpen(!archivedOpen())}
+                  >
+                    <span class="caret">{archivedOpen() || searching() ? '▾' : '▸'}</span>
+                    Archived ({group('archived').length})
+                  </button>
+                  <Show when={archivedOpen() || searching()}>
+                    <SideGroup projects={group('archived')} path={location.pathname} />
+                  </Show>
+                </Show>
+                <Show when={searching() && shown().length === 0}>
+                  <div class="side-none">No project matches “{query().trim()}”.</div>
+                </Show>
+              </>
+            )
+          }}
+        </Show>
 
         <div class="side-foot">
           <span class={`link-state ${link()}`} title={`Live updates: ${link()}`}>
@@ -92,6 +129,46 @@ export default function Shell(props: ParentProps) {
         {props.children}
       </main>
     </div>
+  )
+}
+
+/**
+ * One group of the sidebar. A project lists its open runs only; the rest are one "n closed" row
+ * that opens the project page, where they sit behind "Show n closed runs".
+ */
+function SideGroup(props: { label?: string; projects: ProjectOverview[]; path: string }) {
+  return (
+    <Show when={props.projects.length > 0}>
+      <Show when={props.label}>
+        <div class="side-g">{props.label}</div>
+      </Show>
+      <For each={props.projects}>
+        {(project) => {
+          const open = () => project.runs.filter(runIsOpen)
+          const closed = () => project.runs.length - open().length
+          const href = () => projectHref(project.item.id)
+          return (
+            <>
+              <A
+                href={href()}
+                class={`proj${project.archivedAt ? ' archived' : ''}${props.path === href() ? ' on' : ''}`}
+                title={project.item.title}
+              >
+                <ProjectName project={project.item} />
+              </A>
+              <For each={open()}>
+                {(run) => <RunLink run={run} current={props.path.startsWith(runHref(run.item.id))} />}
+              </For>
+              <Show when={closed() > 0}>
+                <A href={href()} class="side-closed">
+                  {closed()} closed
+                </A>
+              </Show>
+            </>
+          )
+        }}
+      </For>
+    </Show>
   )
 }
 

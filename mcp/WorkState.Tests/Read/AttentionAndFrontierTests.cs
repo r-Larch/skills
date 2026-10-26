@@ -66,9 +66,11 @@ public sealed class AttentionAndFrontierTests(PostgresFixture fixture)
 
         var block = text[text.IndexOf("--- attention", StringComparison.Ordinal)..].Split('\n');
 
-        Assert.Matches(@"^--- attention \([1-5]\) ---$", block[0]);
-        Assert.InRange(block.Length - 1, 1, 5);
-        Assert.All(block[1..], line =>
+        Assert.Matches(@"^--- attention \([1-5]( of \d+)?\) ---$", block[0]);
+        var warned = block[1..].Where(l => l.StartsWith('⚠')).ToArray();
+        Assert.InRange(warned.Length, 1, 5);
+        Assert.All(block[1..].Except(warned), line => Assert.Matches(@"^\+\d+ more — read work://attention/run-x with ReadMcpResourceTool$", line));
+        Assert.All(warned, line =>
         {
             Assert.Contains(" — ", line, StringComparison.Ordinal);
             Assert.Matches(@"— work_[a-z]+\(", line);

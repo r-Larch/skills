@@ -85,7 +85,9 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 .nav svg { width: 19px; height: 19px; flex: none; }
 .badge { margin-left: auto; min-width: 22px; padding: 0 7px; height: 20px; border-radius: 10px; background: var(--stop); color: #fff; font-size: 11.5px; font-weight: 600; display: grid; place-items: center; }
 .side-h { color: var(--side-mute); font-size: 12px; font-weight: 600; padding: 22px 10px 6px; }
-.proj { padding: 6px 10px 2px; font-weight: 600; font-size: 13px; color: var(--side-ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.proj { padding: 6px 10px 2px; font-weight: 600; font-size: 13px; color: var(--side-ink); overflow-wrap: anywhere; }
+.pref { font-family: var(--font-mono); font-size: 11.5px; font-weight: 400; color: var(--ink-3); margin-left: 6px; letter-spacing: 0; }
+.side .pref { color: var(--side-mute); }
 .runlink { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 8px; padding: 7px 10px 8px 18px; border-radius: 10px; color: var(--side-ink); }
 .runlink:hover, .runlink.on { background: var(--side-2); }
 .runlink.on .rl-title { color: var(--gold); }
@@ -94,6 +96,21 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 .rl-count { font-size: 11.5px; color: var(--side-mute); font-variant-numeric: tabular-nums; }
 .rl-bar { grid-column: 1 / -1; height: 3px; border-radius: 2px; background: var(--side-rule); overflow: hidden; display: flex; }
 .rl-bar i { display: block; height: 100%; }
+.side-search { margin: 2px 4px 6px; font: inherit; font-size: 13px; background: var(--side-2); border: 1px solid var(--side-rule); border-radius: 8px; color: var(--side-ink); padding: 6px 10px; min-width: 0; }
+.side-search::placeholder { color: var(--side-mute); }
+.side-g { color: var(--side-mute); font-size: 11.5px; letter-spacing: 0.3px; text-transform: uppercase; padding: 12px 10px 2px; }
+.side-toggle { display: flex; align-items: center; gap: 6px; width: 100%; text-align: left; color: var(--side-mute); font-size: 11.5px; letter-spacing: 0.3px; text-transform: uppercase; padding: 12px 10px 4px; border-radius: 8px; }
+.side-toggle:hover { color: var(--side-ink); }
+.side-toggle .caret { font-size: 10px; width: 10px; }
+.side-none { color: var(--side-mute); font-size: 12.5px; padding: 8px 10px; overflow-wrap: anywhere; }
+a.proj { display: block; border-radius: 8px; margin-top: 4px; }
+a.proj:hover { background: var(--side-2); }
+a.proj.on { background: var(--side-2); color: var(--gold); }
+.proj.archived { color: var(--side-mute); }
+.side-closed { display: block; padding: 3px 10px 6px 18px; font-size: 12px; color: var(--side-mute); border-radius: 8px; }
+.side-closed:hover { color: var(--side-ink); background: var(--side-2); }
+.proj-h h2 a { color: inherit; }
+.proj-h h2 a:hover { text-decoration: underline; }
 .side-foot { margin-top: auto; padding: 18px 10px 0; color: var(--side-mute); font-size: 12px; display: flex; justify-content: space-between; align-items: center; gap: 10px; }
 .side-foot button { color: var(--side-mute); border: 1px solid var(--side-rule); border-radius: 8px; padding: 3px 9px; font-size: 12px; }
 .side-foot button:hover { color: var(--side-ink); }
@@ -129,7 +146,9 @@ h1 { font-family: var(--font-serif); font-size: 28px; line-height: 1.2; margin: 
 a.row:hover { background: var(--bg); }
 .row-t { font-weight: 500; overflow-wrap: anywhere; }
 .row-m { color: var(--ink-3); font-size: 12.5px; margin-top: 2px; overflow-wrap: anywhere; }
-.row-call { margin-top: 6px; color: var(--ink-2); background: var(--line-2); border-radius: 6px; padding: 3px 8px; display: inline-block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: top; }
+.row-call { margin-top: 6px; color: var(--ink-2); background: var(--line-2); border-radius: 6px; padding: 3px 8px; display: inline-block; max-width: 100%; white-space: pre-wrap; overflow-wrap: anywhere; vertical-align: top; }
+.row-more { display: block; padding: 10px 18px; color: var(--accent); font-size: 13px; font-weight: 500; }
+.row-more:hover { background: var(--bg); }
 .empty { padding: 26px 18px; color: var(--ink-3); }
 .empty.bare { padding: 0; }
 
@@ -153,8 +172,8 @@ a.row:hover { background: var(--bg); }
 .p-idle, .p-wait { background: var(--line-2); color: var(--ink-2); }
 .p-gone { background: var(--line-2); color: var(--ink-3); }
 .chips { display: flex; flex-wrap: wrap; gap: 6px; }
-.chip { display: inline-flex; gap: 6px; align-items: center; height: 26px; padding: 0 9px; border-radius: 7px; background: var(--line-2); color: var(--ink-2); font-size: 12.5px; white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
-.chip b { font-weight: 500; color: var(--ink); font-family: var(--font-mono); font-size: 12px; overflow: hidden; text-overflow: ellipsis; }
+.chip { display: inline-flex; gap: 6px; align-items: baseline; min-height: 26px; padding: 4px 9px; border-radius: 7px; background: var(--line-2); color: var(--ink-2); font-size: 12.5px; line-height: 18px; max-width: 100%; }
+.chip b { font-weight: 500; color: var(--ink); font-family: var(--font-mono); font-size: 12px; min-width: 0; overflow-wrap: anywhere; }
 
 /* ── run strips: the one bold element ────────────────────────────────────────────────────────── */
 
@@ -164,6 +183,29 @@ a.row:hover { background: var(--bg); }
 .proj-h h2 { font-family: var(--font-serif); font-size: 17px; font-weight: 400; margin: 0; }
 .proj-h .n { margin-left: auto; color: var(--ink-3); font-size: 12.5px; white-space: nowrap; }
 .proj-h .backlink { color: var(--accent); font-size: 13px; font-weight: 500; white-space: nowrap; }
+.proj-act { border: 1px solid var(--line); border-radius: 8px; padding: 3px 10px; font-size: 12.5px; color: var(--ink-2); background: var(--panel); white-space: nowrap; }
+.proj-act:hover:not([disabled]) { color: var(--ink); border-color: var(--ink-3); }
+.proj-act[disabled] { opacity: 0.6; cursor: default; }
+.proj-act.danger { background: var(--stop); border-color: var(--stop); color: #fff; }
+.proj-h .confirm { flex-basis: 100%; padding: 12px 14px; border-radius: 10px; background: var(--panel); border: 1px solid var(--line); font-size: 13px; color: var(--ink-2); }
+.proj-h .confirm p { margin: 0 0 10px; overflow-wrap: anywhere; }
+.confirm-b { display: flex; gap: 8px; flex-wrap: wrap; }
+.proj-h .confirm-err { flex-basis: 100%; margin: 0; }
+.panel.archived .proj-h { opacity: 0.85; }
+
+/* Prompt actions (doc 13): buttons that open a prompt to copy. In a wrapping header they take a row. */
+.prompt-acts { display: flex; flex-wrap: wrap; gap: 6px; }
+.proj-h .prompt-acts, .proj-h .prompt-panel { flex-basis: 100%; }
+.page-h .prompt-acts, .detail-head .prompt-acts { margin-top: 12px; }
+.proj-act.on { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
+.proj-act.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.proj-act.primary:hover:not([disabled]) { color: #fff; border-color: var(--accent); opacity: 0.9; }
+.prompt-panel { margin-top: 10px; padding: 12px 14px; border-radius: 10px; background: var(--panel); border: 1px solid var(--line); max-width: 100ch; }
+.prompt-panel .brief-text { margin-bottom: 10px; }
+.prompt-note { align-self: center; color: var(--ink-3); font-size: 12.5px; }
+.runs-more { width: 100%; text-align: left; border-top: 1px solid var(--line-2); }
+.archived-link { justify-self: start; color: var(--accent); font-size: 13px; font-weight: 500; padding: 4px 2px; }
+.archived-link:hover { text-decoration: underline; }
 .strip { display: grid; grid-template-columns: minmax(220px, 1.1fr) minmax(0, 2fr) 92px; gap: 18px; align-items: center; padding: 14px 18px; border-bottom: 1px solid var(--line-2); }
 .strip:last-child { border-bottom: 0; border-radius: 0 0 var(--radius) var(--radius); }
 .strip:hover { background: var(--bg); }

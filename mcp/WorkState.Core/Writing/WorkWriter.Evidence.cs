@@ -79,7 +79,7 @@ public sealed partial class WorkWriter
                 workspace = item.WorkspaceId,
                 item = item.Id,
                 command = Blank(command) ? item.VerifyCmd : command!.Trim(),
-                result = Glyph.Clip(resultLine, 400),
+                result = Glyph.Flat(resultLine),
                 passed,
                 counts = Blank(counts) ? null : counts,
                 runBy = Pg.Label(runner),
@@ -103,7 +103,7 @@ public sealed partial class WorkWriter
             item.Id,
             actor,
             "verified",
-            $"{item.Ref} {(passed ? "green" : "RED")} by {Pg.Label(runner)}: {Glyph.Clip(resultLine, 40)}",
+            $"{item.Ref} {(passed ? "green" : "RED")} by {Pg.Label(runner)}: {Glyph.Flat(resultLine)}",
             new { command, result_line = resultLine, passed, run_by = Pg.Label(runner) },
             cancellationToken);
 
@@ -112,7 +112,7 @@ public sealed partial class WorkWriter
         var lines = new List<string>
         {
             $"OK  {item.Ref}  verification recorded {(passed ? "✓" : "✗")} by {Pg.Label(runner)}",
-            $"    result  {Glyph.Clip(resultLine, 88)}",
+            $"    result  {Glyph.Row(resultLine, 88)}",
         };
 
         if (runner == VerifyRunner.Worker)

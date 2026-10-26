@@ -25,12 +25,13 @@ public sealed class AttentionRefTests(PostgresFixture fixture)
     /// </summary>
     private static readonly string[] Rendered =
     [
-        "--- attention (5) ---",
+        "--- attention (5 of 8) ---",
         "⚠ 1.2 claim by worker-1 expired 1h ago — work_status(ref:\"1.2\", to:\"in_progress\") to retake it",
         "⚠ F-07 (BLOCKER) is open against 1.2: ContentHash written early — work_status(ref:\"F-07\", to:\"done\")",
         "⚠ 2: all 1 tasks done, gate not run — work_brief(scope:\"2\") to run it",
         "⚠ 2.1 is done with no orchestrator verification — work_verify(ref:\"2.1\", result_line:\"…\", run_by:\"orchestrator\")",
         "⚠ 1.1 is done with no orchestrator verification — work_verify(ref:\"1.1\", result_line:\"…\", run_by:\"orchestrator\")",
+        "+3 more — read work://attention/run-one with ReadMcpResourceTool",
     ];
 
     /// <summary>The three lines the five-line cap hides, so all seven sources have their text pinned.</summary>
@@ -56,6 +57,31 @@ public sealed class AttentionRefTests(PostgresFixture fixture)
                 .Where(l => l.Rank >= AttentionRank.AssumptionPastRevisit)
                 .OrderBy(l => l.Rank)
                 .Select(l => $"{l.What} — {l.Call}")));
+    }
+
+    /// <summary>
+    /// attention-cap. The capped block's last line names <c>work://attention/run-one</c>; reading it
+    /// returns all eight lines, every source among them — expired claims and phase gates included,
+    /// which no tool lists anywhere else.
+    /// </summary>
+    [Fact]
+    public async Task The_uri_a_capped_block_prints_reads_back_every_line_of_every_source()
+    {
+        var world = await SevenSourcesAsync();
+
+        await using var server = await ReadServer.StartAsync(fixture.ConnectionString, world.Slug, Ct);
+        await using var client = await server.ConnectAsync(ReadServer.WorkerToken, Ct);
+
+        var read = await client.ReadResourceAsync("work://attention/run-one", cancellationToken: Ct);
+        var body = string.Join("\n", read.Contents
+            .OfType<ModelContextProtocol.Protocol.TextResourceContents>()
+            .Select(c => c.Text));
+
+        string[] expected = ["--- attention (8) under run-one ---", .. Rendered[1..6], .. BelowTheCap.Select(l => $"⚠ {l}")];
+        Assert.Equal(string.Join("\n", expected), body);
+
+        var listed = (await client.ListResourcesAsync(cancellationToken: Ct)).Select(r => r.Uri).ToList();
+        Assert.Contains(WorkUris.Attention, listed);
     }
 
     /// <summary>

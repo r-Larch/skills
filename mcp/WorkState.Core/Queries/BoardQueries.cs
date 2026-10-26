@@ -10,7 +10,7 @@ namespace WorkState.Core.Queries;
 /// it, the notes addressed to it, the evidence behind each row and the six things the attention
 /// block ranks. Everything here is a projection — no statement in this file writes.
 /// </summary>
-public sealed class BoardQueries(NpgsqlDataSource dataSource)
+public sealed partial class BoardQueries(NpgsqlDataSource dataSource)
 {
     /// <summary>Self or anything beneath it. The subtree predicate every query below repeats.</summary>
     private const string InScope = "(i.id = @scope OR i.ancestors @> ARRAY[@scope]::uuid[])";
@@ -48,7 +48,10 @@ public sealed class BoardQueries(NpgsqlDataSource dataSource)
              JOIN   item_kind k ON k.key = i.kind
              LEFT JOIN item_rollup r ON r.id = i.id
              WHERE  i.workspace_id = @workspace AND i.kind IN ('run','project')
-             ORDER BY (i.kind = 'run') DESC,
+             ORDER BY EXISTS (SELECT 1 FROM item ap
+                              WHERE  (ap.id = i.id OR ap.id = ANY(i.ancestors))
+                                AND  ap.archived_at IS NOT NULL),
+                      (i.kind = 'run') DESC,
                       (coalesce(r.open_count,0) + coalesce(r.doing_count,0)
                        + coalesce(r.review_count,0)) DESC,
                       k.rank, i.seq
@@ -59,8 +62,9 @@ public sealed class BoardQueries(NpgsqlDataSource dataSource)
     }
 
     /// <summary>
-    /// Every project in the workspace, for the dashboard's switcher (doc 09 §5). Ordered by ref so
-    /// the switcher does not reshuffle itself between polls.
+    /// Every project in the workspace, archived ones included (the caller decides what to hide),
+    /// newest activity first: the newest journal event anywhere in the project's subtree. Ref breaks
+    /// ties so the order is stable between polls.
     /// </summary>
     public async Task<IReadOnlyList<ProjectRow>> ProjectsAsync(
         Guid workspaceId,
@@ -68,18 +72,26 @@ public sealed class BoardQueries(NpgsqlDataSource dataSource)
     {
         const string sql =
             """
-            SELECT p.id     AS "Id",
-                   p.ref    AS "Ref",
-                   p.title  AS "Title",
-                   p.status AS "Status",
-                   coalesce(r.runs, 0)::int AS "RunCount"
+            SELECT p.id          AS "Id",
+                   p.ref         AS "Ref",
+                   p.title       AS "Title",
+                   p.status      AS "Status",
+                   coalesce(r.runs, 0)::int AS "RunCount",
+                   p.archived_at AS "ArchivedAt",
+                   a.at          AS "LastActivityAt",
+                   coalesce(r.open_runs, 0)::int AS "OpenRuns"
             FROM   item p
             LEFT   JOIN LATERAL (
-                     SELECT count(*) AS runs
+                     SELECT count(*) AS runs,
+                            count(*) FILTER (WHERE c.status NOT IN ('done','cancelled','superseded')) AS open_runs
                      FROM   item c
                      WHERE  c.kind = 'run' AND c.ancestors @> ARRAY[p.id]::uuid[]) r ON true
+            LEFT   JOIN LATERAL (
+                     SELECT max(e.at) AS at
+                     FROM   event e JOIN item x ON x.id = e.item_id
+                     WHERE  x.id = p.id OR x.ancestors @> ARRAY[p.id]::uuid[]) a ON true
             WHERE  p.workspace_id = @workspace AND p.kind = 'project'
-            ORDER  BY p.ref;
+            ORDER  BY a.at DESC NULLS LAST, p.ref;
             """;
 
         return await ListAsync<ProjectRow>(sql, new { workspace = workspaceId }, cancellationToken);
@@ -430,6 +442,27 @@ public sealed class BoardQueries(NpgsqlDataSource dataSource)
             """;
 
         return await ListAsync<VerificationRow>(sql, new { ids = itemIds.ToArray() }, cancellationToken);
+    }
+
+    /// <summary>Every work_report against the items, oldest attempt first — work_get prints them whole.</summary>
+    public async Task<IReadOnlyList<ItemReportRow>> ReportsAsync(
+        IReadOnlyCollection<Guid> itemIds,
+        CancellationToken cancellationToken = default)
+    {
+        const string sql =
+            """
+            SELECT a.item_id    AS "ItemId",
+                   a.n          AS "N",
+                   r.status     AS "Status",
+                   a.agent_name AS "AgentName",
+                   r.raw        AS "Raw"
+            FROM   report r
+            JOIN   attempt a ON a.id = r.attempt_id
+            WHERE  a.item_id = ANY(@ids)
+            ORDER  BY a.n, r.id;
+            """;
+
+        return await ListAsync<ItemReportRow>(sql, new { ids = itemIds.ToArray() }, cancellationToken);
     }
 
     /// <summary>Everything the flag vocabulary of doc 06 §2 needs, one row per item.</summary>
@@ -912,8 +945,8 @@ public sealed class BoardQueries(NpgsqlDataSource dataSource)
         const string sql =
             """
             SELECT 'constraint-no-route'                             AS "Check",
-                   left(c.text, 40)                                  AS "Ref",
-                   'binding rule with no route: ' || left(c.text, 70) AS "Problem",
+                   c.ref                                             AS "Ref",
+                   'binding rule with no route: ' || c.text          AS "Problem",
                    'record the way out — a rule demanding a capability the agent lacks is a trap' AS "Route"
             FROM   constraint_rule c
             CROSS  JOIN (SELECT id, ancestors FROM item WHERE id = @scope) x

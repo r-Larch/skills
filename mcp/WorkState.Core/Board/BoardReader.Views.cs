@@ -49,9 +49,14 @@ public sealed partial class BoardReader
                 Evidence: EvidenceOf(fact),
                 Flags: fact?.ReviewRequired == true ? [Flag.ReviewRequired] : null)));
 
-            lines.Add(row.VerifyCmd is { Length: > 0 }
-                ? $"      verify  {Glyph.Clip(row.VerifyCmd, 84)}"
-                : $"      verify  none recorded — work_update(ref:\"{row.Ref}\", verify_cmd:\"…\") before closing");
+            if (row.VerifyCmd is { Length: > 0 })
+            {
+                lines.AddRange(BriefRenderer.Wrap("      verify  ", row.VerifyCmd, 14));
+            }
+            else
+            {
+                lines.Add($"      verify  none recorded — work_update(ref:\"{row.Ref}\", verify_cmd:\"…\") before closing");
+            }
         }
 
         lines.Add(string.Empty);
@@ -69,6 +74,21 @@ public sealed partial class BoardReader
         bool includeCounts,
         CancellationToken cancellationToken = default)
     {
+        var keep = new HashSet<ItemStatus>();
+        foreach (var name in statuses)
+        {
+            if (!Transitions.TryParseStatus(name, out var parsed))
+            {
+                return Refusal.Blocked(
+                    $"work_tree(status:\"{string.Join(",", statuses)}\") on {scope.Item.Ref}.",
+                    $"\"{name}\" is not a status",
+                    $"work_tree(scope:\"{scope.Item.Ref}\", status:\"…\") with any of: "
+                    + string.Join(", ", Enum.GetValues<ItemStatus>().Select(Transitions.Name)));
+            }
+
+            keep.Add(parsed);
+        }
+
         var subtree = await queries.SubtreeAsync(scope.Item.Id, cancellationToken);
         if (subtree.Count == 0)
         {
@@ -82,9 +102,7 @@ public sealed partial class BoardReader
 
         var nodes = subtree
             .Where(n => n.Depth - root.Depth <= depth)
-            .Where(n => statuses.Count == 0
-                        || n.Id == root.Id
-                        || statuses.Contains(n.Status.ToString().ToLowerInvariant()))
+            .Where(n => keep.Count == 0 || n.Id == root.Id || keep.Contains(n.Status))
             .ToList();
 
         var lines = new List<string>();
@@ -127,6 +145,7 @@ public sealed partial class BoardReader
     {
         var workspaceId = home.WorkspaceId;
         var resolved = new List<ScopeRef>();
+        var assumptions = new List<AssumptionDetailRow>();
         var problems = new List<string>();
 
         foreach (var reference in references)
@@ -151,14 +170,33 @@ public sealed partial class BoardReader
                           + $"→ work_get(refs:[{string.Join(", ", candidates.Select(c => $"\"{c}\""))}])");
                     break;
                 default:
-                    problems.Add($"✗ no item has ref \"{reference}\" "
-                               + $"→ work_search(q:\"{reference}\") or work_tree()");
+                    var assumed = await board.AssumptionByRefAsync(workspaceId, reference.Trim(), cancellationToken);
+                    if (assumed.Count == 1)
+                    {
+                        assumptions.Add(assumed[0]);
+                        break;
+                    }
+
+                    var forms = assumed.Where(a => a.Qualified).Take(5).Select(a => $"\"{a.QualifiedRef}\"").ToList();
+                    problems.Add(assumed.Count == 0
+                        ? $"✗ no item or assumption has ref \"{reference}\" "
+                          + $"→ work_search(q:\"{reference}\") or work_tree()"
+                        : forms.Count == 0
+                            ? $"✗ \"{reference}\" names {assumed.Count} assumptions and no ref names only one "
+                              + "→ work_threads(include:\"assumptions\") lists them"
+                            : $"✗ \"{reference}\" names {assumed.Count} assumptions across runs — qualify it "
+                              + $"→ work_get(refs:[{string.Join(", ", forms)}])");
                     break;
             }
         }
 
         if (resolved.Count == 0)
         {
+            if (assumptions.Count > 0)
+            {
+                return string.Join("\n", [.. problems, .. assumptions.SelectMany(AssumptionDetail), string.Empty, AssumptionNext(assumptions[0])]);
+            }
+
             return problems.Count == 0
                 ? "work_get needs at least one ref → work_next() or work_tree() to find one."
                 : string.Join("\n", problems);
@@ -173,7 +211,12 @@ public sealed partial class BoardReader
             ? await board.LinksAsync(ids, cancellationToken)
             : [];
         var verifications = (await board.VerificationsAsync(ids, cancellationToken)).ToLookup(v => v.ItemId);
+        var reports = (await board.ReportsAsync(ids, cancellationToken)).ToLookup(r => r.ItemId);
         var blocked = (await board.BlockedByAsync(ids, cancellationToken)).ToLookup(b => b.ItemId, b => b.BlockedByRef);
+        var projects = resolved.Where(r => r.Kind == "project").Select(r => r.Id).Distinct().ToList();
+        var repos = (projects.Count == 0 ? [] : await board.ProjectReposAsync(projects, cancellationToken))
+            .ToLookup(r => r.ProjectId);
+        var imports = (await board.ImportsAsync(ids, cancellationToken)).ToLookup(r => r.ItemId);
 
         var lines = new List<string>(problems);
 
@@ -191,11 +234,29 @@ public sealed partial class BoardReader
                 Evidence: EvidenceOf(fact),
                 Flags: FlagsFor(item.Id, item.Status, fact, blocked))));
 
-            // "Full detail": intent, criteria and evidence wrap like the worker brief and never clip.
-            // Boards keep one clipped row per item; this is the call a board row routes to.
+            // The head row is the one place this view shortens; a title it cut is printed whole here.
+            if (Glyph.Flat(item.Title).Length > Columns.Title)
+            {
+                lines.AddRange(BriefRenderer.Wrap("  title     ", item.Title, 12));
+            }
+
             if (item.Intent is { Length: > 0 })
             {
                 lines.AddRange(BriefRenderer.Wrap("  intent    ", item.Intent, 12));
+            }
+
+            foreach (var repo in repos[item.Id])
+            {
+                lines.Add($"  repo      {Glyph.Pad(repo.Kind, 6)} {repo.Key}");
+            }
+
+            foreach (var imported in imports[item.Id])
+            {
+                lines.AddRange(BriefRenderer.Wrap(
+                    "  imported  ",
+                    $"from {imported.Source} by {imported.ImportedBy}, {Glyph.Ago(Since(imported.UpdatedAt))}",
+                    12));
+                lines.AddRange(BriefRenderer.Wrap("  why       ", imported.Why, 12));
             }
 
             foreach (var criterion in criteria[item.Id])
@@ -204,13 +265,22 @@ public sealed partial class BoardReader
                 lines.AddRange(BriefRenderer.Wrap(label, criterion.Text, label.Length));
             }
 
-            foreach (var verification in verifications[item.Id].Take(2))
+            foreach (var verification in verifications[item.Id])
             {
                 lines.AddRange(BriefRenderer.Wrap(
                     "  evidence  ",
                     $"{(verification.Passed ? "✓" : "✗")} {verification.ResultLine} "
                     + $"by {verification.RunBy.ToString().ToLowerInvariant()}, "
-                    + $"{Glyph.Age(Since(verification.At))} ago",
+                    + Glyph.Ago(Since(verification.At)),
+                    12));
+            }
+
+            // work_history lists a report as one line; this is the only view that prints its body.
+            foreach (var report in reports[item.Id])
+            {
+                lines.AddRange(BriefRenderer.Wrap(
+                    "  report    ",
+                    $"attempt {report.N} {report.Status} by {report.AgentName ?? Glyph.None} — {report.Raw}",
                     12));
             }
 
@@ -227,6 +297,8 @@ public sealed partial class BoardReader
             lines.Add($"  uri       {WorkUris.Item(callable)}");
             lines.Add($"  brief     {WorkUris.ItemBrief(callable)} — read it with ReadMcpResourceTool");
         }
+
+        lines.AddRange(assumptions.SelectMany(AssumptionDetail));
 
         facts.TryGetValue(resolved[0].Id, out var head);
         var next = await CallableAsync(resolved[0], head, cancellationToken);
@@ -251,20 +323,23 @@ public sealed partial class BoardReader
         var hits = await queries.SearchAsync(workspaceId, query, limit, cancellationToken);
         if (hits.Count == 0)
         {
-            return $"SEARCH \"{Glyph.Clip(query, 40)}\" — no hits.\n"
+            return $"SEARCH \"{Glyph.Flat(query)}\" — no hits.\n"
                  + "      Try fewer words, or work_tree() to see what is here.";
         }
 
-        var lines = new List<string> { $"SEARCH \"{Glyph.Clip(query, 40)}\" — {hits.Count} hits", string.Empty };
+        var lines = new List<string> { $"SEARCH \"{Glyph.Flat(query)}\" — {hits.Count} hits", string.Empty };
 
         lines.AddRange(hits.Select(hit =>
-            $"{Glyph.Pad(Glyph.Clip(hit.Ref, 18), 18)}  "
+            $"{Glyph.Pad(Glyph.Flat(hit.Ref), 18)}  "
             + $"{Glyph.Pad(hit.Source == "item" ? "item" : "doc", 5)}  "
-            + $"{Glyph.Pad(Glyph.Clip(hit.Title, 30), 30)}  "
-            + Glyph.Clip(hit.Snippet, 40)));
+            + $"{Glyph.Pad(Glyph.Row(hit.Title, 30), 30)}  "
+            + Glyph.Row(hit.Snippet, 40)));
 
         lines.Add(string.Empty);
-        lines.Add($"Next: work_get(refs:[\"{hits[0].Ref}\"]) on a hit.");
+        lines.Add(hits[0].Source == "item"
+            ? $"Next: work_get(refs:[\"{hits[0].Ref}\"]) on a hit."
+            : $"Next: read {WorkUris.Doc(hits[0].Ref.Split('#')[0])} for a doc hit's whole text, "
+              + "work_get(refs:[…]) for an item hit.");
         return string.Join("\n", lines);
     }
 
@@ -274,68 +349,10 @@ public sealed partial class BoardReader
         IReadOnlyCollection<string> include,
         CancellationToken cancellationToken = default)
     {
-        var wanted = include.Count == 0 ? AllThreads : include;
-        var lines = new List<string>();
-
-        if (wanted.Contains("assumptions"))
-        {
-            var assumptions = await board.AssumptionsAsync(scope.WorkspaceId, scope.Item.Id, true, cancellationToken);
-            lines.AddRange(assumptions.Select(a =>
-                $"{Glyph.Pad(a.Ref, 6)}  {Glyph.Pad("assum", 6)}  "
-                + $"{Glyph.Pad(Glyph.Clip(a.Statement, 46), 46)}  "
-                + $"{Glyph.Pad(a.Evidence.ToString().ToLowerInvariant(), 9)}  "
-                + $"— work_assume(ref:\"{a.Ref}\", resolve:\"confirmed\", evidence:\"…\")"));
-        }
-
-        var threads = await queries.OpenThreadsAsync(scope.WorkspaceId, scope.Item.Id, cancellationToken);
-
-        if (wanted.Contains("findings"))
-        {
-            lines.AddRange(threads.Where(t => t.Type == "finding").Select(t =>
-                $"{Glyph.Pad(t.Ref, 6)}  {Glyph.Pad("find", 6)}  "
-                + $"{Glyph.Pad(Glyph.Clip(t.Text, 46), 46)}  "
-                + $"— work_status(ref:\"{t.Ref}\", to:\"done\")"));
-        }
-
-        if (wanted.Contains("followups"))
-        {
-            lines.AddRange(threads.Where(t => t.Type == "followup").Select(t =>
-                $"{Glyph.Pad(t.Ref, 6)}  {Glyph.Pad("foll", 6)}  "
-                + $"{Glyph.Pad(Glyph.Clip(t.Text, 46), 46)}  "
-                + $"— work_status(ref:\"{t.Ref}\", to:\"in_progress\")"));
-        }
-
-        if (wanted.Contains("notes"))
-        {
-            // Only the worker brief of its addressee consumes a note (Housekeeping.ConsumeNotesAsync),
-            // so a note with no addressee is a record that never closes — not a thread.
-            var notes = await board.UnconsumedNotesAsync(scope.WorkspaceId, scope.Item.Id, cancellationToken);
-            foreach (var n in notes.Where(n => n.ToItemId is not null).Take(20))
-            {
-                lines.Add($"{Glyph.Pad(n.ToRef!, 6)}  {Glyph.Pad("note", 6)}  "
-                        + $"{Glyph.Pad(Glyph.Clip(n.Body, 46), 46)}  "
-                        + $"— work_brief(scope:\"{await AddresseeRefAsync(scope.WorkspaceId, n, cancellationToken)}\", "
-                        + "for:\"worker\") consumes it");
-            }
-        }
-
-        if (wanted.Contains("deps"))
-        {
-            var deps = await queries.UnclosedDependenciesAsync(scope.Item.Id, cancellationToken);
-            lines.AddRange(deps.Select(d =>
-                $"{Glyph.Pad(d.Waiting, 6)}  {Glyph.Pad("dep", 6)}  "
-                + $"{Glyph.Pad($"waiting on {d.On} ({d.Status.ToString().ToLowerInvariant()})", 46)}  "
-                + $"— work_status(ref:\"{d.On}\", to:\"done\") or work_link to re-point it"));
-        }
-
-        if (wanted.Contains("stale"))
-        {
-            var stale = await board.StaleInProgressAsync(scope.Item.Id, StaleHours, cancellationToken);
-            lines.AddRange(stale.Select(s =>
-                $"{Glyph.Pad(s.Ref, 6)}  {Glyph.Pad("stale", 6)}  "
-                + $"{Glyph.Pad($"in_progress {Glyph.Age(Since(s.StartedAt))}, no live claim", 46)}  "
-                + $"— work_status(ref:\"{s.Ref}\", to:\"in_progress\") to retake it"));
-        }
+        var rowList = (await ThreadsAsync(scope, include, rows: true, cancellationToken)).ToList();
+        // A wrapped row spans several lines, so the header counts rows, not lines.
+        var rows = rowList.Count;
+        var lines = rowList.SelectMany(row => row).ToList();
 
         if (lines.Count == 0)
         {
@@ -344,8 +361,101 @@ public sealed partial class BoardReader
         }
 
         lines.Insert(0, string.Empty);
-        lines.Insert(0, $"THREADS  {lines.Count - 1} unclosed under {scope.Item.Ref}");
+        lines.Insert(0, $"THREADS  {rows} unclosed under {scope.Item.Ref}");
         return string.Join("\n", lines);
+    }
+
+    /// <summary>
+    /// What <c>work_threads</c> lists, plus the expired claims its attention block names that no
+    /// stale row already covers — the housekeeping prompt's count, so the number on the button is the
+    /// number of rows the agent it starts will see.
+    /// </summary>
+    public async Task<int> UnclosedCountAsync(ScopeResult.Found scope, CancellationToken cancellationToken = default)
+    {
+        var rows = await ThreadsAsync(scope, [], rows: true, cancellationToken);
+        var stale = (await board.StaleInProgressAsync(scope.Item.Id, StaleHours, cancellationToken)).Select(s => s.Id).ToHashSet();
+        var expired = await board.ExpiredClaimsAsync(scope.Item.Id, cancellationToken);
+
+        return rows.Count + expired.Count(c => !stale.Contains(c.ItemId));
+    }
+
+    /// <summary>
+    /// One entry per thread, each the lines it renders to. Named <c>ThreadsAsync</c> because the
+    /// <c>Glyph.Row</c> allow-list in NoClipSourceTests is keyed by method name.
+    /// </summary>
+    private async Task<IReadOnlyList<IReadOnlyList<string>>> ThreadsAsync(
+        ScopeResult.Found scope,
+        IReadOnlyCollection<string> include,
+        bool rows,
+        CancellationToken cancellationToken)
+    {
+        var wanted = include.Count == 0 ? AllThreads : include;
+        var found = new List<IReadOnlyList<string>>();
+
+        if (wanted.Contains("assumptions"))
+        {
+            var assumptions = await board.AssumptionsAsync(scope.WorkspaceId, scope.Item.Id, true, cancellationToken);
+            // An assumption has no detail view, so this is where its statement is read whole.
+            found.AddRange(assumptions.Select(a => WrappedRow(
+                $"{Glyph.Pad(a.Ref, 6)}  {Glyph.Pad("assum", 6)}  ",
+                a.Statement,
+                $"{Glyph.Pad(a.Evidence.ToString().ToLowerInvariant(), 9)}  "
+                + $"— work_assume(ref:\"{a.Ref}\", resolve:\"confirmed\", evidence:\"…\")").ToList()));
+        }
+
+        var threads = await queries.OpenThreadsAsync(scope.WorkspaceId, scope.Item.Id, cancellationToken);
+
+        if (wanted.Contains("findings"))
+        {
+            found.AddRange(threads.Where(t => t.Type == "finding").Select(t => (IReadOnlyList<string>)[
+                $"{Glyph.Pad(t.Ref, 6)}  {Glyph.Pad("find", 6)}  "
+                + $"{Glyph.Pad(Glyph.Row(t.Text, 46), 46)}  "
+                + $"— work_status(ref:\"{t.Ref}\", to:\"done\")"]));
+        }
+
+        if (wanted.Contains("followups"))
+        {
+            found.AddRange(threads.Where(t => t.Type == "followup").Select(t => (IReadOnlyList<string>)[
+                $"{Glyph.Pad(t.Ref, 6)}  {Glyph.Pad("foll", 6)}  "
+                + $"{Glyph.Pad(Glyph.Row(t.Text, 46), 46)}  "
+                + $"— work_status(ref:\"{t.Ref}\", to:\"in_progress\")"]));
+        }
+
+        if (wanted.Contains("notes"))
+        {
+            // Only the worker brief of its addressee consumes a note (Housekeeping.ConsumeNotesAsync),
+            // so a note with no addressee is a record that never closes — not a thread.
+            var notes = await board.UnconsumedNotesAsync(scope.WorkspaceId, scope.Item.Id, cancellationToken);
+            // A note has no detail view and its brief consumes it, so its body is printed whole here.
+            foreach (var n in notes.Where(n => n.ToItemId is not null))
+            {
+                found.Add(WrappedRow(
+                    $"{Glyph.Pad(n.ToRef!, 6)}  {Glyph.Pad("note", 6)}  ",
+                    n.Body,
+                    $"— work_brief(scope:\"{await AddresseeRefAsync(scope.WorkspaceId, n, cancellationToken)}\", "
+                    + "for:\"worker\") consumes it").ToList());
+            }
+        }
+
+        if (wanted.Contains("deps"))
+        {
+            var deps = await queries.UnclosedDependenciesAsync(scope.Item.Id, cancellationToken);
+            found.AddRange(deps.Select(d => (IReadOnlyList<string>)[
+                $"{Glyph.Pad(d.Waiting, 6)}  {Glyph.Pad("dep", 6)}  "
+                + $"{Glyph.Pad($"waiting on {d.On} ({d.Status.ToString().ToLowerInvariant()})", 46)}  "
+                + $"— work_status(ref:\"{d.On}\", to:\"done\") or work_link to re-point it"]));
+        }
+
+        if (wanted.Contains("stale"))
+        {
+            var stale = await board.StaleInProgressAsync(scope.Item.Id, StaleHours, cancellationToken);
+            found.AddRange(stale.Select(s => (IReadOnlyList<string>)[
+                $"{Glyph.Pad(s.Ref, 6)}  {Glyph.Pad("stale", 6)}  "
+                + $"{Glyph.Pad($"in_progress {Glyph.Age(Since(s.StartedAt))}, no live claim", 46)}  "
+                + $"— work_status(ref:\"{s.Ref}\", to:\"in_progress\") to retake it"]));
+        }
+
+        return found;
     }
 
     /// <summary>doc 01 §5 — the mechanical half of the plan audit; every row carries its fix.</summary>
@@ -396,15 +506,11 @@ public sealed partial class BoardReader
         foreach (var group in rows.GroupBy(r => r.Check))
         {
             lines.Add($"{group.Key} ({group.Count()})");
-            foreach (var row in group.Take(10))
+            foreach (var row in group)
             {
-                lines.Add($"  ✗ {Glyph.Pad(Glyph.Clip(row.Ref, 12), 12)} {Glyph.Clip(row.Problem, 80)}");
-                lines.Add($"      → {Glyph.Clip(row.Route, 92)}");
-            }
-
-            if (group.Count() > 10)
-            {
-                lines.Add($"  · +{group.Count() - 10} more of the same shape");
+                var label = $"  ✗ {Glyph.Pad(Glyph.Flat(row.Ref), 12)} ";
+                lines.AddRange(BriefRenderer.Wrap(label, row.Problem, label.Length));
+                lines.AddRange(BriefRenderer.Wrap("      → ", row.Route, 8));
             }
         }
 
@@ -439,12 +545,16 @@ public sealed partial class BoardReader
             string.Empty,
         };
 
-        lines.AddRange(events.Select(e =>
-            $"{Glyph.Pad(e.Seq.ToString(), 7)}  "
-            + $"{Glyph.Pad(Glyph.Clip(e.ItemRef ?? Glyph.None, 6), 6)}  "
-            + $"{Glyph.Pad(Glyph.Clip(e.Kind, 18), 18)}  "
-            + $"{Glyph.Pad(Glyph.Clip(e.Actor, 18), 18)}  "
-            + Glyph.Clip(e.Summary ?? string.Empty, 40)));
+        // An event has no detail view, so its summary wraps whole under its row.
+        foreach (var e in events)
+        {
+            var label = $"{Glyph.Pad(e.Seq.ToString(), 7)}  "
+                        + $"{Glyph.Pad(Glyph.Flat(e.ItemRef ?? Glyph.None), 6)}  "
+                        + $"{Glyph.Pad(Glyph.Flat(e.Kind), 18)}  "
+                        + $"{Glyph.Pad(Glyph.Flat(e.Actor), 18)}  ";
+            var row = BriefRenderer.Wrap(label, e.Summary, 9);
+            lines.AddRange(row.Count > 0 ? row : [label.TrimEnd()]);
+        }
 
         lines.Add(string.Empty);
         lines.Add($"Next: work_get(refs:[\"{events.First(e => e.ItemRef is not null).ItemRef}\"]) "
@@ -472,11 +582,11 @@ public sealed partial class BoardReader
 
         foreach (var rule in rules)
         {
-            lines.Add($"{(rule.Kind == ConstraintKind.RedLine ? "!" : "·")} "
-                    + $"{Glyph.Pad(Glyph.Flat(rule.Ref), 4)}{Glyph.Clip(rule.Text, 92)}");
+            var label = $"{(rule.Kind == ConstraintKind.RedLine ? "!" : "·")} {Glyph.Pad(Glyph.Flat(rule.Ref), 4)}";
+            lines.AddRange(BriefRenderer.Wrap(label, rule.Text, label.Length));
             if (rule.Route is { Length: > 0 })
             {
-                lines.Add($"    → {Glyph.Clip(rule.Route, 92)}");
+                lines.AddRange(BriefRenderer.Wrap("    → ", rule.Route, 6));
             }
         }
 
@@ -567,4 +677,22 @@ public sealed partial class BoardReader
     }
 
     private static TimeSpan? Ago(DateTimeOffset? at) => at is { } value ? Since(value) : null;
+
+    private const int ThreadTextWidth = 46;
+
+    /// <summary>
+    /// A threads row whose text is the only full copy anywhere. While the text fits its column the
+    /// row is the usual one line; a longer text wraps whole and the tail (evidence, route) moves to a
+    /// line of its own beneath it, so neither the text nor the call is broken up.
+    /// </summary>
+    private static IEnumerable<string> WrappedRow(string head, string? text, string tail)
+    {
+        var flat = Glyph.Flat(text);
+        if (flat.Length <= ThreadTextWidth)
+        {
+            return [$"{head}{Glyph.Pad(flat, ThreadTextWidth)}  {tail}"];
+        }
+
+        return [.. BriefRenderer.Wrap(head, flat, head.Length), $"{new string(' ', head.Length)}{tail}"];
+    }
 }

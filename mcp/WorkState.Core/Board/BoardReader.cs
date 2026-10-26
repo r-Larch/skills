@@ -64,6 +64,39 @@ public sealed partial class BoardReader(WorkStateQueries queries, BoardQueries b
     }
 
     /// <summary>
+    /// <c>work_brief</c> with no scope, for a caller whose repository is known — from its
+    /// <c>repo:</c> argument, else from the minted session it was launched as. It opens the
+    /// project itself, whose brief names the run to resume. Null when neither names a repository,
+    /// which leaves the caller on <see cref="ResolveAsync"/>'s busiest run.
+    /// </summary>
+    public async Task<ScopeResult?> ResolveRepoAsync(
+        string? workspaceSlug,
+        IReadOnlyList<RepoKey> asked,
+        Guid? sessionId,
+        CancellationToken cancellationToken = default)
+    {
+        var keys = asked.Count > 0 || sessionId is not { } session
+            ? asked
+            : (await board.SessionRepoAsync(session, cancellationToken))?.Keys() ?? [];
+
+        if (keys.Count == 0)
+        {
+            return null;
+        }
+
+        var workspaceId = await board.WorkspaceAsync(workspaceSlug, cancellationToken);
+        if (workspaceId is not { } workspace)
+        {
+            return new ScopeResult.Unbound(keys, []);
+        }
+
+        var project = await board.ProjectByRepoAsync(workspace, keys, cancellationToken);
+        return project is null
+            ? new ScopeResult.Unbound(keys, await board.ProjectRefsAsync(workspace, cancellationToken))
+            : new ScopeResult.Found(workspace, project);
+    }
+
+    /// <summary>
     /// A bare ref that exists in several runs is disambiguated in favour of the caller's own run.
     /// ACCEPTANCE A-1: the refusal named <c>document-store/3.1</c> to an agent working in
     /// <c>entity-store</c> — a callable line that satisfies doc 04 §3 and sends the caller to the
@@ -90,12 +123,31 @@ public sealed partial class BoardReader(WorkStateQueries queries, BoardQueries b
     /// The brief and the ids of the notes it rendered — what <see cref="BriefSessionAsync"/> may
     /// consume, and nothing else.
     /// </summary>
+    /// <summary>An archived project still opens; its brief's header says so (doc 02).</summary>
+    private async Task<string> MarkArchivedAsync(Guid itemId, string text, CancellationToken cancellationToken)
+    {
+        if (await board.ArchivedAtAsync(itemId, cancellationToken) is not { } archivedAt)
+        {
+            return text;
+        }
+
+        var lines = text.Split('\n');
+        lines[0] += $"  ·  archived {archivedAt:yyyy-MM-dd}";
+        return string.Join("\n", lines);
+    }
+
     private async Task<(string Text, IReadOnlyList<Guid> RenderedNoteIds)> RenderBriefAsync(
         ScopeResult.Found scope,
         string variant,
         CancellationToken cancellationToken)
     {
         var item = scope.Item;
+        if (item.Kind == "project")
+        {
+            var (projectText, renderedIds) = await RenderProjectBriefAsync(scope, variant, cancellationToken);
+            return (await MarkArchivedAsync(item.Id, projectText, cancellationToken), renderedIds);
+        }
+
         var header = await board.HeaderAsync(item.Id, cancellationToken);
         var subtree = await queries.SubtreeAsync(item.Id, cancellationToken);
         var frontier = await queries.ReadyFrontierAsync(item.Id, cancellationToken);
@@ -137,7 +189,7 @@ public sealed partial class BoardReader(WorkStateQueries queries, BoardQueries b
                     verify.Passed),
             Attention: attention);
 
-        var text = BriefRenderer.Render(model, IsWorkerVariant(variant));
+        var text = await MarkArchivedAsync(item.Id, BriefRenderer.Render(model, IsWorkerVariant(variant)), cancellationToken);
 
         if (IsWorkerVariant(variant))
         {
@@ -219,18 +271,18 @@ public sealed partial class BoardReader(WorkStateQueries queries, BoardQueries b
         ScopeResult.Found scope,
         CancellationToken cancellationToken = default)
     {
-        var lines = new List<AttentionLine>();
         var item = scope.Item;
+        var lines = new ScopedAttention(await CallableAsync(item, cancellationToken));
 
         foreach (var claim in await board.ExpiredClaimsAsync(item.Id, cancellationToken))
         {
             var (on, tree) = claim.Tree is { } t
-                ? ($" on tree \"{Glyph.Clip(t, 40)}\"", $", tree:\"{t}\"")
+                ? ($" on tree \"{Glyph.Flat(t)}\"", $", tree:\"{t}\"")
                 : (string.Empty, string.Empty);
 
             lines.Add(new AttentionLine(
                 AttentionRank.ExpiredClaim,
-                $"{claim.ItemRef} claim by {claim.AgentName}{on} expired {Glyph.Age(Since(claim.ExpiresAt))} ago",
+                $"{claim.ItemRef} claim by {claim.AgentName}{on} expired {Glyph.Ago(Since(claim.ExpiresAt))}",
                 $"work_status(ref:\"{claim.ItemRef}\", to:\"in_progress\"{tree}) to retake it",
                 claim.ItemRef,
                 claim.QualifiedRef));
@@ -241,7 +293,7 @@ public sealed partial class BoardReader(WorkStateQueries queries, BoardQueries b
             var target = blocker.TargetRef is { Length: > 0 } ? $" against {blocker.TargetRef}" : string.Empty;
             lines.Add(new AttentionLine(
                 AttentionRank.BlockerFinding,
-                $"{blocker.FindingRef} (BLOCKER) is open{target}: {Glyph.Clip(blocker.FindingTitle, 40)}",
+                $"{blocker.FindingRef} (BLOCKER) is open{target}: {Glyph.Row(blocker.FindingTitle, 40)}",
                 $"work_status(ref:\"{blocker.FindingRef}\", to:\"done\")",
                 blocker.FindingRef,
                 blocker.QualifiedRef));
@@ -353,7 +405,7 @@ public sealed partial class BoardReader(WorkStateQueries queries, BoardQueries b
     {
         var criteria = await board.CriteriaAsync([item.Id], cancellationToken);
         var facts = (await board.FactsAsync([item.Id], cancellationToken)).FirstOrDefault();
-        var lines = new List<string> { $"YOUR TASK  {item.Ref} — {Glyph.Flat(item.Title)}" };
+        var lines = new List<string>(BriefRenderer.Wrap($"YOUR TASK  {item.Ref} — ", item.Title, 11));
 
         if (item.Intent is { Length: > 0 })
         {
@@ -362,7 +414,7 @@ public sealed partial class BoardReader(WorkStateQueries queries, BoardQueries b
 
         if (item.Status == ItemStatus.InProgress && facts?.HeldBy is { Length: > 0 } holder)
         {
-            lines.Add($"  held by   {Glyph.Clip(holder, 86)}");
+            lines.Add($"  held by   {Glyph.Flat(holder)}");
         }
 
         lines.Add(criteria.Count == 0
@@ -423,7 +475,7 @@ public sealed partial class BoardReader(WorkStateQueries queries, BoardQueries b
                       ?? phases[^1];
         var index = phases.IndexOf(current) + 1;
 
-        return $"phase {index} of {phases.Count} — {Glyph.Clip(current.Title, 34)}. "
+        return $"phase {index} of {phases.Count} — {Glyph.Flat(current.Title)}. "
              + $"{done} of {tasks.Count} tasks done across the run.";
     }
 

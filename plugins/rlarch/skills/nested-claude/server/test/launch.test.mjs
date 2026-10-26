@@ -6,6 +6,7 @@ import path from 'node:path'
 import { startServer, makeRepo, fakeWorkstate, CONTROLLER, CONTROLLER_TOKEN, MINTED_TOKEN, tmp } from './helpers.mjs'
 import { FIX_TOOLS, READONLY_TOOLS } from '../header.mjs'
 import { WORKSTATE_TOOLS } from '../launch-args.mjs'
+import { normaliseRoot } from '../repo.mjs'
 
 /** @param {ReturnType<typeof startServer>} s */
 function bgArgv(s) {
@@ -59,7 +60,7 @@ test('every parameter maps to its flag, variadics closed in order, prompt last',
         assert.equal(fs.realpathSync(cwd), fs.realpathSync(repo.root))
 
         const mint = ws.requests.find((q) => q.method === 'POST')
-        assert.deepEqual(mint?.body, { name: 'unit-1', role: 'orchestrator', launchedBy: 'skills-5d', cwd: repo.root, ttlHours: 24 })
+        assert.deepEqual(mint?.body, { name: 'unit-1', role: 'orchestrator', launchedBy: 'skills-5d', cwd: repo.root, ttlHours: 24, repo: { root: normaliseRoot(fs.realpathSync.native(repo.root)) } })
         assert.equal(mint?.auth, `Bearer ${CONTROLLER_TOKEN}`)
 
         assert.deepEqual(JSON.parse(fs.readFileSync(mcp, 'utf8')), {

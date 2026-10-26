@@ -69,7 +69,7 @@ public sealed partial class WorkWriter
                 "work_constrain(kind:\"red_line\") without a route.",
                 "a prohibition with no way out is a trap the author set themselves — the agent that "
                 + "hits it at 3am has nothing to do but guess or stop",
-                $"work_constrain(kind:\"red_line\", text:\"{Glyph.Clip(args.Text, 36)}\", "
+                $"work_constrain(kind:\"red_line\", text:\"{Glyph.Flat(args.Text)}\", "
                 + "route:\"…what to do instead, or who to ask\")",
                 "work_constrain(kind:\"domain_rule\", text:\"…\") if it is not actually a prohibition"));
         }
@@ -104,6 +104,52 @@ public sealed partial class WorkWriter
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
 
+        var (_, minted) = await InsertConstraintAsync(
+            connection, transaction, workspaceId, scopeItemId, kind, args, addedBy, cancellationToken);
+
+        await EventAsync(
+            connection,
+            transaction,
+            workspaceId,
+            scopeItemId ?? addedBy,
+            actor,
+            "constraint",
+            $"{minted} ({Pg.Label(kind)}) binds {scopeRef}: {Glyph.Flat(args.Text)}",
+            new { @ref = minted, kind = Pg.Label(kind), scope = args.Scope, text = args.Text, route = args.Route },
+            cancellationToken);
+
+        await transaction.CommitAsync(cancellationToken);
+
+        var lines = new List<string>
+        {
+            $"OK  {minted}  {Pg.Label(kind)} recorded, binding on {scopeRef}",
+            $"    {(kind == ConstraintKind.RedLine ? "!" : "·")} {Glyph.Row(args.Text, 92)}",
+        };
+
+        if (!Blank(args.Route))
+        {
+            lines.Add($"    → {Glyph.Flat(args.Route)}");
+        }
+
+        lines.Add(string.Empty);
+        lines.Add($"Next: nothing — it prints as {minted} in the BINDING block of every brief in "
+                + $"scope, until work_constrain(ref:\"{minted}\", retire:true, reason:\"…\").");
+
+        return WriteResult.Ok(string.Join("\n", lines));
+    }
+
+    /// <summary>Shared by <c>work_constrain</c> and <c>work_import</c>'s rule records.</summary>
+    private static async Task<(Guid Id, string Ref)> InsertConstraintAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        Guid workspaceId,
+        Guid? scopeItemId,
+        ConstraintKind kind,
+        ConstrainArgs args,
+        Guid? addedBy,
+        CancellationToken cancellationToken)
+    {
+        var id = Guid.CreateVersion7();
         var minted = await FreeConstraintRefAsync(connection, transaction, workspaceId, cancellationToken);
 
         const string sql =
@@ -119,7 +165,7 @@ public sealed partial class WorkWriter
             sql,
             new
             {
-                id = Guid.CreateVersion7(),
+                id,
                 workspace = workspaceId,
                 scope = scopeItemId,
                 @ref = minted,
@@ -133,35 +179,7 @@ public sealed partial class WorkWriter
             transaction,
             cancellationToken: cancellationToken));
 
-        await EventAsync(
-            connection,
-            transaction,
-            workspaceId,
-            scopeItemId ?? addedBy,
-            actor,
-            "constraint",
-            $"{minted} ({Pg.Label(kind)}) binds {scopeRef}: {Glyph.Clip(args.Text, 40)}",
-            new { @ref = minted, kind = Pg.Label(kind), scope = args.Scope, text = args.Text, route = args.Route },
-            cancellationToken);
-
-        await transaction.CommitAsync(cancellationToken);
-
-        var lines = new List<string>
-        {
-            $"OK  {minted}  {Pg.Label(kind)} recorded, binding on {scopeRef}",
-            $"    {(kind == ConstraintKind.RedLine ? "!" : "·")} {Glyph.Clip(args.Text, 92)}",
-        };
-
-        if (!Blank(args.Route))
-        {
-            lines.Add($"    → {Glyph.Clip(args.Route, 92)}");
-        }
-
-        lines.Add(string.Empty);
-        lines.Add($"Next: nothing — it prints as {minted} in the BINDING block of every brief in "
-                + $"scope, until work_constrain(ref:\"{minted}\", retire:true, reason:\"…\").");
-
-        return WriteResult.Ok(string.Join("\n", lines));
+        return (id, minted);
     }
 
     private async Task<WriteResult> RetireAsync(
@@ -226,7 +244,7 @@ public sealed partial class WorkWriter
             null,
             actor,
             "constraint",
-            $"{row.Ref} retired: {Glyph.Clip(reason, 40)}",
+            $"{row.Ref} retired: {Glyph.Flat(reason)}",
             new { @ref = row.Ref, retired = true, reason },
             cancellationToken);
 
@@ -235,8 +253,8 @@ public sealed partial class WorkWriter
         return WriteResult.Ok(string.Join(
             "\n",
             $"OK  {row.Ref}  retired; the row stays with active = false, because the record is the point",
-            $"    {Glyph.Clip(row.Text, 92)}",
-            $"    reason  {Glyph.Clip(reason, 86)}",
+            $"    {Glyph.Flat(row.Text)}",
+            $"    reason  {Glyph.Row(reason, 86)}",
             string.Empty,
             "Next: nothing — the next brief in scope no longer prints it."));
     }

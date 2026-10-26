@@ -64,6 +64,9 @@ public class Item
     public DateTimeOffset? ClosedAt { get; set; }
     public string? ClosedBy { get; set; }
 
+    /// <summary>A project only: hidden from the default lists, never deleted (doc 02 §2).</summary>
+    public DateTimeOffset? ArchivedAt { get; set; }
+
     public NpgsqlTsVector? Search { get; private set; }
 }
 

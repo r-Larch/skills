@@ -22,9 +22,42 @@
    spent its budget saying nothing.
 5. **Every result ends with the attention block, or nothing.** Never an empty header.
 
-**Width budget: 100 columns.** Long titles truncate with `…`; refs, status and evidence never do.
-Neither do a rule, its route or a task's intent in the worker brief: they wrap at 100 columns with
-an indented continuation (§4).
+**Width budget: 100 columns.** A long text wraps at 100 columns under an indented continuation; it
+is shortened only where the section below allows it. Refs, status and evidence never are.
+
+### What may be shortened
+
+Text is shortened with `…` in exactly two places, and only by `Glyph.Row`:
+
+1. **A one-line row of a list view** — `work_tree`, `work_next`, `work_search`, board rows, the
+   finding and followup lines of `work_threads`, attention lines, the head row of `work_get` — and
+   only when the row carries the ref of the thing, so `work_get(ref)` (or `work://doc/<slug>` for a
+   doc hit) prints it whole.
+2. **A write confirmation echoing the caller's own input** — `OK  note recorded` and the preview of
+   the body just sent.
+
+Everywhere else text is printed **whole**: every `work_brief` section (GOAL, BINDING, assumptions,
+notes, LAST VERIFY, the worker task's title, criteria and `verify_cmd`), every detail view
+(`work_get`, `work://item/<ref>`, `work://item/<ref>/brief`), the bodies `work_threads` and
+`work_history` are the only full copy of (assumption statements, addressed notes, event summaries),
+every refusal, route and `Next:` trailer, and anything a reader copies or runs — commands, refs, tool
+calls — even inside a list row (a row drops a route rather than print a cut one). What the server
+stores is stored whole too: a title, a result line or an event summary is never cut on the way in.
+
+A **count** may be capped (`+2 more`) only when the same line names the call that lists all of them.
+A text with no detail view at all is a gap, closed by printing it whole where it is listed — which is
+why `work_get` prints every `work_report` an item received, and `work_threads` an assumption's
+statement and an addressed note's body.
+
+The exceptions are an allow-list in `WorkState.Tests/Read/NoClipSourceTests.cs`: a call to
+`Glyph.Row` from any other method, `Clip(`, or a hand-made cut (`[..n]`, `Substring`, `left(`, a glued
+`"…"`) fails the build, and adding an entry is a visible review decision. `NoClipBehaviourTests`
+fills every text field with a 300-character sentinel and asserts each view shows it whole.
+
+> **Changed 2026-10-26 (noclip).** The fifth instance of the same bug — a `verify_cmd` cut to 44
+> characters *inside* the printed `work_verify(…)` route of the done-guard refusal, a route that could
+> not be copied and run — after intent and criteria in `work_get`, evidence lines, and notes in the
+> brief. `Glyph.Clip` had ~80 call sites in 15 files; it is gone.
 
 ---
 
@@ -39,7 +72,7 @@ an indented continuation (§4).
 | `ref` | 6 | left, truncation forbidden — it is the handle |
 | `kind` | 6 | `task`, `phase`, `find`, `foll`, `assum`, `run`, `proj` |
 | `status` | 9 | `open`, `ready`, `doing 43m`, `blocked`, `review`, `done`, `cancel`, `super` |
-| `title` | 34 | truncated with `…` |
+| `title` | 34 | truncated with `…` — a row; `work_get` prints it whole |
 | `evidence` | 12 | `✓12/12`, `✗2/14`, `—` |
 | `flags` | rest | only when abnormal |
 
@@ -88,7 +121,13 @@ A `phase` line shows `done/total` for its subtree. `—` where a rollup is meani
 ## 4. `work_brief` — the recovery payload
 
 The one call that starts every session. Replaces a `LEDGER.md` header block, **generated so it cannot
-go stale.** Target **≤ 35 lines**; it is paid on every session start.
+go stale.** It is paid on every session start, so the number of rules, assumptions and notes is
+capped, each cap naming the call that lists the rest — but every text it does show is whole ("What
+may be shortened", §1). Target **≤ 65 lines and ≤ 1,250 tokens** on the committed sample-run fixture.
+
+> **Changed 2026-10-26 (noclip).** The target was ≤ 35 lines / ≤ 900 tokens, met by cutting GOAL to
+> three lines and each rule and note to one. Printed whole, the fixture renders 56 lines and 1,063
+> tokens (it was 35 and 607); the bound is that plus ~15%.
 
 ```
 RUN entity-store  ·  project gaia  ·  branch feat/entity-store @ 7cd34161
@@ -154,9 +193,8 @@ in full, wrapped at 100 columns under an indented continuation:
          this controller did not start itself — report it to the controller and leave it as it is
 ```
 
-The resume brief (`for` omitted) still clips each rule to one line and GOAL to three: it is paid on
-every session start against the ≤ 35-line target, and the full conventions are one read away at
-`work://workspace/conventions`.
+The resume brief (`for` omitted) wraps them the same way since noclip; it differs only in showing at
+most five rules, with `+n more — read work://workspace/conventions` for the rest.
 
 > **Changed 2026-10-22 (ws/2).** Both briefs previously clipped a rule to one ~95-column line, GOAL to
 > three, and the worker brief's `intent` to one. A controller pastes the worker brief into a worker's
@@ -184,7 +222,9 @@ YOUR TASK  2.8 — ContentHash fix
         work_verify(ref:"2.8", …, run_by:"worker") records a claim, not evidence.
 ```
 
-The resume brief's `NEXT` is unchanged, and it keeps clipping notes to one line.
+The resume brief's `NEXT` is unchanged; its notes wrap whole as well (noclip). When the notes past its
+cap of three name no item, the overflow line routes to `work_history()`, which prints each note's
+event whole — `work_threads` lists only addressed notes.
 
 > **Changed 2026-10-22 (ws/3).** The worker brief's `NEXT` was the resume brief's — on a claimed task
 > `work_verify(…, run_by:"orchestrator") then work_status(ref, to:"done")`, on an open one
@@ -201,7 +241,9 @@ The resume brief's `NEXT` is unchanged, and it keeps clipping notes to one line.
 **`work_get` (and `work://item/<ref>`, which renders the same view) prints in full.** Intent, each
 criterion and each evidence line wrap at 100 columns under an indented continuation, like the worker
 brief. The boards — `work_tree`, `work_next`, `work_search` — keep one clipped row per item; `work_get`
-is the call such a row routes to.
+is the call such a row routes to. Its own head row is such a row, so a title longer than the column
+is printed again whole on a `title` line beneath it; every evidence line is listed (it showed the
+latest two), and every `work_report` the item received follows as a `report` line.
 
 > **Changed 2026-10-26 (tool-text).** `work_get` is described as "full detail" but clipped `intent` to
 > 86 columns, each criterion to 80 and each evidence result line to 44.
@@ -221,6 +263,59 @@ NOTES IN SCOPE (140)   — carried forward by this run; none names an item, so n
 **On an empty server** `work_brief` returns onboarding instead: what a project is, what makes a good
 `verify_cmd`, and the one call to make next. Cold start uses the same mechanism as every other path.
 
+### 4a. The project brief
+
+`work_brief` on a project — `scope:"<project>"`, or `repo:` / a minted session's bare call, which
+resolve to the bound project (doc 02) — is the continue-here context of the repository. Nobody works
+*on* a project, so its `NEXT` never transitions it: it resumes the busiest open run, or starts one.
+
+```
+PROJECT e2e  ·  End to end  ·  repo remote github.com/r-larch/e2e, root p:/projects/e2e
+GOAL <the project's intent, whole>
+
+OPEN RUNS (2)                      every open run but the backlog run
+  run-a — The run
+    0/2 tasks done · held: 1.2 by aw-alpha
+    next  work_get(refs:["1.1"]) then work_status(ref:"1.1", to:"in_progress")
+  run-b — The other run
+    0/1 tasks done
+    next  nothing ready — 9.1 is blocked; work_threads(scope:"run-b", include:"deps")
+
+RECENT (5 of 7 closed)             newest first: outcome, closed date, last commit in the run
+  m7 — Closed run 7 — done/accepted · 2026-10-23 · c0ffee07
+  · +2 older — work_tree(scope:"e2e", depth:1, status:"done,cancelled,superseded")
+
+BACKLOG (6 open)                   open leaves of the backlog run, then follow-ups elsewhere
+  b1     foll   Backlog follow-up 1
+  · +1 more — work_tree(scope:"backlog") and work_threads(scope:"e2e", include:"followups")
+
+BINDING / NOTES IN SCOPE / LAST VERIFY      as the run brief prints them
+
+OPEN ASSUMPTIONS (7)               every open one under the project, qualified: runs number their own A1
+  run-a/A1 Assumption number 1 still holds.   reasoned   medium
+  · +2 more — work_threads(scope:"e2e", include:"assumptions")
+
+NEXT   resume run run-a — work_brief(scope:"run-a")
+```
+
+An assumption's ref reads back in `work_get(refs:["run-a/A1"])`, which prints it whole: statement,
+state, evidence, reversal, revisit, scope, the resolution once settled, and its import source and why
+when it was imported. A bare `A1` held by two runs is refused with the qualified forms, as an item
+ref is.
+
+> **Changed 2026-10-26 (assumption-reach).** `work_get(refs:["A1"])` answered "no item has ref A1",
+> and the project brief showed none of the project's open assumptions.
+
+With no open run, `NEXT` is `start a run under this project — work_create(items:[{kind:"run",
+parent:"e2e", ref:"<slug>", title:"…"}])`. Titles and notes print whole; recent runs are capped at
+five and backlog rows at five, each cap naming the call that lists the rest. `next` is never wrapped,
+so the call copies whole. Budget: 49 lines / 696 tokens on the `ProjectBriefTests` fixture, bounded
+at 56 / 800; the run brief keeps its own 65 / 1250.
+
+> **Changed 2026-10-26 (project-brief).** A project scope rendered the run brief's shape — `WHERE 3 of
+> 3 tasks done.` and `NEXT work_status(ref:"e2e", to:"in_progress")` — with no runs, no history and
+> no backlog.
+
 ---
 
 ## 5. The attention block
@@ -236,6 +331,21 @@ Omitted entirely — header included — when empty.
 
 Every line is `<what> — <the call that fixes it>`. A line without a call is a defect: it is the
 1,241 ⚠ markers of the old corpus reinvented, and those are what this replaces.
+
+When more than 5 lines are due, the header counts both and a sixth line names the read that lists
+them all, as "What may be shortened" requires of a count cap:
+
+```
+--- attention (5 of 9) ---
+⚠ …five ranked lines…
++4 more — read work://attention/run-a with ReadMcpResourceTool
+```
+
+`work://attention/<scope>` prints every line, ranked, uncapped (doc 01 §8). No tool lists exactly
+these lines — expired claims and phase gates appear nowhere else — so the route is that resource.
+
+> **Changed 2026-10-26 (attention-cap).** The header gave the shown count and nothing listed the
+> rest: the one count cap that broke the noclip rule.
 
 Ranking: expired claims → blocker findings → **phases whose tasks are all done and whose gate has not
 run** → items done-but-unverified → assumptions past revisit → unconsumed notes for the current scope
@@ -320,7 +430,7 @@ override because nothing ran:
 ```
 REFUSED  work_get — 1 argument cannot bind. Nothing ran.
 
-  ✗ refs is required and was not sent — One or more refs, e.g. ["2.3", "F-07"]. Qualify across…
+  ✗ refs is required and was not sent — One or more refs, e.g. ["2.3", "F-07"]. Qualify across runs: "entity-store/2.3".
       → work_get(refs:["…"])
 ```
 
@@ -334,10 +444,14 @@ Renderer tests are cheap and they are the only defence against drift back toward
 - [ ] **No uuid appears in any rendering, ever** — one regex over the output of every renderer.
 - [ ] Column positions hold for refs up to 6 chars and titles up to 34, and long titles get `…`.
 - [ ] A clean result emits **no** attention header, not an empty one.
-- [ ] The attention block never exceeds 5 lines, and **every line contains a `—` followed by a call**.
+- [ ] The attention block never exceeds 5 lines, and **every line contains a `—` followed by a call**;
+      past 5 a final `+N more — read work://attention/<scope>` line names the read that lists all.
 - [ ] A refusal lists **all** unmet conditions and every one has a `→` line.
 - [ ] **Token budget, asserted with a number — against a committed fixture, not the live corpus.**
-      `work_brief` on a fixture run imported into the test container renders in **≤ 900 tokens**.
+      `work_brief` on a fixture run imported into the test container renders in **≤ 1,250 tokens**
+      (≤ 900 until noclip printed every shown text whole, §4).
+- [ ] **No text is cut outside a list row or an echo** — `NoClipSourceTests` (source scan against the
+      allow-list) and `NoClipBehaviourTests` (300-character sentinels in every field, every view).
 
       > **Corrected 2026-09-20.** The earlier version of this line said "the imported `entity-store`
       > run", which is **not deterministic**: those corpora are other projects' live working records

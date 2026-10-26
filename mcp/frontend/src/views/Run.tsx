@@ -7,8 +7,9 @@ import { CLOSED, rowState, tally } from '../state.ts'
 import { FILTERS, asFilter, plan, type Filter } from '../plan.ts'
 import { boardHref, runHref } from '../nav.ts'
 import { short } from '../format.ts'
-import { Dot, Known, Segs } from '../ui.tsx'
+import { Dot, Known, ProjectName, Segs } from '../ui.tsx'
 import Detail, { asTab, type Tab } from './Detail.tsx'
+import { PromptActions } from './Prompts.tsx'
 
 const query = (filter: Filter, tab: Tab) => {
   const q = new URLSearchParams()
@@ -125,10 +126,16 @@ function RunHeader(props: { board: Board }) {
     <div class="page-h">
       <div>
         <div class="crumbs">
-          <A href="/">{props.board.project?.ref ?? 'Overview'}</A> / {props.board.run.qualifiedRef}
+          <A href="/">
+            <Show when={props.board.project} fallback="Overview">
+              {(project) => <ProjectName project={project()} />}
+            </Show>
+          </A>{' '}
+          / {props.board.run.qualifiedRef}
         </div>
         <h1>{short(props.board.run.title)}</h1>
         <div class="sub">{sub()}</div>
+        <PromptActions scope={props.board.run.id} />
       </div>
       <Segs leaves={t().leaves} style={{ width: 'min(420px, 40vw)' }} />
     </div>

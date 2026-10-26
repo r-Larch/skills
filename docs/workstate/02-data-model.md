@@ -85,6 +85,92 @@ CREATE TABLE project_config (
 );
 ```
 
+`project_config.repo_root` is written only by the importer and read only as a claim's fallback tree.
+It is not how a session finds its project; `project_repo` is.
+
+### Project per repository — `project_repo`
+
+**One project per repository, bound on the server.** A project may hold several repositories; a
+repository belongs to one project per workspace. A session finds its project from its repo, never
+from a title:
+
+```sql
+CREATE TABLE project_repo (
+  id              uuid PRIMARY KEY,
+  workspace_id    uuid NOT NULL REFERENCES workspace ON DELETE CASCADE,
+  project_item_id uuid NOT NULL REFERENCES item ON DELETE CASCADE,   -- kind = 'project'
+  kind            text NOT NULL CHECK (kind IN ('remote','root')),
+  key             text NOT NULL,                                     -- normalised, below
+  added_at        timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (workspace_id, key)
+);
+-- agent_session gains repo_remote, repo_root: the keys a launcher minted the session with.
+```
+
+**Identity.** A repository is known by up to two keys, and either one matching is enough:
+
+- **remote** — `git remote get-url origin`, normalised: strip the scheme, `user@`, a trailing `.git`
+  and `/`; the scp form `host:owner/name` becomes `host/owner/name`; lowercase.
+  `git@github.com:r-Larch/skills.git` and `https://github.com/r-Larch/skills` are both
+  `github.com/r-larch/skills`. A repo with no `origin` has no remote key.
+- **root** — the **main** checkout's root: the parent of
+  `git rev-parse --path-format=absolute --git-common-dir`, which is the same for every worktree of
+  the repo (worktrees live outside the root, so a cwd prefix would not match). Normalised: forward
+  slashes, no trailing `/` or `/.git`, and a Windows path (drive letter or UNC) lowercased whole.
+
+The server cannot run git, so the client computes the keys and the server normalises whatever it
+receives. The rule exists twice — `RepoKeys` in `WorkState.Core/Domain/Repos.cs` and
+`nested-claude/server/repo.mjs` — and both test suites run the one table in
+[`repo-keys.json`](repo-keys.json).
+
+**Binding.** `work_create(items:[{kind:"project", …, repo:{remote, root}}])` binds the keys it is
+given; `work_update(ref:"<project>", repo:{…})` adds more. A key already bound to another project is
+refused, naming it: *this repo is project X — `work_brief(scope:"X")`*. There is no unbind tool.
+`work_get` of a project prints its repos; `work_tree` rows never do. The v1 overview carries them
+as `projects[].repos`.
+
+**Resolution — `work_brief` with no `scope`:**
+
+1. `repo:` given → the **project brief** of the project bound to it ([06 §4a](06-rendering.md)),
+   whose `NEXT` names the run to resume — the open run with the most unfinished work — or the call
+   that starts one. When the two keys name different projects, the remote wins.
+2. no `repo:`, but the caller is a minted session minted with one (`POST /api/agent-sessions
+   {…, repo:{remote, root}}`, which `agent_launch` always sends) → the same, from the stored keys.
+3. a repo is known but unbound → onboarding naming `work_create(… repo: <the same keys>)`, and
+   `work_update(ref:"<project>", repo:…)` with the projects that exist.
+4. no repo known → the busiest run of the workspace, as before, plus one line: pass `repo:`.
+
+`scope` given → unchanged; the repo plays no part.
+
+> **Changed 2026-10-26 (project-brief).** Steps 1 and 2 opened the bound project's busiest run. A
+> fresh session in the repo then saw one run's brief and nothing of the others, of what had closed
+> or of the backlog; it now opens the project, and resumes a run in one more call.
+
+### Archived projects — `item.archived_at`
+
+With a project per repository the list grows to hundreds, so a project can be **archived**: hidden,
+never deleted, and reversible.
+
+```sql
+ALTER TABLE item ADD COLUMN archived_at timestamptz NULL
+  CONSTRAINT item_archived_only_project CHECK (archived_at IS NULL OR kind = 'project');
+```
+
+- **Who.** An orchestrator or controller: `work_update(ref:"<project>", archived:true|false)`. The
+  operator: the dashboard's Archive / Unarchive button (`POST /api/projects/{id}/archive|unarchive`,
+  doc 10). Either journals an `archived` / `unarchived` event with who did it. Archiving what is
+  already archived changes nothing and journals nothing.
+- **Hidden from** the default lists: the dashboard's sidebar and overview (behind an *Archived (n)*
+  toggle), the onboarding list of projects to bind a repo to, and the busiest-run fallback of a bare
+  `work_brief` (an archived project's runs rank after every live one).
+- **Still resolves.** By ref (`work_brief(scope:"x")`), and by repo (`work_brief(repo:…)` opens it):
+  the brief's header line ends `· archived <date>`. The v1 overview still lists it, with `archivedAt`.
+- **New work un-archives.** `work_create` of any item under an archived project clears `archived_at`
+  in the same transaction and journals `unarchived` naming the item that brought it back.
+
+A project's **last activity** is the newest journal event anywhere in its subtree; the v1 overview
+lists projects newest activity first.
+
 ### Ref scoping — short handles that cannot collide across parallel runs
 
 Agents type `2.3` all day; they will not type `gaia/entity-store/2.3`. But two runs in one project
@@ -570,6 +656,34 @@ CREATE INDEX note_selector_idx ON note USING gin (to_selector jsonb_path_ops)
 `corrects_note_id` is what removes the 129 `CORRECTION` appends: a correction **links to and
 supersedes** the thing it corrects, so a reader who finds the original also finds the retraction.
 Today they are two sections 500 lines apart and only one of them is ever found.
+
+### 9a. Import provenance — `import_record`
+
+One row per record `work_import` wrote (doc 01 §3.5), keyed by where it came from:
+
+```sql
+CREATE TABLE import_record (
+  id              uuid PRIMARY KEY,
+  workspace_id    uuid NOT NULL REFERENCES workspace ON DELETE CASCADE,
+  project_item_id uuid NOT NULL REFERENCES item ON DELETE CASCADE,
+  source_path     text NOT NULL,              -- repo-relative, forward slashes
+  source_anchor   text NOT NULL DEFAULT '',   -- a heading or L<line>; '' = the whole file
+  kind            text NOT NULL,              -- run|phase|task|followup|note|assumption|rule
+  item_id uuid, note_id uuid, assumption_id uuid, constraint_id uuid,  -- exactly one set
+  why             text NOT NULL,              -- why the importer judged it still true
+  imported_status text,                       -- the status the import left an item in
+  session_id      uuid REFERENCES agent_session ON DELETE SET NULL,
+  imported_by     text NOT NULL,
+  created_at, updated_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (project_item_id, source_path, source_anchor)
+);
+```
+
+The unique key is what makes a re-import an update. `imported_status` is what "moved since import"
+is judged against: an item whose status differs, or that was started, checked or verified, is never
+rewritten. An imported item also carries `item.source = 'import:<path>#<anchor>'`; an imported
+assumption's `evidence_note` carries the same plus the why. `work_get` and the v1 item page
+(`imported`) print source and why whole.
 
 ---
 

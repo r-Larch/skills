@@ -51,6 +51,7 @@ public static partial class ApiV1
         v1.MapGet("/backlog", BacklogAsync);
         v1.MapGet("/sessions", SessionsAsync);
         v1.MapGet("/resolve", ResolveAsync);
+        v1.MapGet("/prompts", PromptsAsync);
     }
 
     /// <summary>

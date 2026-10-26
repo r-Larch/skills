@@ -57,4 +57,22 @@ public class AgentSession
 
     /// <summary>The minted session that minted this one; null when a static token did.</summary>
     public Guid? MintedBySessionId { get; set; }
+
+    /// <summary>The repository the session was launched in, normalised by <see cref="RepoKeys"/>.</summary>
+    public string? RepoRemote { get; set; }
+
+    public string? RepoRoot { get; set; }
+
+    /// <summary>
+    /// Capabilities beside the role, each one hiding or showing a tool. Set only by a mint, by an
+    /// orchestrator or controller; <see cref="SessionGrants.Import"/> is the one there is.
+    /// </summary>
+    public string[] Grants { get; set; } = [];
+}
+
+public static class SessionGrants
+{
+    public const string Import = "import";
+
+    public static readonly IReadOnlyList<string> All = [Import];
 }

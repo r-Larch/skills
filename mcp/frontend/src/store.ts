@@ -37,7 +37,8 @@ async function loadOverview(runs: 'all' | string[]): Promise<void> {
     setOverview(next)
     setFailure(undefined)
 
-    const ids = next.projects.flatMap((p) => p.runs.map((r) => r.item.id))
+    // An archived project's bars are not drawn until it is shown, which falls back to the rollup.
+    const ids = next.projects.filter((p) => !p.archivedAt).flatMap((p) => p.runs.map((r) => r.item.id))
     const known = boards()
     const wanted = runs === 'all' ? ids : ids.filter((id) => runs.includes(id) || known[id] === undefined)
     await Promise.all(wanted.map(loadBoard))
@@ -45,6 +46,9 @@ async function loadOverview(runs: 'all' | string[]): Promise<void> {
     note(error)
   }
 }
+
+/** After a write: the journal frame would bring the same re-read, this one does not wait for it. */
+export const refreshOverview = (): Promise<void> => loadOverview([])
 
 async function loadInbox(): Promise<void> {
   try {

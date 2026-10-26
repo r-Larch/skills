@@ -85,6 +85,10 @@ public sealed class StaticTokenHandler(
         var identity = Identity(Nested(session.Role));
         identity.AddClaim(new Claim(CallerSession.SessionIdClaim, session.SessionId.ToString()));
         identity.AddClaim(new Claim(CallerSession.SessionNameClaim, session.Name));
+        foreach (var grant in session.Grants)
+        {
+            identity.AddClaim(new Claim(CallerSession.GrantClaim, grant));
+        }
 
         return AuthenticateResult.Success(Ticket(identity));
     }

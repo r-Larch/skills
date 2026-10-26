@@ -142,7 +142,7 @@ public sealed class WorkWriteTools(
         Next: work_link if any depends on another, then work_next.
         """)]
     public async Task<CallToolResult> CreateAsync(
-        [Description("Each: kind, title; a task also needs verify_cmd and criteria[].")]
+        [Description("Each: kind, title; a task also needs verify_cmd and criteria[]; a project takes repo:{remote, root}.")]
         NewItemArg[] items,
         CancellationToken cancellationToken = default)
     {
@@ -174,13 +174,17 @@ public sealed class WorkWriteTools(
         [Description("Higher sorts earlier on the frontier. -9..9.")] int? priority = null,
         [Description("The revision you read. A mismatch is reported, not overwritten.")]
         int? expected_revision = null,
+        [Description("A project only: {remote, root} of one more repo it holds.")]
+        RepoArg? repo = null,
+        [Description("A project only: true hides it from lists, false restores it.")]
+        bool? archived = null,
         CancellationToken cancellationToken = default)
         => await WriteAsync(
             "work_update",
             @ref,
             id => writer.UpdateAsync(
                 id, caller.Actor, @ref,
-                new UpdateArgs(title, intent, verify_cmd, risk_tags, priority, criteria, expected_revision),
+                new UpdateArgs(title, intent, verify_cmd, risk_tags, priority, criteria, expected_revision, repo, archived),
                 cancellationToken),
             cancellationToken);
 
@@ -357,6 +361,37 @@ public sealed class WorkWriteTools(
         return Result(await Guarded(
             "work_finding(findings:[…])",
             () => writer.FindingAsync(id, caller.Actor, findings ?? [], cancellationToken)));
+    }
+
+    [Authorize(Policy = WorkStatePolicies.Importer)]
+    [McpServerTool(Name = "work_import", Title = "Import: what a repo's planning material says is still true")]
+    [Description("""
+        Writes one batch of records an agent read from a repo's plans, docs and rules and judged
+        still true of the current code. Kinds: run, phase, task, followup, note, assumption, rule.
+        Each carries its source and why; re-importing a source updates its record, never one moved
+        since. Status is open, ready or blocked — nothing imported is done or verified.
+        Next: dry_run:true first and show the human; then without it; then work_tree.
+        """)]
+    public async Task<CallToolResult> ImportAsync(
+        [Description("The repo's project ref (work_brief(repo:) names it); it must be bound to the repo.")]
+        string project,
+        [Description("Each: source:{path, anchor?}, kind, why, title (items) or body (note/assumption/rule); "
+                     + "optional ref, parent (existing, or created above in this batch), intent, status, criteria[], "
+                     + "verify_cmd, route (a rule with one is a red_line).")]
+        ImportItemArg[] items,
+        [Description("Validate and show what would be created, updated or skipped; write nothing.")]
+        bool dry_run = false,
+        CancellationToken cancellationToken = default)
+    {
+        var workspaceId = await board.WorkspaceAsync(workspace.Slug, cancellationToken);
+        if (workspaceId is not { } id)
+        {
+            return Result(WriteResult.No(Empty("work_import")));
+        }
+
+        return Result(await Guarded(
+            $"work_import(project:\"{project}\", items:[…])",
+            () => writer.ImportAsync(id, caller.Actor, project, items ?? [], dry_run, cancellationToken)));
     }
 
     private async Task<CallToolResult> WriteAsync(

@@ -40,6 +40,7 @@ public static partial class ApiV1
         var links = await board.LinksAsync([id], cancellationToken);
         var assumptions = await api.AssumptionsAsync(id, cancellationToken);
         var claim = (await api.HeldClaimsAsync([id], cancellationToken)).FirstOrDefault(c => c.ItemId == id);
+        var imported = (await board.ImportsAsync([id], cancellationToken)).FirstOrDefault();
 
         var page = await api.EventsAsync(
             snapshot.WorkspaceId, id, exact: true, 0, ItemEventLimit + 1, oldestFirst: false, null, cancellationToken);
@@ -57,7 +58,8 @@ public static partial class ApiV1
         await book.SessionsAsync(
             reports.Select(r => r.SessionId)
                 .Concat(verifications.Select(v => v.SessionId))
-                .Concat(notes.Select(n => n.SessionId)),
+                .Concat(notes.Select(n => n.SessionId))
+                .Append(imported?.SessionId),
             cancellationToken);
 
         var claimView = claim is null ? null : (await book.ClaimsAsync([claim], snapshot.AsOf, cancellationToken))[0];
@@ -122,7 +124,16 @@ public static partial class ApiV1
             [.. assumptions.Select(a => new AssumptionView(
                 a.Ref, a.Statement, V1Text.Snake(a.State), book.Item(a.RevisitItemId)))],
             events,
-            page.Count > ItemEventLimit));
+            page.Count > ItemEventLimit,
+            imported is null
+                ? null
+                : new ImportedView(
+                    imported.SourcePath,
+                    imported.SourceAnchor.Length == 0 ? null : imported.SourceAnchor,
+                    imported.Why,
+                    imported.ImportedBy,
+                    book.Session(imported.SessionId),
+                    imported.UpdatedAt)));
     }
 
     /// <summary>

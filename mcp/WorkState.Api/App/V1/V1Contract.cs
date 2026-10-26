@@ -67,7 +67,16 @@ public sealed record RunOverviewView(
     int InboxCount,
     LastVerificationView? LastVerification);
 
-public sealed record ProjectOverviewView(ItemRefView Item, RollupView Rollup, IReadOnlyList<RunOverviewView> Runs);
+public sealed record RepoView(string Kind, string Key);
+
+public sealed record ProjectOverviewView(
+    ItemRefView Item,
+    RollupView Rollup,
+    IReadOnlyList<RunOverviewView> Runs,
+    IReadOnlyList<RepoView> Repos,
+    DateTimeOffset? ArchivedAt,
+    DateTimeOffset? LastActivityAt,
+    int OpenRuns);
 
 public sealed record OverviewView(
     DateTimeOffset AsOf,
@@ -188,7 +197,17 @@ public sealed record ItemPageView(
     LinksView Links,
     IReadOnlyList<AssumptionView> Assumptions,
     IReadOnlyList<JournalEventView> Events,
-    bool EventsHasMore);
+    bool EventsHasMore,
+    ImportedView? Imported = null);
+
+/// <summary>Set on an item <c>work_import</c> wrote: its source in the repo, and why it was judged still true.</summary>
+public sealed record ImportedView(
+    string Path,
+    string? Anchor,
+    string Why,
+    string ImportedBy,
+    SessionView? Session,
+    DateTimeOffset At);
 
 public sealed record InboxRowView(
     string Key,
@@ -217,3 +236,7 @@ public sealed record SessionHoldingView(SessionView Session, IReadOnlyList<Claim
 public sealed record SessionsView(DateTimeOffset AsOf, long Seq, IReadOnlyList<SessionHoldingView> Sessions);
 
 public sealed record ResolveView(DateTimeOffset AsOf, long Seq, IReadOnlyList<ItemRefView> Matches);
+
+public sealed record PromptView(string Key, string Label, int? Count, string Text);
+
+public sealed record PromptsView(DateTimeOffset AsOf, long Seq, ItemRefView Scope, IReadOnlyList<PromptView> Prompts);

@@ -4,6 +4,54 @@ What changes for someone who has the `rlarch` plugin installed, newest first. Fo
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions are the `version` field in
 `plugins/rlarch/.claude-plugin/plugin.json`, which is what the updater gates on.
 
+## [2.3.0] - 2026-10-26
+
+### Added
+
+- **`/rlarch:workstate-import`** — brings a repo's existing planning material into WorkState. The
+  agent finds plans, TODO lists, roadmaps, specs, ADRs, docs and agent rules anywhere in the repo,
+  checks each against the current code, keeps only what is still true (open work, binding rules and
+  decisions, open assumptions — never history), proposes a per-file plan, waits for your yes, and
+  writes it with `work_import`. Source files are never touched.
+- **`agent_launch` `workstate.grants`** — `["import"]` mints a session that can see `work_import`
+  (role orchestrator or controller only; the server enforces it).
+- WorkState server (rebuild with `docker compose -f mcp/compose.yml up -d --build` to get it; two
+  additive migrations): the **`work_import`** tool — batches of runs, phases, tasks, followups,
+  notes, assumptions and rules, each with its source and reason, idempotent by source, never `done`
+  and never verified, listed only for an import-granted session. `work_get` and the dashboard show
+  an imported item's source and reason.
+
+### Changed
+
+- **One WorkState project per repository.** `orchestrate` and `controller` now start with
+  `work_brief(repo: {remote, root})` — `remote` from `git remote get-url origin`, `root` the main
+  checkout (the same from every worktree) — and create a project only when that brief says the repo
+  is not bound to one. A second project for a bound repo is refused, naming the existing one.
+- **`agent_launch` sends the repo's keys** when it mints a session, so a launched session's bare
+  `work_brief()` opens its repo's project.
+- WorkState server (rebuild to get it; migrations `ProjectRepos`, `ProjectArchive`, `ImportGrant`,
+  `ImportRecord`, all additive). A session started before the rebuild sees the new tool parameters
+  (`repo`, `archived`) only after a restart.
+  - `work_brief(repo:…)` and `work_brief(scope:"<project>")` return a **project brief**: goal, every
+    open run with its next action, the runs closed most recently with their commit, the backlog,
+    open assumptions, binding rules and notes — and a NEXT that resumes a run or starts one.
+  - **Text the reader needs is never cut**: shortening is allowed only in one-line list rows that
+    carry a ref, and in echoes of the caller's own input; a test fails the build otherwise. The
+    attention block keeps its 5-line cap and names `work://attention/<scope>`, which lists every line.
+  - **Projects can be archived** (`work_update(ref, archived:true)` or the dashboard): hidden from the
+    default lists, never deleted, still opened by ref and repo, un-archived by new work.
+  - Dashboard: one project name everywhere (name, with the ref beside it when they differ); projects
+    by last activity with search and Active / Quiet / Archived groups; the sidebar lists only open
+    runs; a project page; **prompt actions** — buttons that copy a ready prompt for a fresh session
+    (Continue, Status report, Housekeeping, Triage backlog, Finalize, Resume, Audit, Work on this,
+    Investigate block), served by `GET /api/v1/prompts`.
+
+### Fixed
+
+- WorkState server: `work_tree(status:"in_progress")` matched nothing; relative times read "now
+  ago"; `work_get` could not open an assumption (`A1`); `work_threads` counted wrapped lines instead
+  of rows; `work_import` dropped a `ref` on note and assumption rows silently.
+
 ## [2.2.1] - 2026-10-26
 
 ### Fixed

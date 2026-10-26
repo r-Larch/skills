@@ -25,6 +25,8 @@ export function boardHref(run: string, onBoard: (id: string) => boolean, item: P
 
 export const backlogHref = (project: string) => `/projects/${project}/backlog`
 
+export const projectHref = (project: string) => `/projects/${project}`
+
 /** The run an item page's path places it in, or the item itself when it is one. */
 export function runOf(item: ItemRef, path: ItemRef[]): ItemRef | null {
   if (item.kind === 'run') return item
@@ -45,6 +47,7 @@ export function routeReads(href: string): string[] {
   if (parts[0] === 'runs' && parts.length === 2) return [`/api/v1/runs/${parts[1]}/board`, `/api/v1/items/${parts[1]}`]
   if (parts[0] === 'runs' && parts.length === 3) return [`/api/v1/runs/${parts[1]}/board`, `/api/v1/items/${parts[2]}`]
   if (parts[0] === 'items' && parts.length === 2) return [`/api/v1/items/${parts[1]}`]
+  if (parts[0] === 'projects' && parts.length === 2) return ['/api/v1/overview']
   if (parts[0] === 'projects' && parts[2] === 'backlog' && parts.length === 3) return [`/api/v1/backlog?project=${parts[1]}`]
   return []
 }

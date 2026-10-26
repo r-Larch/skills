@@ -7,8 +7,8 @@ using WorkState.Core.Rendering;
 namespace WorkState.Mcp.Resources;
 
 /// <summary>
-/// doc 01 §8, as measured. The four <b>fixed</b> projections are listed and readable, so they are
-/// the discoverable surface. The two item templates are registered as well because tools print
+/// doc 01 §8, as measured. The five <b>fixed</b> projections are listed and readable, so they are
+/// the discoverable surface. The item and attention templates are registered as well because tools print
 /// exact <c>work://item/&lt;ref&gt;</c> URIs and a template read of a known URI works — but a
 /// template is <em>not</em> discoverable in this client (PROBE Q5), so nothing may rely on the
 /// model composing one for itself.
@@ -84,6 +84,41 @@ public sealed class WorkResources(BoardReader reader, WorkspaceOptions workspace
         var tree = await reader.TreeAsync(found, 4, [], true, cancellationToken);
         var threads = await reader.ThreadsAsync(found, [], cancellationToken);
         return string.Join("\n\n", brief, tree, threads);
+    }
+
+    [Authorize(Policy = WorkStatePolicies.Worker)]
+    [McpServerResource(
+        UriTemplate = WorkUris.Attention,
+        Name = "workstate_attention",
+        Title = "WorkState: everything that needs attention",
+        MimeType = "text/markdown")]
+    [Description("The active run's attention block, uncapped: every line, ranked, each with its call.")]
+    public Task<string> AttentionAsync(CancellationToken cancellationToken)
+        => AttentionOfAsync(null, cancellationToken);
+
+    /// <summary>The route a capped attention block prints for the lines it cut (doc 06 §5).</summary>
+    [Authorize(Policy = WorkStatePolicies.Worker)]
+    [McpServerResource(
+        UriTemplate = WorkUris.AttentionTemplate,
+        Name = "workstate_attention_scope",
+        Title = "WorkState: everything that needs attention under one scope",
+        MimeType = "text/markdown")]
+    [Description("One scope's attention block, uncapped. Reachable with the exact URI a capped block printed.")]
+    public async Task<string> AttentionScopeAsync(
+        [Description("The scope's ref, exactly as the capped block printed it.")] string scope,
+        CancellationToken cancellationToken)
+        => await AttentionOfAsync(scope, cancellationToken);
+
+    private async Task<string> AttentionOfAsync(string? scope, CancellationToken cancellationToken)
+    {
+        var resolved = await reader.ResolveAsync(workspace.Slug, scope, cancellationToken);
+        if (resolved is not ScopeResult.Found found)
+        {
+            return scope is null ? BriefRenderer.Onboarding() : ScopeExplain.Text(resolved, "work_threads", scope);
+        }
+
+        var lines = await reader.AttentionAsync(found, cancellationToken);
+        return Attention.Full(((ScopedAttention)lines).Scope, lines);
     }
 
     /// <summary>

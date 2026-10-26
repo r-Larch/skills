@@ -13,7 +13,7 @@ Invoking this skill is the user's explicit authorization to spawn subagents. You
 
 ## Preflight — before anything else
 
-**Call `work_brief`.** This skill keeps its plan, rules, evidence and record in WorkState and has no other place to keep them.
+**Call `work_brief(repo: {remote, root})`.** This skill keeps its plan, rules, evidence and record in WorkState and has no other place to keep them. A project is bound to its repository, and the repo is how you find yours: `remote` is `git remote get-url origin` (omit it when there is no origin), `root` is the parent directory of `git rev-parse --path-format=absolute --git-common-dir` — the main checkout, the same from every worktree. A session launched by `agent_launch` already carries both, so a bare `work_brief()` finds the project too.
 
 - **No `work_*` tools in your list** → tell the user in one line: *"orchestrate needs the WorkState MCP server and this session cannot see it — run `/rlarch:workstate-setup`."* Then stop. Do not fall back to markdown files; there is no second mode.
 - **`work_brief` exists but `work_constrain` does not** → the server is older than this skill. Say so in one line, point at `/rlarch:workstate-setup`, and stop.
@@ -87,7 +87,7 @@ You cannot budget without prices. Rough order of magnitude:
 3. **Spike before planning when the undertaking targets a system you don't control** — a live external service, a third-party API, a production database, someone else's schema. Never assume how it behaves; probe it. Do not plan around assumed behaviour and discover the truth in Phase 1, because the plan you wrote will be void. A read-only probe against the real system is usually enough and is the highest-leverage tool available: methods that throw on every call, "successful" operations that silently do nothing, case-sensitive matching that quietly returns the wrong row — none of it is visible in code review, because the code is correct and the world is different.
 
 4. **Create the run in the store.** One `work_create` call per level, top-down, reading the refs each call prints back before the next — a parent must already exist when its children are created:
-   - the **project**, if `work_brief` or `work_tree` shows none for this repo;
+   - the **project**, only when `work_brief(repo: …)` says this repo is not bound to one — with `repo:` the same `{remote, root}`, exactly as its NEXT line prints it. If it belongs to a project that exists, bind it with `work_update(ref, repo:)` instead; never create a second project for a repo;
    - a **run** under it — `parent:` the project ref, `ref:` a short slug of your choosing, `intent:` the goal paragraph;
    - the **phases** (`parent:` the run ref), then the **tasks** (`parent:` their phase ref), per `references/decompose.md`.
 

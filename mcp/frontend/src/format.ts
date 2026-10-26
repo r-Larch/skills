@@ -25,6 +25,18 @@ export const day = (iso: string) => new Date(iso).toLocaleDateString([], { day: 
 /** Run titles carry their ref as a prefix (`M7 — The dashboard`); the ref is shown beside it anyway. */
 export const short = (title: string) => title.replace(/^[A-Z0-9]+ — /, '')
 
+const PROJECT_SEP = ' — '
+
+/** A project is named by its title's head, everywhere (doc 13). Never by its ref alone. */
+export const projectName = (p: { title: string }) => p.title.split(PROJECT_SEP)[0]!
+
+/** The title after the name, or `''`. */
+export const projectTagline = (p: { title: string }) => p.title.split(PROJECT_SEP).slice(1).join(PROJECT_SEP)
+
+/** The ref, when the name does not already say it — agents type the ref, so it must stay visible. */
+export const projectRefIfDifferent = (p: { title: string; ref: string }) =>
+  projectName(p).toLowerCase() === p.ref.toLowerCase() ? null : p.ref
+
 export const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1)
 
 export const plural = (n: number, one: string, many = `${one}s`) => (n === 1 ? one : many)

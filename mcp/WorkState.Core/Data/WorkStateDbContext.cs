@@ -9,6 +9,7 @@ public class WorkStateDbContext(DbContextOptions<WorkStateDbContext> options) : 
     public DbSet<ItemKind> ItemKinds => Set<ItemKind>();
     public DbSet<Item> Items => Set<Item>();
     public DbSet<ProjectConfig> ProjectConfigs => Set<ProjectConfig>();
+    public DbSet<ProjectRepo> ProjectRepos => Set<ProjectRepo>();
     public DbSet<RunConfig> RunConfigs => Set<RunConfig>();
     public DbSet<ItemCriterion> ItemCriteria => Set<ItemCriterion>();
     public DbSet<ItemLink> ItemLinks => Set<ItemLink>();
@@ -27,6 +28,7 @@ public class WorkStateDbContext(DbContextOptions<WorkStateDbContext> options) : 
     public DbSet<AgentToken> AgentTokens => Set<AgentToken>();
     public DbSet<DataProtectionKey> DataProtectionKeys => Set<DataProtectionKey>();
     public DbSet<AgentSession> AgentSessions => Set<AgentSession>();
+    public DbSet<ImportRecord> ImportRecords => Set<ImportRecord>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -69,6 +71,38 @@ public class WorkStateDbContext(DbContextOptions<WorkStateDbContext> options) : 
                 .HasDatabaseName("agent_session_token_hash_unique")
                 .IsUnique();
             e.HasOne<AgentSession>().WithMany().HasForeignKey(x => x.MintedBySessionId).OnDelete(DeleteBehavior.SetNull);
+            e.Property(x => x.Grants).HasDefaultValueSql("'{}'::text[]");
+            e.ToTable(t => t.HasCheckConstraint("agent_session_grants_known", "grants <@ ARRAY['import']::text[]"));
+        });
+
+        b.Entity<ImportRecord>(e =>
+        {
+            e.ToTable("import_record");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).ValueGeneratedNever();
+            e.Property(x => x.SourceAnchor).HasDefaultValue("");
+            e.Property(x => x.CreatedAt).HasDefaultValueSql("now()");
+            e.Property(x => x.UpdatedAt).HasDefaultValueSql("now()");
+            e.HasOne<Workspace>().WithMany().HasForeignKey(x => x.WorkspaceId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne<Item>().WithMany().HasForeignKey(x => x.ProjectItemId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne<Item>().WithMany().HasForeignKey(x => x.ItemId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne<Note>().WithMany().HasForeignKey(x => x.NoteId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne<Assumption>().WithMany().HasForeignKey(x => x.AssumptionId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne<ConstraintRule>().WithMany().HasForeignKey(x => x.ConstraintId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne<AgentSession>().WithMany().HasForeignKey(x => x.SessionId).OnDelete(DeleteBehavior.SetNull);
+            e.HasIndex(x => new { x.ProjectItemId, x.SourcePath, x.SourceAnchor })
+                .HasDatabaseName("import_record_source_unique")
+                .IsUnique();
+            e.HasIndex(x => x.ItemId).HasDatabaseName("import_record_item_idx");
+            e.ToTable(t =>
+            {
+                t.HasCheckConstraint(
+                    "import_record_one_target",
+                    "num_nonnulls(item_id, note_id, assumption_id, constraint_id) = 1");
+                t.HasCheckConstraint(
+                    "import_record_kind",
+                    "kind IN ('run','phase','task','followup','note','assumption','rule')");
+            });
         });
 
         // Additive: every row written before doc 11 keeps a null session, and nothing backfills one.
@@ -270,6 +304,9 @@ public class WorkStateDbContext(DbContextOptions<WorkStateDbContext> options) : 
             t.HasCheckConstraint(
                 "item_closed_at_set",
                 "(status IN ('done','cancelled','superseded')) = (closed_at IS NOT NULL)");
+            t.HasCheckConstraint(
+                "item_archived_only_project",
+                "archived_at IS NULL OR kind = 'project'");
         });
     });
 
@@ -284,6 +321,21 @@ public class WorkStateDbContext(DbContextOptions<WorkStateDbContext> options) : 
             e.Property(x => x.VerifyCatalog).HasColumnType("jsonb").HasDefaultValueSql("'{}'::jsonb");
             e.HasOne<Item>().WithOne().HasForeignKey<ProjectConfig>(x => x.ItemId)
                 .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        b.Entity<ProjectRepo>(e =>
+        {
+            e.ToTable("project_repo");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).ValueGeneratedNever();
+            e.Property(x => x.AddedAt).HasDefaultValueSql("now()");
+            e.HasOne<Workspace>().WithMany().HasForeignKey(x => x.WorkspaceId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne<Item>().WithMany().HasForeignKey(x => x.ProjectItemId).OnDelete(DeleteBehavior.Cascade);
+            e.HasIndex(x => new { x.WorkspaceId, x.Key })
+                .HasDatabaseName("project_repo_key_unique")
+                .IsUnique();
+            e.HasIndex(x => x.ProjectItemId).HasDatabaseName("project_repo_project_idx");
+            e.ToTable(t => t.HasCheckConstraint("project_repo_kind", "kind IN ('remote','root')"));
         });
 
         b.Entity<RunConfig>(e =>
