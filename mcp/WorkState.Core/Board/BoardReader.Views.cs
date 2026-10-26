@@ -314,71 +314,9 @@ public sealed partial class BoardReader
         IReadOnlyCollection<string> include,
         CancellationToken cancellationToken = default)
     {
-        var wanted = include.Count == 0 ? AllThreads : include;
-        var lines = new List<string>();
-
-        if (wanted.Contains("assumptions"))
-        {
-            var assumptions = await board.AssumptionsAsync(scope.WorkspaceId, scope.Item.Id, true, cancellationToken);
-            // An assumption has no detail view, so this is where its statement is read whole.
-            lines.AddRange(assumptions.SelectMany(a => WrappedRow(
-                $"{Glyph.Pad(a.Ref, 6)}  {Glyph.Pad("assum", 6)}  ",
-                a.Statement,
-                $"{Glyph.Pad(a.Evidence.ToString().ToLowerInvariant(), 9)}  "
-                + $"— work_assume(ref:\"{a.Ref}\", resolve:\"confirmed\", evidence:\"…\")")));
-        }
-
-        var threads = await queries.OpenThreadsAsync(scope.WorkspaceId, scope.Item.Id, cancellationToken);
-
-        if (wanted.Contains("findings"))
-        {
-            lines.AddRange(threads.Where(t => t.Type == "finding").Select(t =>
-                $"{Glyph.Pad(t.Ref, 6)}  {Glyph.Pad("find", 6)}  "
-                + $"{Glyph.Pad(Glyph.Row(t.Text, 46), 46)}  "
-                + $"— work_status(ref:\"{t.Ref}\", to:\"done\")"));
-        }
-
-        if (wanted.Contains("followups"))
-        {
-            lines.AddRange(threads.Where(t => t.Type == "followup").Select(t =>
-                $"{Glyph.Pad(t.Ref, 6)}  {Glyph.Pad("foll", 6)}  "
-                + $"{Glyph.Pad(Glyph.Row(t.Text, 46), 46)}  "
-                + $"— work_status(ref:\"{t.Ref}\", to:\"in_progress\")"));
-        }
-
-        if (wanted.Contains("notes"))
-        {
-            // Only the worker brief of its addressee consumes a note (Housekeeping.ConsumeNotesAsync),
-            // so a note with no addressee is a record that never closes — not a thread.
-            var notes = await board.UnconsumedNotesAsync(scope.WorkspaceId, scope.Item.Id, cancellationToken);
-            // A note has no detail view and its brief consumes it, so its body is printed whole here.
-            foreach (var n in notes.Where(n => n.ToItemId is not null))
-            {
-                lines.AddRange(WrappedRow(
-                    $"{Glyph.Pad(n.ToRef!, 6)}  {Glyph.Pad("note", 6)}  ",
-                    n.Body,
-                    $"— work_brief(scope:\"{await AddresseeRefAsync(scope.WorkspaceId, n, cancellationToken)}\", "
-                    + "for:\"worker\") consumes it"));
-            }
-        }
-
-        if (wanted.Contains("deps"))
-        {
-            var deps = await queries.UnclosedDependenciesAsync(scope.Item.Id, cancellationToken);
-            lines.AddRange(deps.Select(d =>
-                $"{Glyph.Pad(d.Waiting, 6)}  {Glyph.Pad("dep", 6)}  "
-                + $"{Glyph.Pad($"waiting on {d.On} ({d.Status.ToString().ToLowerInvariant()})", 46)}  "
-                + $"— work_status(ref:\"{d.On}\", to:\"done\") or work_link to re-point it"));
-        }
-
-        if (wanted.Contains("stale"))
-        {
-            var stale = await board.StaleInProgressAsync(scope.Item.Id, StaleHours, cancellationToken);
-            lines.AddRange(stale.Select(s =>
-                $"{Glyph.Pad(s.Ref, 6)}  {Glyph.Pad("stale", 6)}  "
-                + $"{Glyph.Pad($"in_progress {Glyph.Age(Since(s.StartedAt))}, no live claim", 46)}  "
-                + $"— work_status(ref:\"{s.Ref}\", to:\"in_progress\") to retake it"));
-        }
+        var lines = (await ThreadsAsync(scope, include, rows: true, cancellationToken))
+            .SelectMany(row => row)
+            .ToList();
 
         if (lines.Count == 0)
         {
@@ -389,6 +327,99 @@ public sealed partial class BoardReader
         lines.Insert(0, string.Empty);
         lines.Insert(0, $"THREADS  {lines.Count - 1} unclosed under {scope.Item.Ref}");
         return string.Join("\n", lines);
+    }
+
+    /// <summary>
+    /// What <c>work_threads</c> lists, plus the expired claims its attention block names that no
+    /// stale row already covers — the housekeeping prompt's count, so the number on the button is the
+    /// number of rows the agent it starts will see.
+    /// </summary>
+    public async Task<int> UnclosedCountAsync(ScopeResult.Found scope, CancellationToken cancellationToken = default)
+    {
+        var rows = await ThreadsAsync(scope, [], rows: true, cancellationToken);
+        var stale = (await board.StaleInProgressAsync(scope.Item.Id, StaleHours, cancellationToken)).Select(s => s.Id).ToHashSet();
+        var expired = await board.ExpiredClaimsAsync(scope.Item.Id, cancellationToken);
+
+        return rows.Count + expired.Count(c => !stale.Contains(c.ItemId));
+    }
+
+    /// <summary>
+    /// One entry per thread, each the lines it renders to. Named <c>ThreadsAsync</c> because the
+    /// <c>Glyph.Row</c> allow-list in NoClipSourceTests is keyed by method name.
+    /// </summary>
+    private async Task<IReadOnlyList<IReadOnlyList<string>>> ThreadsAsync(
+        ScopeResult.Found scope,
+        IReadOnlyCollection<string> include,
+        bool rows,
+        CancellationToken cancellationToken)
+    {
+        var wanted = include.Count == 0 ? AllThreads : include;
+        var found = new List<IReadOnlyList<string>>();
+
+        if (wanted.Contains("assumptions"))
+        {
+            var assumptions = await board.AssumptionsAsync(scope.WorkspaceId, scope.Item.Id, true, cancellationToken);
+            // An assumption has no detail view, so this is where its statement is read whole.
+            found.AddRange(assumptions.Select(a => WrappedRow(
+                $"{Glyph.Pad(a.Ref, 6)}  {Glyph.Pad("assum", 6)}  ",
+                a.Statement,
+                $"{Glyph.Pad(a.Evidence.ToString().ToLowerInvariant(), 9)}  "
+                + $"— work_assume(ref:\"{a.Ref}\", resolve:\"confirmed\", evidence:\"…\")").ToList()));
+        }
+
+        var threads = await queries.OpenThreadsAsync(scope.WorkspaceId, scope.Item.Id, cancellationToken);
+
+        if (wanted.Contains("findings"))
+        {
+            found.AddRange(threads.Where(t => t.Type == "finding").Select(t => (IReadOnlyList<string>)[
+                $"{Glyph.Pad(t.Ref, 6)}  {Glyph.Pad("find", 6)}  "
+                + $"{Glyph.Pad(Glyph.Row(t.Text, 46), 46)}  "
+                + $"— work_status(ref:\"{t.Ref}\", to:\"done\")"]));
+        }
+
+        if (wanted.Contains("followups"))
+        {
+            found.AddRange(threads.Where(t => t.Type == "followup").Select(t => (IReadOnlyList<string>)[
+                $"{Glyph.Pad(t.Ref, 6)}  {Glyph.Pad("foll", 6)}  "
+                + $"{Glyph.Pad(Glyph.Row(t.Text, 46), 46)}  "
+                + $"— work_status(ref:\"{t.Ref}\", to:\"in_progress\")"]));
+        }
+
+        if (wanted.Contains("notes"))
+        {
+            // Only the worker brief of its addressee consumes a note (Housekeeping.ConsumeNotesAsync),
+            // so a note with no addressee is a record that never closes — not a thread.
+            var notes = await board.UnconsumedNotesAsync(scope.WorkspaceId, scope.Item.Id, cancellationToken);
+            // A note has no detail view and its brief consumes it, so its body is printed whole here.
+            foreach (var n in notes.Where(n => n.ToItemId is not null))
+            {
+                found.Add(WrappedRow(
+                    $"{Glyph.Pad(n.ToRef!, 6)}  {Glyph.Pad("note", 6)}  ",
+                    n.Body,
+                    $"— work_brief(scope:\"{await AddresseeRefAsync(scope.WorkspaceId, n, cancellationToken)}\", "
+                    + "for:\"worker\") consumes it").ToList());
+            }
+        }
+
+        if (wanted.Contains("deps"))
+        {
+            var deps = await queries.UnclosedDependenciesAsync(scope.Item.Id, cancellationToken);
+            found.AddRange(deps.Select(d => (IReadOnlyList<string>)[
+                $"{Glyph.Pad(d.Waiting, 6)}  {Glyph.Pad("dep", 6)}  "
+                + $"{Glyph.Pad($"waiting on {d.On} ({d.Status.ToString().ToLowerInvariant()})", 46)}  "
+                + $"— work_status(ref:\"{d.On}\", to:\"done\") or work_link to re-point it"]));
+        }
+
+        if (wanted.Contains("stale"))
+        {
+            var stale = await board.StaleInProgressAsync(scope.Item.Id, StaleHours, cancellationToken);
+            found.AddRange(stale.Select(s => (IReadOnlyList<string>)[
+                $"{Glyph.Pad(s.Ref, 6)}  {Glyph.Pad("stale", 6)}  "
+                + $"{Glyph.Pad($"in_progress {Glyph.Age(Since(s.StartedAt))}, no live claim", 46)}  "
+                + $"— work_status(ref:\"{s.Ref}\", to:\"in_progress\") to retake it"]));
+        }
+
+        return found;
     }
 
     /// <summary>doc 01 §5 — the mechanical half of the plan audit; every row carries its fix.</summary>

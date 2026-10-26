@@ -9,6 +9,7 @@ import { byActivity, runIsOpen } from '../projects.ts'
 import { UNKNOWN, ago, clock, day, plural, projectName, projectTagline, short } from '../format.ts'
 import { Dot, Known, Legend, ProjectName, Segs } from '../ui.tsx'
 import { InboxRowView } from './Inbox.tsx'
+import { PromptActions } from './Prompts.tsx'
 
 const INBOX_SHOWN = 5
 
@@ -193,6 +194,7 @@ export function ProjectPanel(props: { project: ProjectOverview }) {
           Backlog
         </A>
         <ArchiveControl project={props.project} />
+        <PromptActions scope={props.project.item.id} />
       </div>
       <Index each={open()} fallback={<Show when={closed().length === 0}><div class="empty">No runs yet.</div></Show>}>
         {(run) => <RunStrip run={run()} />}

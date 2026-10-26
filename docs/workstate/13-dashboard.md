@@ -30,7 +30,7 @@ Every page is a URL.
 
 | URL | Page | Reads |
 |---|---|---|
-| `/` | **Overview** — Needs you (top 5, then a link to the rest), Working now, four honesty counts, then one panel per project not archived, by last activity: a serif header band (the name links to the project page), open runs, then *Show n closed runs* (collapsed by default; closed by `runIsOpen`), each run a segmented bar with **one segment per leaf**, coloured by state; below them *n archived projects*, which shows the archived panels; the legend once below | `overview`, `inbox`, the board of every run of a project not archived |
+| `/` | **Overview** — Needs you (top 5, then a link to the rest), Working now, four honesty counts, then one panel per project not archived, by last activity: a serif header band (the name links to the project page; its prompt actions below it), open runs, then *Show n closed runs* (collapsed by default; closed by `runIsOpen`), each run a segmented bar with **one segment per leaf**, coloured by state; below them *n archived projects*, which shows the archived panels; the legend once below | `overview`, `inbox`, the board of every run of a project not archived |
 | `/projects/{id}` | **Project** — that project's overview panel, archived or not, with its Archive / Unarchive button | `overview` |
 | `/inbox` | **Needs you** — everything waiting on a person, newest first, each row with the MCP call that resolves it | `inbox` |
 | `/activity` | **Activity** — the last 300 journal events across the workspace, grouped by day | `journal?limit=300` |
@@ -62,6 +62,50 @@ Unarchive does not ask. The write is `POST /api/projects/{id}/archive|unarchive`
 `X-WorkState-Write` header; a failure is shown under the header band. The honesty counts and the
 open-task total still include archived projects — they are the server's sums, and archiving hides a
 project, it does not settle it.
+
+**Prompt actions.** A row of buttons — on every project panel's header band (overview and project
+page), under the run page's heading, and under the chips of the detail panel for any item that is not
+a run or a project (those have the header rows) — each copies a ready prompt for a **fresh Claude
+session**. The dashboard never acts and launches nothing. A button reads `Label` or `Label (n)`;
+clicking it opens a panel under the row with the **whole** prompt text, a **Copy** button
+(`navigator.clipboard.writeText`; where the clipboard is unavailable the text is selected instead and
+the panel says to press Ctrl+C) and a status line that says *Copied*. Clicking the button again, or
+**Close**, hides it. The buttons come from `GET /api/v1/prompts?scope={id}` (doc 10), re-read on every
+live burst like the page's other reads, so a count or an action follows the data. Code:
+`src/views/Prompts.tsx`. Inbox rows have none: they are the human's decisions.
+
+### The prompt catalogue
+
+The server builds every prompt, so the dashboard and the skills share one wording:
+`mcp/WorkState.Core/Rendering/PromptCatalogue.cs` (the entries, their predicates and templates) and
+`mcp/WorkState.Core/Board/BoardReader.Prompts.cs` (the facts they read). The endpoint returns only the
+actions that apply, in this order:
+
+| scope | key · label | applies when | count |
+|---|---|---|---|
+| project | `continue` · Continue | always | — |
+| project | `status` · Status report | always; makes no writes | — |
+| project | `housekeeping` · Housekeeping | n &gt; 0 | every row `work_threads(scope:project)` lists (assumptions, findings, follow-ups, addressed notes, unclosed dependencies, stale `in_progress`) plus the expired claims its attention block names that no stale row covers — `BoardReader.UnclosedCountAsync`, the same rows the prompt's agent will read |
+| project | `triage` · Triage backlog | n &gt; 0 | the project brief's backlog: open leaves of the backlog run, and open follow-ups anywhere under the project |
+| project | `finalize` · Finalize | not archived, at least one run besides the backlog, and no such run has an unclosed leaf | — |
+| run | `resume` · Resume | the run is not closed | — |
+| run | `audit` · Audit | a leaf under the run is done; makes no writes | — |
+| item | `work` · Work on this | a task, follow-up or subtask that is open or ready | — |
+| item | `unblock` · Investigate block | the item is blocked; makes no writes | — |
+
+Rules every template keeps (`V1PromptTests` holds each one):
+
+1. The first call a prompt names is `work_brief(scope:"<ref>")` on its own scope, and the ref is the
+   callable form: bare while unique in the workspace, else the qualified form that resolves to that
+   item alone (`run-a/1.2`, never a bare `1.2` that matches two items).
+2. Plain, imperative, short; it names the exact calls with real arguments — `RenderedCallTests`
+   already scans every `work_xxx(` on a code line of WorkState.Core, the catalogue included.
+3. A prompt that closes, cancels, defers or archives says, verbatim,
+   *"Propose first and wait for the human's yes: list every change you intend to make, and write
+   nothing until the human answers yes."* (`PromptCatalogue.ProposeAndWait`). It closes only with
+   evidence (`work_verify` then `work_status(to:"done")`), defers as a move (`target:` and `reason:`),
+   cancels with a reason, and never forces.
+4. The noclip rule (doc 06): the text is whole — never shortened, on the server or in the panel.
 
 A **project is named** by its title's head — the text before the first ` — `, or the whole title —
 in the sidebar, the overview panel, and every crumb (run, backlog, detail). Where that name differs

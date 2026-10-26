@@ -192,6 +192,17 @@ a.row:hover { background: var(--bg); }
 .confirm-b { display: flex; gap: 8px; flex-wrap: wrap; }
 .proj-h .confirm-err { flex-basis: 100%; margin: 0; }
 .panel.archived .proj-h { opacity: 0.85; }
+
+/* Prompt actions (doc 13): buttons that open a prompt to copy. In a wrapping header they take a row. */
+.prompt-acts { display: flex; flex-wrap: wrap; gap: 6px; }
+.proj-h .prompt-acts, .proj-h .prompt-panel { flex-basis: 100%; }
+.page-h .prompt-acts, .detail-head .prompt-acts { margin-top: 12px; }
+.proj-act.on { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
+.proj-act.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.proj-act.primary:hover:not([disabled]) { color: #fff; border-color: var(--accent); opacity: 0.9; }
+.prompt-panel { margin-top: 10px; padding: 12px 14px; border-radius: 10px; background: var(--panel); border: 1px solid var(--line); max-width: 100ch; }
+.prompt-panel .brief-text { margin-bottom: 10px; }
+.prompt-note { align-self: center; color: var(--ink-3); font-size: 12.5px; }
 .runs-more { width: 100%; text-align: left; border-top: 1px solid var(--line-2); }
 .archived-link { justify-self: start; color: var(--accent); font-size: 13px; font-weight: 500; padding: 4px 2px; }
 .archived-link:hover { text-decoration: underline; }

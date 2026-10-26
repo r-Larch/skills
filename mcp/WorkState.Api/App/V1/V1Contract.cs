@@ -236,3 +236,7 @@ public sealed record SessionHoldingView(SessionView Session, IReadOnlyList<Claim
 public sealed record SessionsView(DateTimeOffset AsOf, long Seq, IReadOnlyList<SessionHoldingView> Sessions);
 
 public sealed record ResolveView(DateTimeOffset AsOf, long Seq, IReadOnlyList<ItemRefView> Matches);
+
+public sealed record PromptView(string Key, string Label, int? Count, string Text);
+
+public sealed record PromptsView(DateTimeOffset AsOf, long Seq, ItemRefView Scope, IReadOnlyList<PromptView> Prompts);
