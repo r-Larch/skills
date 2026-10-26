@@ -473,6 +473,7 @@ public sealed class ApiQueries(NpgsqlDataSource dataSource)
     /// <summary>
     /// The journal, under a scope or on one item exactly. <paramref name="kinds"/> null means every
     /// kind. Ordered for paging, as <see cref="BoardQueries.EventsAsync"/> is and for the same reason.
+    /// <paramref name="beforeSeq"/> bounds it from above, exclusive.
     /// </summary>
     public async Task<IReadOnlyList<EventDetail>> EventsAsync(
         Guid workspaceId,
@@ -482,7 +483,8 @@ public sealed class ApiQueries(NpgsqlDataSource dataSource)
         int limit,
         bool oldestFirst,
         IReadOnlyCollection<string>? kinds,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        long? beforeSeq = null)
     {
         var sql =
             $"""
@@ -498,6 +500,7 @@ public sealed class ApiQueries(NpgsqlDataSource dataSource)
              FROM   event e
              WHERE  e.workspace_id = @workspace
                AND  e.seq > @since
+               AND  (@before IS NULL OR e.seq < @before)
                AND  (@scope IS NULL
                      OR e.item_id = @scope
                      OR (NOT @exact AND EXISTS (SELECT 1 FROM item x
@@ -515,6 +518,7 @@ public sealed class ApiQueries(NpgsqlDataSource dataSource)
                 scope = scopeId,
                 exact,
                 since = sinceSeq,
+                before = beforeSeq,
                 limit,
                 kinds = kinds is null ? null : string.Join(",", kinds),
             },
