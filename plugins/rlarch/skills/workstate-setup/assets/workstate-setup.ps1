@@ -20,7 +20,9 @@
   -ImageVersion <tag>    image tag for the pull-only compose (default latest)
   -Update                pull the image again (home) or rebuild it (clone) before starting
   -Force                 replace an existing registration of the same name
-  -DryRun                do everything except write the registration; show it with the token masked
+  -SessionNames          re-register an existing registration with the session helper (a new one gets
+                         it anyway), keeping the role its token has unless -Role is given
+  -DryRun               do everything except write the registration; show it with the token masked
   -Backup <file>         pg_dump -Fc the database to <file>, and stop
   -Restore <file>        restore <file> over the database (after a safety backup), and stop
 #>
@@ -36,6 +38,7 @@ param(
     [string]$ImageVersion,
     [switch]$Update,
     [switch]$Force,
+    [switch]$SessionNames,
     [switch]$DryRun,
     [string]$Backup,
     [string]$Restore
@@ -187,12 +190,19 @@ else {
     Status 'env' "wrote ${envFile}: 3 tokens, dashboard and Postgres passwords (values not shown, $modeNote)"
 }
 
+# the session helper - copied next to the .env, because the plugin cache path changes per version
+$helperShipped = Join-Path $scriptDir 'session-header.mjs'
+$helperFile = Join-Path $baseDir 'session-header.mjs'
+$node = Get-Command node -ErrorAction SilentlyContinue
+if (-not (Test-Path -LiteralPath $helperFile) -or (Get-FileHash -LiteralPath $helperShipped).Hash -ne (Get-FileHash -LiteralPath $helperFile).Hash) {
+    Copy-Item -LiteralPath $helperShipped -Destination $helperFile -Force
+}
+if ($node) { Status 'helper' "$helperFile (names each session; needs node, found)" }
+else { Status 'helper' "$helperFile copied, but node is not on PATH: registering without it, so sessions stay unnamed" }
+
 $portValue = Get-EnvValue 'WORKSTATE_API_PORT'
 if (-not $portValue) { $portValue = '5290' }
 $baseUrl = "http://127.0.0.1:$portValue"
-$tokenKey = "WORKSTATE_$($Role.ToUpperInvariant())_TOKEN"
-$token = Get-EnvValue $tokenKey
-if (-not $token) { Die "env       $envFile has no $tokenKey" }
 
 # c. start and wait for /health
 if ($ImageVersion) { $env:WORKSTATE_VERSION = $ImageVersion }
@@ -225,20 +235,41 @@ Status 'start' "project '$Project' up, $baseUrl/health 200"
 $mcpUrl = "$baseUrl/mcp"
 $existing = $false
 $scope = 'user'
-$agentHeader = @()
-if ($Agent) { $scope = 'local'; $agentHeader = @('--header', "X-WorkState-Agent: $Agent") }
-$shown = "claude mcp add --scope $scope --transport http $Name $mcpUrl --header `"Authorization: Bearer ***`"" + $(if ($Agent) { " --header `"X-WorkState-Agent: $Agent`"" } else { '' })
+if ($Agent) { $scope = 'local' }
+$getOut = ''
 if (-not (Get-Command claude -ErrorAction SilentlyContinue)) {
     if (-not $DryRun) { Die 'register  the claude CLI is not on PATH: install Claude Code, or run this where it is' }
 }
 else {
+    # Read here and never printed: SKILL.md forbids the model this command because it shows the header.
     $getOut = (& claude mcp get $Name 2>&1 | Out-String)
     if ($LASTEXITCODE -eq 0) { $existing = $true }
     elseif ($getOut -notmatch 'No MCP server named') { Die "register  claude mcp get $Name failed; run claude mcp list to see why" }
     if ($existing -and $scope -eq 'local' -and $getOut -notmatch 'Scope: Local') { $existing = $false }
 }
-if ($existing -and -not $Force) {
-    Status 'register' "kept the existing '$Name' registration (pass -Force to replace it)"
+
+# -SessionNames on an existing registration keeps the role its token already has.
+if ($existing -and $SessionNames -and -not $PSBoundParameters.ContainsKey('Role')) {
+    foreach ($candidate in 'controller', 'orchestrator', 'worker') {
+        $candidateToken = Get-EnvValue "WORKSTATE_$($candidate.ToUpperInvariant())_TOKEN"
+        if ($candidateToken -and $getOut.Contains("Bearer $candidateToken")) { $Role = $candidate; break }
+    }
+}
+$tokenKey = "WORKSTATE_$($Role.ToUpperInvariant())_TOKEN"
+$token = Get-EnvValue $tokenKey
+if (-not $token) { Die "env       $envFile has no $tokenKey" }
+
+function Get-Registration([string]$Bearer) {
+    $headers = [ordered]@{ Authorization = "Bearer $Bearer" }
+    if ($Agent) { $headers['X-WorkState-Agent'] = $Agent }
+    $entry = [ordered]@{ type = 'http'; url = $mcpUrl; headers = $headers }
+    if ($node) { $entry['headersHelper'] = "node `"$($helperFile.Replace('\', '/'))`"" }
+    $entry | ConvertTo-Json -Compress
+}
+$shown = "claude mcp add-json --scope $scope $Name '$(Get-Registration '***')'"
+
+if ($existing -and -not ($Force -or $SessionNames)) {
+    Status 'register' "kept the existing '$Name' registration (pass -SessionNames to add the session helper, -Force to replace it)"
 }
 elseif ($DryRun) {
     Status 'register' "dry run, would run: $shown"
@@ -248,9 +279,14 @@ else {
         & claude mcp remove $Name --scope $scope *> $null
         if ($LASTEXITCODE -ne 0) { Die "register  claude mcp remove $Name --scope $scope failed (is it registered in another scope?)" }
     }
-    & claude mcp add --scope $scope --transport http $Name $mcpUrl --header "Authorization: Bearer $token" @agentHeader *> $null
-    if ($LASTEXITCODE -ne 0) { Die "register  claude mcp add failed: $shown" }
-    Status 'register' "'$Name' -> $mcpUrl as $Role$(if ($Agent) { ", agent $Agent" }) ($scope scope; token stored by Claude Code, not shown)"
+    $json = Get-Registration $token
+    # Windows PowerShell 5.1 strips the JSON's quotes from a native argument unless they are escaped.
+    if ($PSVersionTable.PSVersion.Major -lt 7 -or (Get-Variable PSNativeCommandArgumentPassing -ValueOnly -ErrorAction SilentlyContinue) -eq 'Legacy') {
+        $json = $json.Replace('"', '\"')
+    }
+    & claude mcp add-json --scope $scope $Name $json *> $null
+    if ($LASTEXITCODE -ne 0) { Die "register  claude mcp add-json failed: $shown" }
+    Status 'register' "'$Name' -> $mcpUrl as $Role$(if ($Agent) { ", agent $Agent" })$(if ($node) { ', session helper' }) ($scope scope; token stored by Claude Code, not shown)"
 }
 
 # e. prove - count what the server lists for that token

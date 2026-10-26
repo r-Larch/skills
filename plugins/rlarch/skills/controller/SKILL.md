@@ -40,6 +40,8 @@ project.
   markdown fallback.
 - **`work_brief` exists but `work_constrain` does not** → the server is older than this skill. Say so
   in one line, point at `/rlarch:workstate-setup`, and stop.
+- **It says `session  unnamed — work_session(…)`** → sign your work first: `work_session(name:)` with
+  the name `ListAgents` gives in its first line, *"This session is <name> [ref]"* (the name, not the ref).
 - **It answers** → read it. If a queue is already in flight, its NEXT line is where you resume — with
   `/rlarch:nested-claude` §8 for the sessions that were running when yours stopped.
 

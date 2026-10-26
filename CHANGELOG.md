@@ -4,6 +4,19 @@ What changes for someone who has the `rlarch` plugin installed, newest first. Fo
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions are the `version` field in
 `plugins/rlarch/.claude-plugin/plugin.json`, which is what the updater gates on.
 
+## [Unreleased]
+
+### Added
+
+- **Session self-naming.** Hand-started sessions share one WorkState registration, so their work
+  was signed by role alone. `workstate-setup` now registers a headers helper,
+  `session-header.mjs` (needs `node`), that keys each session by its Claude Code process and sends
+  its name when `claude agents` knows it. `work_session(name)` binds a hand-started session to the
+  name `ListAgents` shows; `/rlarch:controller` and `/rlarch:orchestrate` call it when `work_brief`
+  says the session is unnamed. A minted session keeps its name; two live sessions cannot share
+  one. Existing installs: run the setup script once with `--session-names`, then start a new
+  session.
+
 ## [2.3.0] - 2026-10-26
 
 ### Added

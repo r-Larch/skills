@@ -25,7 +25,9 @@ usage: workstate-setup.sh [options]
   --image-version <tag>   image tag for the pull-only compose (default latest)
   --update                pull the image again (home) or rebuild it (clone) before starting
   --force                 replace an existing registration of the same name
-  --dry-run               do everything except write the registration; show it with the token masked
+  --session-names         re-register an existing registration with the session helper (a new one
+                          gets it anyway), keeping the role its token has unless --role is given
+  --dry-run              do everything except write the registration; show it with the token masked
   --backup <file>         pg_dump -Fc the database to <file>, and stop
   --restore <file>        restore <file> over the database (after a safety backup), and stop
 EOF
@@ -36,13 +38,13 @@ status() { printf '%-10s%s\n' "$1" "$2"; }
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 clone=""; home_dir=""; role="orchestrator"; name="workstate"; agent=""; port="5290"; project="workstate"
-image_version=""; update=0; force=0; dry_run=0; backup=""; restore=""
+image_version=""; update=0; force=0; session_names=0; role_given=0; dry_run=0; backup=""; restore=""
 
 while [ $# -gt 0 ]; do
     case "$1" in
         --clone) clone="${2:?--clone needs a path}"; shift 2 ;;
         --home-dir) home_dir="${2:?--home-dir needs a directory}"; shift 2 ;;
-        --role) role="${2:?--role needs a value}"; shift 2 ;;
+        --role) role="${2:?--role needs a value}"; role_given=1; shift 2 ;;
         --name) name="${2:?--name needs a value}"; shift 2 ;;
         --agent) agent="${2:?--agent needs a session name}"; shift 2 ;;
         --port) port="${2:?--port needs a value}"; shift 2 ;;
@@ -50,6 +52,7 @@ while [ $# -gt 0 ]; do
         --image-version) image_version="${2:?--image-version needs a tag}"; shift 2 ;;
         --update) update=1; shift ;;
         --force) force=1; shift ;;
+        --session-names) session_names=1; shift ;;
         --dry-run) dry_run=1; shift ;;
         --backup) backup="${2:?--backup needs a file}"; shift 2 ;;
         --restore) restore="${2:?--restore needs a file}"; shift 2 ;;
@@ -172,10 +175,19 @@ EOF
     status "env" "wrote $env_file: 3 tokens, dashboard and Postgres passwords (values not shown, mode 600)"
 fi
 
+# the session helper - copied next to the .env, because the plugin cache path changes per version
+helper_file="$base_dir/session-header.mjs"
+cmp -s "$script_dir/session-header.mjs" "$helper_file" 2>/dev/null || cp "$script_dir/session-header.mjs" "$helper_file"
+has_node=0
+if command -v node >/dev/null 2>&1; then
+    has_node=1
+    status "helper" "$helper_file (names each session; needs node, found)"
+else
+    status "helper" "$helper_file copied, but node is not on PATH: registering without it, so sessions stay unnamed"
+fi
+
 port="$(env_value WORKSTATE_API_PORT)"; port="${port:-5290}"
 base_url="http://127.0.0.1:$port"
-token="$(env_value "WORKSTATE_$(printf '%s' "$role" | tr '[:lower:]' '[:upper:]')_TOKEN")"
-[ -n "$token" ] || die "env       $env_file has no WORKSTATE_$(printf '%s' "$role" | tr '[:lower:]' '[:upper:]')_TOKEN"
 
 # c. start and wait for /health
 [ -n "$image_version" ] && export WORKSTATE_VERSION="$image_version"
@@ -198,27 +210,53 @@ status "start" "project '$project' up, $base_url/health 200"
 # d. register - the token goes from the .env straight into the harness's config
 mcp_url="$base_url/mcp"
 existing=0
-scope="user"; agent_header=()
-if [ -n "$agent" ]; then scope="local"; agent_header=(--header "X-WorkState-Agent: $agent"); fi
-shown="claude mcp add --scope $scope --transport http $name $mcp_url --header \"Authorization: Bearer ***\"${agent:+ --header \"X-WorkState-Agent: $agent\"}"
+scope="user"
+[ -n "$agent" ] && scope="local"
+get_out=""
 if ! command -v claude >/dev/null 2>&1; then
     [ "$dry_run" -eq 1 ] || die "register  the claude CLI is not on PATH: install Claude Code, or run this where it is"
+# Read here and never printed: SKILL.md forbids the model this command because it shows the header.
 elif get_out="$(claude mcp get "$name" 2>&1)"; then existing=1
 elif ! printf '%s' "$get_out" | grep -q "No MCP server named"; then
     die "register  claude mcp get $name failed; run claude mcp list to see why"
 fi
 if [ "$existing" -eq 1 ] && [ "$scope" = "local" ] && ! printf '%s' "$get_out" | grep -q "Scope: Local"; then existing=0; fi
-if [ "$existing" -eq 1 ] && [ "$force" -eq 0 ]; then
-    status "register" "kept the existing '$name' registration (pass --force to replace it)"
+
+upper() { printf '%s' "$1" | tr '[:lower:]' '[:upper:]'; }
+# --session-names on an existing registration keeps the role its token already has.
+if [ "$existing" -eq 1 ] && [ "$session_names" -eq 1 ] && [ "$role_given" -eq 0 ]; then
+    for candidate in controller orchestrator worker; do
+        candidate_token="$(env_value "WORKSTATE_$(upper "$candidate")_TOKEN")"
+        if [ -n "$candidate_token" ] && printf '%s' "$get_out" | grep -qF "Bearer $candidate_token"; then role="$candidate"; break; fi
+    done
+fi
+token="$(env_value "WORKSTATE_$(upper "$role")_TOKEN")"
+[ -n "$token" ] || die "env       $env_file has no WORKSTATE_$(upper "$role")_TOKEN"
+
+json_str() { printf '"%s"' "$(printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g')"; }
+helper_path="$helper_file"
+command -v cygpath >/dev/null 2>&1 && helper_path="$(cygpath -m "$helper_file")"
+registration() { # $1 = the bearer token, or *** for display
+    local headers="\"Authorization\":$(json_str "Bearer $1")"
+    [ -n "$agent" ] && headers="$headers,\"X-WorkState-Agent\":$(json_str "$agent")"
+    local entry="{\"type\":\"http\",\"url\":$(json_str "$mcp_url"),\"headers\":{$headers}"
+    [ "$has_node" -eq 1 ] && entry="$entry,\"headersHelper\":$(json_str "node \"$helper_path\"")"
+    printf '%s}' "$entry"
+}
+shown="claude mcp add-json --scope $scope $name '$(registration '***')'"
+
+if [ "$existing" -eq 1 ] && [ "$force" -eq 0 ] && [ "$session_names" -eq 0 ]; then
+    status "register" "kept the existing '$name' registration (pass --session-names to add the session helper, --force to replace it)"
 elif [ "$dry_run" -eq 1 ]; then
     status "register" "dry run, would run: $shown"
 else
     if [ "$existing" -eq 1 ]; then
         claude mcp remove "$name" --scope "$scope" >/dev/null 2>&1 || die "register  claude mcp remove $name --scope $scope failed (is it registered in another scope?)"
     fi
-    claude mcp add --scope "$scope" --transport http "$name" "$mcp_url" --header "Authorization: Bearer $token" "${agent_header[@]+"${agent_header[@]}"}" >/dev/null 2>&1 \
-        || die "register  claude mcp add failed: $shown"
-    status "register" "'$name' -> $mcp_url as $role${agent:+, agent $agent} ($scope scope; token stored by Claude Code, not shown)"
+    claude mcp add-json --scope "$scope" "$name" "$(registration "$token")" >/dev/null 2>&1 \
+        || die "register  claude mcp add-json failed: $shown"
+    helper_note=""; [ "$has_node" -eq 1 ] && helper_note=", session helper"
+    status "register" "'$name' -> $mcp_url as $role${agent:+, agent $agent}$helper_note ($scope scope; token stored by Claude Code, not shown)"
 fi
 
 # e. prove - count what the server lists for that token
