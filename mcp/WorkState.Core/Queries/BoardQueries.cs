@@ -100,19 +100,44 @@ public sealed partial class BoardQueries(NpgsqlDataSource dataSource)
     /// <summary>
     /// Resolves a ref. <c>2.3</c> looks anywhere in the workspace; <c>entity-store/2.3</c> looks
     /// inside that run only. A run (or project) numbers its own refs, so it is qualified by its
-    /// parent — <c>autowork/backlog</c> — or by itself, <c>backlog/backlog</c>. More than one row
-    /// back means the ref is ambiguous, which the caller reports with <see cref="UniqueRefsAsync"/>
-    /// rather than guessing.
+    /// parent — <c>autowork/backlog</c> — or by itself, <c>backlog/backlog</c>. A project may lead:
+    /// <c>autowork/m5/13</c> is the run form inside that project, and <c>workstate/repo-map-stale</c>
+    /// is anything under the project, tried only when no run qualifies the two-part form, so every
+    /// form that resolved before still resolves to the same item. More than one row back means the
+    /// ref is ambiguous, which the caller reports with <see cref="UniqueRefsAsync"/> rather than
+    /// guessing. A ref never contains '/' (work_create refuses one), so each '/' is a qualifier.
     /// </summary>
     public async Task<IReadOnlyList<ScopeRef>> ResolveAsync(
         Guid workspaceId,
         string reference,
         CancellationToken cancellationToken = default)
     {
-        var slash = reference.LastIndexOf('/');
-        var qualifier = slash > 0 ? reference[..slash] : null;
-        var leaf = slash > 0 ? reference[(slash + 1)..] : reference;
+        var parts = reference.Split('/');
+        if (parts.Length > 3 || (parts.Length > 1 && parts.Any(p => p.Length == 0)))
+        {
+            return [];
+        }
 
+        return parts switch
+        {
+            [var leaf] => await ResolveAsync(workspaceId, null, null, leaf, cancellationToken),
+            [var project, var qualifier, var leaf] =>
+                await ResolveAsync(workspaceId, project, qualifier, leaf, cancellationToken),
+            [var qualifier, var leaf] =>
+                await ResolveAsync(workspaceId, null, qualifier, leaf, cancellationToken) is { Count: > 0 } byRun
+                    ? byRun
+                    : await ResolveAsync(workspaceId, qualifier, null, leaf, cancellationToken),
+            _ => [],
+        };
+    }
+
+    private async Task<IReadOnlyList<ScopeRef>> ResolveAsync(
+        Guid workspaceId,
+        string? project,
+        string? qualifier,
+        string leaf,
+        CancellationToken cancellationToken)
+    {
         const string sql =
             $"""
              SELECT {ScopeColumns}
@@ -125,12 +150,17 @@ public sealed partial class BoardQueries(NpgsqlDataSource dataSource)
                AND  (@qualifier IS NULL
                      OR lower(coalesce(s.ref, i.ref)) = lower(@qualifier)
                      OR (i.ref_scope_id = i.id AND lower(p.ref) = lower(@qualifier)))
+               AND  (@project IS NULL
+                     OR EXISTS (SELECT 1 FROM item pj
+                                WHERE  pj.id = ANY(i.ancestors)
+                                  AND  pj.kind = 'project'
+                                  AND  lower(pj.ref) = lower(@project)))
              ORDER BY k.rank, i.seq;
              """;
 
         return await ListAsync<ScopeRef>(
             sql,
-            new { workspace = workspaceId, leaf, qualifier },
+            new { workspace = workspaceId, leaf, qualifier, project },
             cancellationToken);
     }
 
@@ -157,8 +187,9 @@ public sealed partial class BoardQueries(NpgsqlDataSource dataSource)
         return forms;
     }
 
-    /// <summary>The first of the bare ref, the run-qualified ref, and for a run its parent- and
-    /// self-qualified forms, that resolves to <paramref name="match"/> alone.</summary>
+    /// <summary>The first of the bare ref, the run-qualified ref, for a run its parent- and
+    /// self-qualified forms, then the project-qualified <c>project/ref</c> and
+    /// <c>project/run/ref</c>, that resolves to <paramref name="match"/> alone — shortest first.</summary>
     public async Task<string?> UniqueRefAsync(
         Guid workspaceId,
         ScopeRef match,
@@ -166,10 +197,8 @@ public sealed partial class BoardQueries(NpgsqlDataSource dataSource)
     {
         var forms = new List<string> { match.Ref };
 
-        if (match.QualifiedRef is { Length: > 0 } qualified)
-        {
-            forms.Add(qualified);
-        }
+        var qualified = match.QualifiedRef is { Length: > 0 } q ? q : match.Ref;
+        forms.Add(qualified);
 
         if (match.RefScopeId == match.Id)
         {
@@ -183,6 +212,12 @@ public sealed partial class BoardQueries(NpgsqlDataSource dataSource)
             forms.Add($"{match.Ref}/{match.Ref}");
         }
 
+        if (await ProjectRefAsync(match.Id, cancellationToken) is { Length: > 0 } project)
+        {
+            forms.Add($"{project}/{match.Ref}");
+            forms.Add($"{project}/{qualified}");
+        }
+
         foreach (var form in forms.Distinct(StringComparer.OrdinalIgnoreCase))
         {
             if (await ResolveAsync(workspaceId, form, cancellationToken) is [var only] && only.Id == match.Id)
@@ -194,10 +229,27 @@ public sealed partial class BoardQueries(NpgsqlDataSource dataSource)
         return null;
     }
 
+    /// <summary>The nearest project above the item, or null for a project or an orphan.</summary>
+    private Task<string?> ProjectRefAsync(Guid itemId, CancellationToken cancellationToken)
+    {
+        const string sql =
+            """
+            SELECT pj.ref
+            FROM   item i
+            JOIN   item pj ON pj.id = ANY(i.ancestors) AND pj.kind = 'project'
+            WHERE  i.id = @id
+            ORDER  BY array_position(i.ancestors, pj.id) DESC
+            LIMIT  1;
+            """;
+
+        return SingleAsync<string>(sql, new { id = itemId }, cancellationToken);
+    }
+
     /// <summary>
     /// The ref to print where it will be called or read back (ws/10, ws/13, doc 10 rule 2): bare
-    /// while no other item shares it, else run-qualified — and for a run or project, which numbers
-    /// its own refs, the form <see cref="UniqueRefAsync"/> checked to resolve to it alone.
+    /// while no other item shares it, else run-qualified while that resolves to it alone, else the
+    /// form <see cref="UniqueRefAsync"/> checked to — which for a run or project, numbering its own
+    /// refs, is never its bare ref, and for an item in two same-named runs is project-qualified.
     /// </summary>
     public async Task<string> CallableRefAsync(
         ScopeRef item,
@@ -210,9 +262,14 @@ public sealed partial class BoardQueries(NpgsqlDataSource dataSource)
         }
 
         var qualified = item.QualifiedRef ?? item.Ref;
-        return item.RefScopeId == item.Id
-            ? await UniqueRefAsync(item.WorkspaceId, item, cancellationToken) ?? qualified
-            : qualified;
+        if (item.RefScopeId != item.Id
+            && await ResolveAsync(item.WorkspaceId, qualified, cancellationToken) is [var only]
+            && only.Id == item.Id)
+        {
+            return qualified;
+        }
+
+        return await UniqueRefAsync(item.WorkspaceId, item, cancellationToken) ?? qualified;
     }
 
     /// <summary>

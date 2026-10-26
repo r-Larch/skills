@@ -122,6 +122,15 @@ public sealed partial class WorkWriter
                 return WriteResult.No(shortfall);
             }
 
+            if (!Blank(wanted.Ref) && wanted.Ref!.Contains('/'))
+            {
+                return WriteResult.No(Refusal.Blocked(
+                    $"work_create(items:[{{kind:\"{kind}\", ref:\"{wanted.Ref.Trim()}\"}}]) — ref contains '/'.",
+                    "'/' is the qualifier separator (project/run/ref), so a ref holding one could never be called back",
+                    $"work_create(items:[{{kind:\"{kind}\", ref:\"{SlashFree(wanted.Ref)}\", …}}])",
+                    $"work_create(items:[{{kind:\"{kind}\", …}}]) without ref — the server numbers it"));
+            }
+
             var repo = wanted.Repo?.Keys() ?? [];
             if (repo.Count > 0 && kind != "project")
             {
@@ -588,6 +597,8 @@ public sealed partial class WorkWriter
             string.Empty,
             "Next: work_next() — the frontier has just changed."));
     }
+
+    private static string SlashFree(string reference) => reference.Trim().Trim('/').Replace('/', '-');
 
     private sealed record ScopeRefLite(Guid Id, string Ref, Guid? RefScopeId);
 

@@ -26,11 +26,13 @@ public static partial class ApiV1
 
     /// <summary>
     /// Ascending by seq. With no <c>since</c> it is the newest page, reversed into the same order;
-    /// with one it is the contiguous page after the cursor.
+    /// with one it is the contiguous page after the cursor. With <c>before</c> it is the newest page
+    /// below that seq, reversed the same way, and its cursor is the next <c>before</c>.
     /// </summary>
     private static async Task<IResult> JournalAsync(
         [FromQuery] Guid? scope,
         [FromQuery] long? since,
+        [FromQuery] long? before,
         [FromQuery] int? limit,
         [FromQuery] string? kinds,
         BoardQueries board,
@@ -38,6 +40,14 @@ public static partial class ApiV1
         WorkspaceOptions workspace,
         CancellationToken cancellationToken)
     {
+        if (since is not null && before is not null)
+        {
+            return Results.BadRequest(new
+            {
+                error = "since= and before= cannot be combined: since pages forward from a cursor, before pages back from one",
+            });
+        }
+
         string[]? wanted = null;
         if (!string.IsNullOrWhiteSpace(kinds))
         {
@@ -68,6 +78,21 @@ public static partial class ApiV1
         }
 
         var take = Math.Clamp(limit ?? JournalDefaultLimit, 1, JournalMaxLimit);
+
+        if (before is { } below)
+        {
+            var older = await api.EventsAsync(
+                snapshot.WorkspaceId, scope, exact: false, 0, take + 1, oldestFirst: false, wanted, cancellationToken, below);
+            IReadOnlyList<EventDetail> back = [.. older.Take(take).Reverse()];
+
+            return Results.Ok(new JournalPageView(
+                snapshot.AsOf,
+                snapshot.Seq,
+                back.Count == 0 ? below : back[0].Seq,
+                older.Count > take,
+                await book.EventsAsync(back, cancellationToken)));
+        }
+
         var page = await api.EventsAsync(
             snapshot.WorkspaceId, scope, exact: false, cursor, take + 1, oldestFirst: cursor > 0, wanted, cancellationToken);
 
