@@ -10,7 +10,7 @@ second description of it.
 |---|---|
 | `Domain/` | the entities, one file per group: `Tree`, `Docs`, `Evidence`, `Threads`, `Enums` |
 | `Data/` | `WorkStateDbContext` + the enum/naming registration every entry point must share, the design-time factory, and `SeqAllocator` |
-| `Migrations/` | four migrations: `InitialTree`, `EvidenceAndJournal`, `Threads`, `Views` |
+| `Migrations/` | every migration, in timestamp order — scaffolded with `dotnet ef migrations add <Name> --project mcp/WorkState.Core`, applied by the host or the tests, never by `dotnet ef database update` |
 | `Queries/` | the hand-written read side — frontier, unclosed dependencies, rollup, subtree, open threads, search, plus the brief's constraints / notes / evidence / attention projections |
 | `Rendering/` | the exact output formats of `docs/workstate/06-rendering.md`. Pure functions: no database, no web host |
 | `Board/` | `BoardReader` — the composition from `Queries/` into the models `Rendering/` takes. What the eight MCP read tools are a thin transport over |
