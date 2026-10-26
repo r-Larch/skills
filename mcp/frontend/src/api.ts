@@ -40,6 +40,8 @@ export type Claim = {
   heartbeatAt: string
   expiresAt: string
   expired: boolean
+  /** The holding session's name; null when the claim was taken without one. */
+  heldBySession?: string | null
 }
 
 export type JournalEvent = {

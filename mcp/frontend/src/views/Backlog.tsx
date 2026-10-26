@@ -5,7 +5,7 @@ import { load, overview } from '../store.ts'
 import { itemHref, runHref } from '../nav.ts'
 import { refState } from '../state.ts'
 import { plural, short } from '../format.ts'
-import { Dot, Known, ProjectName } from '../ui.tsx'
+import { CopyRef, Dot, Known, ProjectName } from '../ui.tsx'
 
 export default function Backlog() {
   const params = useParams<{ project: string }>()
@@ -21,7 +21,11 @@ export default function Backlog() {
           <div class="crumbs">
             <A href="/">Overview</A> /{' '}
             <Show when={project()} fallback="project">
-              {(p) => <ProjectName project={p()} />}
+              {(p) => (
+                <>
+                  <ProjectName project={p()} /> <CopyRef value={p().qualifiedRef} />
+                </>
+              )}
             </Show>
           </div>
           <h1>Backlog</h1>
@@ -63,7 +67,9 @@ export default function Backlog() {
                       {(origin) => (
                         <A class="group-h" href={itemHref(origin(), null)}>
                           From {short(origin().title)}
-                          <span class="gc">{origin().qualifiedRef}</span>
+                          <span class="gc">
+                            {origin().qualifiedRef} <CopyRef value={origin().qualifiedRef} />
+                          </span>
                         </A>
                       )}
                     </Show>
@@ -73,6 +79,7 @@ export default function Backlog() {
                           <Dot k={refState(item).k} />
                           <div class="item-t">
                             <span class="item-ref">{item.qualifiedRef}</span>
+                            <CopyRef value={item.qualifiedRef} />
                             {item.title}
                           </div>
                           <div class="item-side">{item.kind}</div>

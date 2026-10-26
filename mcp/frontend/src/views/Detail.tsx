@@ -4,9 +4,9 @@ import * as api from '../api.ts'
 import type { BoardRow, ItemPage, ItemRef } from '../api.ts'
 import { load } from '../store.ts'
 import { CLOSED, pageInput, refState, rowState, state } from '../state.ts'
-import { ago, cap, clock, day } from '../format.ts'
+import { ago, cap, claimHolder, clock, day } from '../format.ts'
 import { CheckIcon } from '../icons.tsx'
-import { Dot, Pill, ProjectName } from '../ui.tsx'
+import { CopyRef, Dot, Pill, ProjectName } from '../ui.tsx'
 import { EventLine } from './Activity.tsx'
 import { PromptActions } from './Prompts.tsx'
 
@@ -40,7 +40,7 @@ export default function Detail(props: Props) {
     const list: ([string, string] | false | null | undefined | '')[] = [
       ['kind', p().item.kind],
       commit() !== undefined && ['commit', commit()!],
-      c && open() && ['claimed by', c.session?.name ?? c.agent],
+      c && open() && ['claimed by', claimHolder(c)],
       c?.tree && open() && ['tree', c.tree],
       p().priority !== 0 && ['priority', String(p().priority)],
       p().severity && ['severity', p().severity!],
@@ -72,6 +72,7 @@ export default function Detail(props: Props) {
                     <ProjectName project={step} />
                   </Show>
                 </A>
+                <CopyRef value={step.qualifiedRef} />
               </>
             )}
           </For>
@@ -79,7 +80,9 @@ export default function Detail(props: Props) {
         <div class="dh-row">
           <div>
             <h2 class="dh-title">{p().item.title}</h2>
-            <div class="dh-ref">{p().item.qualifiedRef}</div>
+            <div class="dh-ref">
+              {p().item.qualifiedRef} <CopyRef value={p().item.qualifiedRef} />
+            </div>
           </div>
           <Pill state={s()} />
         </div>
@@ -130,6 +133,7 @@ export default function Detail(props: Props) {
                     </span>
                     <span>
                       {n.to?.id === p().item.id ? (n.consumedAt ? 'delivered' : 'not yet read') : n.to ? `to ${n.to.qualifiedRef}` : 'record'}
+                      <Show when={n.to?.id !== p().item.id ? n.to : null}>{(to) => <> <CopyRef value={to().qualifiedRef} /></>}</Show>
                     </span>
                   </div>
                   <div class="note-b">{n.body}</div>
@@ -207,6 +211,7 @@ function OverviewTab(props: Props) {
                   <Dot k={childState(b).k} />
                   <div>
                     <span class="item-ref">{b.qualifiedRef}</span>
+                    <CopyRef value={b.qualifiedRef} />
                     {b.title}
                   </div>
                   <span class="row-m">{childState(b).label}</span>
@@ -250,6 +255,7 @@ function OverviewTab(props: Props) {
                   <Dot k={childState(f.item).k} />
                   <div>
                     <span class="item-ref">{f.item.qualifiedRef}</span>
+                    <CopyRef value={f.item.qualifiedRef} />
                     {f.item.title}
                   </div>
                   <span class="row-m">{f.severity ?? ''}</span>
@@ -269,6 +275,7 @@ function OverviewTab(props: Props) {
                   <Dot k={childState(child.item).k} />
                   <div>
                     <span class="item-ref">{child.item.ref}</span>
+                    <CopyRef value={child.item.qualifiedRef} />
                     {child.item.title}
                   </div>
                   <span class="row-m">{childState(child.item).label}</span>
