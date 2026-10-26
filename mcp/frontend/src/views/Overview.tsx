@@ -5,9 +5,11 @@ import { boards, inbox, overview } from '../store.ts'
 import { CLOSED, refState, tally } from '../state.ts'
 import { backlogHref, itemHref, runHref } from '../nav.ts'
 import { honestyCells, openTasks } from '../inbox.ts'
-import { UNKNOWN, ago, clock, day, plural, short } from '../format.ts'
-import { Dot, Known, Legend, Segs } from '../ui.tsx'
+import { UNKNOWN, ago, clock, day, plural, projectTagline, short } from '../format.ts'
+import { Dot, Known, Legend, ProjectName, Segs } from '../ui.tsx'
 import { InboxRowView } from './Inbox.tsx'
+
+const INBOX_SHOWN = 5
 
 export default function Overview() {
   const sub = () => {
@@ -43,9 +45,16 @@ export default function Overview() {
             </div>
             <Known value={inbox()}>
               {(box) => (
-                <Index each={box().rows.slice(0, 5)} fallback={<div class="empty">Nothing is waiting on you.</div>}>
-                  {(row) => <InboxRowView row={row()} asOf={box().asOf} />}
-                </Index>
+                <>
+                  <Index each={box().rows.slice(0, INBOX_SHOWN)} fallback={<div class="empty">Nothing is waiting on you.</div>}>
+                    {(row) => <InboxRowView row={row()} asOf={box().asOf} />}
+                  </Index>
+                  <Show when={box().rows.length > INBOX_SHOWN}>
+                    <A class="row-more" href="/inbox">
+                      +{box().rows.length - INBOX_SHOWN} more in the inbox
+                    </A>
+                  </Show>
+                </>
               )}
             </Known>
           </div>
@@ -131,7 +140,7 @@ function ClaimRow(props: { claim: Claim; asOf: string }) {
 }
 
 function ProjectPanel(props: { project: ProjectOverview }) {
-  const name = () => props.project.item.title.split(' — ')
+  const tagline = () => projectTagline(props.project.item)
   const runs = () => {
     const all = props.project.runs
     return [...all.filter((r) => !CLOSED.has(r.item.status)), ...all.filter((r) => CLOSED.has(r.item.status))]
@@ -142,9 +151,11 @@ function ProjectPanel(props: { project: ProjectOverview }) {
     <div class="panel runs">
       <div class="proj-h">
         <div>
-          <h2>{name()[0]}</h2>
-          <Show when={name().length > 1}>
-            <div class="strip-m">{name().slice(1).join(' — ')}</div>
+          <h2>
+            <ProjectName project={props.project.item} />
+          </h2>
+          <Show when={tagline()}>
+            <div class="strip-m">{tagline()}</div>
           </Show>
         </div>
         <span class="n">

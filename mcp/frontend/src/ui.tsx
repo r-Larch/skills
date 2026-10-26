@@ -1,7 +1,7 @@
 import { For, Show, type Accessor, type JSX } from 'solid-js'
 import type { BoardRow } from './api.ts'
 import { rowState, type State, type StateKey } from './state.ts'
-import { UNKNOWN } from './format.ts'
+import { UNKNOWN, projectName, projectRefIfDifferent } from './format.ts'
 
 export const Dot = (props: { k: StateKey | 'note'; title?: string; style?: JSX.CSSProperties }) => (
   <span class={`dot s-${props.k}`} title={props.title} style={props.style} />
@@ -9,6 +9,14 @@ export const Dot = (props: { k: StateKey | 'note'; title?: string; style?: JSX.C
 
 export const Pill = (props: { state: State }) => (
   <span class={`pill p-${props.state.k}`}>{props.state.label}</span>
+)
+
+/** The project's name, and its ref in small mono type when the name differs from it. */
+export const ProjectName = (props: { project: { title: string; ref: string } }) => (
+  <>
+    {projectName(props.project)}
+    <Show when={projectRefIfDifferent(props.project)}>{(ref) => <span class="pref">{ref()}</span>}</Show>
+  </>
 )
 
 /** One segment per leaf, in board order. Gone leaves are already out of `leaves`. */
