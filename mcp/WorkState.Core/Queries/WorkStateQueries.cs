@@ -170,7 +170,7 @@ public sealed class WorkStateQueries(NpgsqlDataSource dataSource)
             cancellationToken);
     }
 
-    /// <summary>Full text over items and doc blocks, ranked together.</summary>
+    /// <summary>Full text over items. Doc blocks are not searched: no resource serves them.</summary>
     public async Task<IReadOnlyList<SearchHit>> SearchAsync(
         Guid workspaceId,
         string query,
@@ -189,15 +189,6 @@ public sealed class WorkStateQueries(NpgsqlDataSource dataSource)
                    ts_rank(i.search, q.tsq) AS "Rank"
             FROM   item i, q
             WHERE  i.workspace_id = @workspace AND i.search @@ q.tsq
-            UNION ALL
-            SELECT 'doc_block',
-                   b.id,
-                   d.slug || '#' || b.short_id,
-                   coalesce(b.heading, d.title),
-                   ts_headline('english', b.body, q.tsq, 'MaxFragments=1,MaxWords=18,MinWords=5'),
-                   ts_rank(b.search, q.tsq)
-            FROM   doc_block b JOIN doc d ON d.id = b.doc_id, q
-            WHERE  d.workspace_id = @workspace AND b.search @@ q.tsq
             ORDER BY "Rank" DESC, "Ref"
             LIMIT @limit;
             """;

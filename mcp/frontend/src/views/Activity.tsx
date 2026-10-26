@@ -5,7 +5,7 @@ import type { JournalEvent } from '../api.ts'
 import { load } from '../store.ts'
 import { itemHref } from '../nav.ts'
 import { clock, day } from '../format.ts'
-import { Known } from '../ui.tsx'
+import { CopyRef, Known } from '../ui.tsx'
 
 const LIMIT = 300
 
@@ -32,9 +32,12 @@ export function EventLine(props: { event: JournalEvent; withRef: boolean }) {
         <span class="k">{e().kind}</span>
         <Show when={props.withRef && e().item}>
           {(item) => (
-            <A class="item-ref" href={itemHref(item(), e().run)}>
-              {item().qualifiedRef}
-            </A>
+            <>
+              <A class="item-ref" href={itemHref(item(), e().run)}>
+                {item().qualifiedRef}
+              </A>
+              <CopyRef value={item().qualifiedRef} />
+            </>
           )}
         </Show>
         {e().summary ?? ''} <span class="row-m">· {e().session?.name ?? e().actor}</span>

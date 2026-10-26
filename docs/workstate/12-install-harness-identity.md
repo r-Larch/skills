@@ -24,7 +24,7 @@ Every statement is tagged with how it is known:
 |---|---|
 | Does the harness keep an MCP session between calls? | **No — not with WorkState.** Claude Code 2.1.309 opens with the **2026-07-28** revision (`server/discover`), which removed `Mcp-Session-Id` and `initialize` altogether **[measured]** **[doc: SEP-2567, SEP-2575]**. WorkState's SDK (C# 2.2.0) is stateless by default **[code]**. Every request stands alone. |
 | Who carries the token? | **The harness, never the model.** Claude Code reads the server entry from config at session start and attaches its `headers` (or the output of a `headersHelper`) to every HTTP request **[doc: mcp.md "headers and headersHelper"]**. The model only calls `work_*` tools. |
-| Then why did agents touch tokens this week? | Because **our setup procedure makes them**: `workstate-setup` has the model *write* `mcp/.env` with generated tokens, *read* a token back out of it, paste it into `claude mcp add --header "Authorization: Bearer …"`, and `curl` with it **[code: workstate-setup §3, §5, §6]**. The harness then stores it in plaintext in `~/.claude.json` **[measured: the user-scope entry is `{type, url, headers:{Authorization}}`]**. Fixing *that* is part of the proposal below. |
+| Then why did agents touch tokens this week? | Because **our setup procedure makes them**: `workstate-setup` has the model *write* `mcp/.env` with generated tokens, *read* a token back out of it, paste it into `claude mcp add --header "Authorization: Bearer …"`, and `curl` with it **[code: workstate-setup §3, §5, §6]**. The harness then stores it in plaintext in `~/.claude.json` **[measured: the user-scope entry is `{type, url, headers:{Authorization}}`]**. Fixing *that* is part of the proposal below (done for setup 2026-10-26, §7.4). |
 | What can identify a session per request, spec-compliantly? | (1) **the credential** (the token's principal) — the spec's own replacement for session ids; (2) **headers the harness attaches**; (3) `clientInfo` in `_meta` — but it is the same `claude-code 2.1.309` for every session and the spec says not to base decisions on it **[doc + measured]**. |
 | Can a session's **name** reach the server without the model? | **Yes — via `headersHelper`.** Measured today: a `claude --bg` session launched with `--mcp-config` whose server entry has `headersHelper: "<command with the name as an argument>"` sent that header on every request **[measured]**. Environment variables do **not** work for `--bg` sessions (launcher env and the worktree's `settings.local.json` `env` both arrived as unset) **[measured]**. |
 | Can the **role** too? | **Yes, the same way** — the helper prints `Authorization: Bearer <the token for that role>`, reading the token from where the server's tokens already live (`mcp/.env`). The model never sees it; the helper runs in the harness, not in a tool call. This is "role in the credential", which is what the spec recommends **[doc: authorization, SEP-2567]**. |
@@ -38,11 +38,11 @@ Every statement is tagged with how it is known:
 |---|---|---|---|
 | **Marketplace** `rlarch` | a git clone of `github.com/r-Larch/skills` | `~/.claude/plugins/marketplaces/rlarch/` **[measured]** | `/plugin marketplace add r-Larch/skills` (auto-updates: `autoUpdate: true` in `~/.claude/plugins/known_marketplaces.json`) |
 | **Plugin** `rlarch` | the skills only: `plugins/rlarch/` | `~/.claude/plugins/cache/rlarch/rlarch/<version>/` **[measured: `…/1.5.0/skills/controller`]** | `/plugin install rlarch@rlarch`; re-copied only when `plugin.json` `version` changes |
-| **WorkState source** | `.NET 10` API + MCP server + SolidJS dashboard, `mcp/` in the same repo | a **separate clone you choose**, e.g. `P:\Projects\LarchSys\Skills` | `workstate-setup` §2 asks where, then `git clone` |
-| **WorkState binaries** | a Docker image `workstate-api` built **from that clone**, plus `postgres:17` | Docker's image store | `docker compose -f mcp/compose.yml up -d` (multi-stage build: `node:24-slim` builds the SPA, `dotnet/sdk:10.0` publishes, `aspnet:10.0` runs) **[code: mcp/Dockerfile]** |
-| **WorkState data** | the Postgres database: every plan, claim, verification, journal | Docker volume `workstate-db-data` | created on first `up`; schema applied by the API at startup **[code: SchemaOwner]** |
-| **Server configuration** | tokens, dashboard login, Postgres password, port, bind | `<clone>/mcp/.env` (gitignored; template `mcp/.env.example`) | `workstate-setup` §3 |
-| **Client registration** | the `workstate` MCP server entry | `~/.claude.json` → `mcpServers.workstate` (user scope) or `projects["<path>"].mcpServers` (local scope) **[measured]** | `claude mcp add` (`workstate-setup` §5) |
+| **WorkState source** | `.NET 10` API + MCP server + SolidJS dashboard, `mcp/` in the same repo | **optional since 2026-10-26** — only to develop WorkState or build the image yourself | the user, `git clone` |
+| **WorkState binaries** | the published image `ghcr.io/r-larch/workstate-api:<version>` (amd64 + arm64), or one built **from a clone**, plus `postgres:17` | Docker's image store | `workstate-setup.sh` / `.ps1`: pulled by `~/.workstate/compose.yml`, or built by `<clone>/mcp/compose.yml` (multi-stage: `node:24-slim` builds the SPA, `dotnet/sdk:10.0` publishes, `aspnet:10.0` runs) **[code: mcp/Dockerfile]** |
+| **WorkState data** | the Postgres database: every plan, claim, verification, journal | Docker volume `workstate_workstate-db-data` — the same for both composes | created on first `up`; schema applied by the API at startup **[code: SchemaOwner]**; `--backup` / `--restore` |
+| **Server configuration** | tokens, dashboard login, Postgres password, port, bind | `~/.workstate/.env`, or `<clone>/mcp/.env` (gitignored; template `mcp/.env.example`) | the setup script, once, with random values; never overwritten |
+| **Client registration** | the `workstate` MCP server entry | `~/.claude.json` → `mcpServers.workstate` (user scope) or `projects["<path>"].mcpServers` (local scope) **[measured]** | `claude mcp add`, run by the setup script (`workstate-setup` §3) |
 | **Running service** | `http://127.0.0.1:5290` — `/mcp`, `/api/v1/*`, dashboard, `/health` | containers `workstate-api-1`, `workstate-db-1`, `restart: unless-stopped` | Docker |
 
 Nothing of WorkState runs inside Claude Code. It is a service **you** run; Claude Code only connects
@@ -191,7 +191,7 @@ the dashboard at `/`, `/health`. Same port, same container.
 | Per-request identity it sends | `User-Agent: claude-code/2.1.309 (cli)`; `_meta["io.modelcontextprotocol/clientInfo"] = {name: "claude-code", version: "2.1.309", …}` — **identical for every session** | [measured] |
 | Session id between calls | none under 2026-07-28 (removed from the spec); whether it resends one to an old stateful server is not documented | [doc: SEP-2567] [not documented] |
 | When it connects | at session start (unless a cached tool list defers it to first use); retries remote first connect up to 3×, mid-session drops up to 5× with backoff; `/mcp reconnect` | [doc: mcp.md "Reconnect behavior"] |
-| New servers mid-session | no — servers resolve at session start; a registration made now appears in the **next** session | [measured; workstate-setup §7] |
+| New servers mid-session | no — servers resolve at session start; a registration made now appears in the **next** session | [measured; workstate-setup §5] |
 | Scopes | local (`~/.claude.json` → `projects[path]`), project (`.mcp.json`, needs approval), user (`~/.claude.json`), plugin (`.mcp.json` in the plugin), managed | [doc: mcp.md "Scopes and storage"] |
 | Same name in two scopes | local > project > user > plugin > claude.ai connectors; **the whole entry wins, fields are not merged** | [doc: mcp.md "precedence"] |
 | `--mcp-config` vs a same-named user server | the `--mcp-config` entry **replaces** it (the nested agent had *only* the per-launch `workstate`, and lost the tools when its token failed) | [measured] |
@@ -326,7 +326,17 @@ What it does **not** buy, stated plainly:
 
 ### 7.4 And the remaining secret-handling in setup
 
-`workstate-setup` §3 has the model invent the tokens. Replace it with a script the model runs but
+> **Changed 2026-10-26 — answered: setup is token-free.** `workstate-setup` now runs one shipped
+> script, `assets/workstate-setup.sh` / `.ps1`, that writes the `.env` (cryptographic RNG, never
+> overwriting one), starts the stack, runs `claude mcp add` itself (headers last), proves
+> `tools/list` with the token from inside the script and prints only the **count** of `work_*` tools,
+> and points the human at the `.env` for the dashboard password. Every status line is checked so that
+> no value from the `.env` appears in it. The SKILL forbids reading the `.env` and running
+> `claude mcp get` (it prints the `Authorization` header in clear; `claude mcp list` does not). The
+> token still ends up in `~/.claude.json` — put there by the script, not by the model; the
+> `headersHelper` of §7.3 would remove that copy too and remains open.
+
+Originally: `workstate-setup` §3 had the model invent the tokens. Replace it with a script the model runs but
 never reads the output of: `mcp/bin/init-env` writes `mcp/.env` with fresh random values and prints
 only *which* keys it wrote. §6's `curl` proof becomes `work_brief` in the next session, or the helper
 itself (`workstate-headers --check` prints the tool count, not the token). The dashboard password is
@@ -359,10 +369,15 @@ names would keep coming from the helper. Not worth building while the server is 
 1. **Accept option G** (credential helper) as the identity design for names *and* roles? It
    reopens the deferred `launcher-headers` unit with no token in any file the model writes.
 2. **Setup without the model handling secrets** (§7.4) — in this release, or after?
+   **Answered 2026-10-26: yes, this release** — see the "Changed" note in §7.4.
 3. **Where should the WorkState binaries come from?** Today every PC builds the image from a clone
    (minutes, needs the source). Alternative: publish `ghcr.io/r-larch/workstate-api:<version>` and
    ship a `compose.yml` that pulls it — then a PC needs only Docker, `mcp/.env` and the compose file,
    and the clone becomes optional. Costs a CI pipeline and image versioning.
+   **Answered 2026-10-26 (René: "yes, public").** `.github/workflows/workstate-image.yml` publishes
+   `ghcr.io/r-larch/workstate-api:<ServerInfo.Version>` and `:latest` for amd64 + arm64; the
+   pull-only compose ships in the skill and lives at `~/.workstate/compose.yml` with its `.env`; the
+   clone is optional (doc 08 §4).
 4. **`localhost` vs `127.0.0.1`.** The server binds IPv4 loopback only; registrations still say
    `localhost`. Either register `127.0.0.1` everywhere (planned for the release docs) or publish on
    `[::1]` as well.

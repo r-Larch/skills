@@ -124,17 +124,22 @@ internal sealed class V1Book(ApiQueries api, BoardQueries board)
 
     /// <summary>Only after <see cref="ClaimsAsync"/> or the equivalent loads.</summary>
     public ClaimView Claim(ClaimDetail claim, DateTimeOffset asOf)
-        => new(
+    {
+        var session = Session(claim.SessionId);
+
+        return new(
             Item(claim.ItemId),
             RunOf(claim.ItemId),
-            Session(claim.SessionId),
+            session,
             claim.AgentName,
             V1Text.Snake(claim.Role),
             claim.Tree,
             claim.AcquiredAt,
             claim.HeartbeatAt,
             claim.ExpiresAt,
-            claim.ExpiresAt < asOf);
+            claim.ExpiresAt < asOf,
+            session?.Name);
+    }
 
     public async Task<IReadOnlyList<JournalEventView>> EventsAsync(
         IReadOnlyList<EventDetail> events,

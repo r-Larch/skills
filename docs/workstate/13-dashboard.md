@@ -52,7 +52,23 @@ claim holder, tree, priority, severity, resolution, closed/started), then tabs:
 - **Notes**, **Activity** — the item's own.
 - **Brief** — the verbatim `work_brief`, as text. Never the main pane.
 
-A claim holder is shown by session name when the claim has one, else by the actor label.
+A claim holder is shown as the session name with the role beside it — `aw-m4-2b · controller` — when
+the claim has a session (v1 `Claim.heldBySession`), else by the role alone. The same text in the
+detail chip *claimed by*, the plan list's holder column, a run strip's *&lt;who&gt; is on &lt;ref&gt;* and
+*Working now* (`src/format.ts` `claimHolder`).
+
+**Copyable refs.** Wherever an item, run or project ref is shown — the detail header's ref line and
+its crumbs, the plan list rows, the detail's *Waiting on* / *Findings* / *Inside* rows and a note's
+*to &lt;ref&gt;*, the run page crumbs, each project panel's header and the project page heading, the run
+strips, *Working now*, the inbox rows, the backlog's crumbs, group heads and rows, and the Activity
+lines — a small copy icon sits beside it (`src/ui.tsx` `CopyRef`). It copies the item's
+`qualifiedRef`, the callable form the server computes (doc 10 rule 2) that `work_get` /
+`work_brief` resolve to exactly that item; the client never composes a ref, and copies the whole
+value even where the shown ref is the bare one. It is a `<button>` (keyboard reachable,
+`aria-label` *Copy ref &lt;ref&gt;*, a `title` tooltip); it writes with `navigator.clipboard.writeText`
+and shows *Copied* in its place for a moment, or, where the clipboard is unavailable, shows the ref
+selected beside it to press Ctrl+C. Inside a row link it takes its own click, so the row still
+navigates and the icon only copies; clicking the ref text keeps its old behaviour.
 
 **Archiving** (doc 02 "Archived projects"). Every project panel carries **Archive** (or, once
 archived, **Unarchive** and *Archived &lt;date&gt;*). Archive first asks, inline, saying what it does: the
@@ -120,7 +136,8 @@ that row carries the full text in a `title` attribute (the sidebar run links, th
 strips). A capped list says how much it left out and links to the whole list (the overview's
 *Needs you* shows five, then *+N more in the inbox*). Nothing else is cut: detail views, headings,
 crumbs, chips and project names wrap, and anything meant to be copied or run — the inbox's MCP
-call, a commit, a ref, a tree — is always shown whole.
+call, a commit, a ref, a tree — is always shown whole. A copy button copies its value whole, even
+in a row whose text is cut.
 
 ## The state vocabulary
 

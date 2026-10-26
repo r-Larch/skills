@@ -13,6 +13,17 @@ What changes for someone who has the `rlarch` plugin installed, newest first. Fo
   checks each against the current code, keeps only what is still true (open work, binding rules and
   decisions, open assumptions — never history), proposes a per-file plan, waits for your yes, and
   writes it with `work_import`. Source files are never touched.
+- **WorkState without a clone.** A public, multi-arch (amd64 + arm64) image,
+  `ghcr.io/r-larch/workstate-api:<server version>` and `:latest`, published by
+  `.github/workflows/workstate-image.yml` on every push to `master` that touches `mcp/`; and a
+  pull-only compose shipped in `workstate-setup` (`assets/compose.yml`, same project name and volume
+  as `mcp/compose.yml`). An install lives in `~/.workstate/`: that compose plus its `.env`.
+- **`workstate-setup.sh` / `.ps1`** — one script for the whole setup: writes the `.env` with random
+  tokens (never overwriting one), starts the stack, runs `claude mcp add` itself (`--role`,
+  `--agent` for a named local-scope registration, `--force`, `--dry-run`), proves `tools/list` and
+  prints only the tool count. `--backup <file>` / `--restore <file>` run `pg_dump -Fc` /
+  `pg_restore --clean` in the `db` container; a restore writes a safety dump first. `--clone <path>`
+  keeps a clone-based install on `<clone>/mcp/`.
 - **`agent_launch` `workstate.grants`** — `["import"]` mints a session that can see `work_import`
   (role orchestrator or controller only; the server enforces it).
 - WorkState server (rebuild with `docker compose -f mcp/compose.yml up -d --build` to get it; two
@@ -23,6 +34,11 @@ What changes for someone who has the `rlarch` plugin installed, newest first. Fo
 
 ### Changed
 
+- **`/rlarch:workstate-setup` no longer handles tokens.** The model used to write the tokens into
+  `mcp/.env`, paste one into `claude mcp add --header` and `curl` with it; now the script does all
+  three and prints status lines with no secret in them, and the skill forbids reading the `.env` and
+  running `claude mcp get` (which prints the token). No clone is needed any more. An existing
+  clone-based install keeps working: run the script with `--clone <path>`.
 - **One WorkState project per repository.** `orchestrate` and `controller` now start with
   `work_brief(repo: {remote, root})` — `remote` from `git remote get-url origin`, `root` the main
   checkout (the same from every worktree) — and create a project only when that brief says the repo
@@ -45,6 +61,8 @@ What changes for someone who has the `rlarch` plugin installed, newest first. Fo
     runs; a project page; **prompt actions** — buttons that copy a ready prompt for a fresh session
     (Continue, Status report, Housekeeping, Triage backlog, Finalize, Resume, Audit, Work on this,
     Investigate block), served by `GET /api/v1/prompts`.
+- `nested-claude` §9: audit every imperative in a brief, not only its prohibitions, and write a
+  continuation brief that builds on the work already on disk.
 
 ### Fixed
 

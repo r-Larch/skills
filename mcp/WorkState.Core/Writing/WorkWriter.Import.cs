@@ -240,6 +240,14 @@ public sealed partial class WorkWriter
                     [Retry(at, "ref:\"<one word, e.g. export-reachable>\""), Retry(at, "without ref — the server numbers it A<n>")]));
             }
 
+            if (ImportItemKinds.Contains(kind) && !Blank(record.Ref) && record.Ref!.Contains('/'))
+            {
+                unmet.Add(new Unmet(
+                    $"{at} ({kind}) ref \"{record.Ref.Trim()}\" contains '/' — '/' is the qualifier separator "
+                    + "(project/run/ref), so a ref holding one could never be called back",
+                    [Retry(at, $"ref:\"{SlashFree(record.Ref)}\""), Retry(at, "without ref — the server numbers it")]));
+            }
+
             if (!Blank(record.Status) && ImportStatus(record.Status) is null)
             {
                 unmet.Add(new Unmet(
@@ -568,7 +576,7 @@ public sealed partial class WorkWriter
         {
             case "note":
                 noteId = await InsertNoteAsync(
-                    connection, transaction, workspaceId, actor, NoteKind.CarryForward, body, project.Id, parent?.Id, null,
+                    connection, transaction, workspaceId, actor, NoteKind.CarryForward, body, project.Id, parent?.Id,
                     cancellationToken);
                 shown = parent is null ? "note" : $"note → {parent.Ref}";
                 break;

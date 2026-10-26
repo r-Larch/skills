@@ -40,7 +40,7 @@ public static class Refusal
         lines.Add(
             $"{Pad(OverrideIndent)}Override: work_status(ref:\"{reference}\", to:\"{to}\", force:true, "
             + "reason:\"…\") — recorded as a");
-        lines.Add($"{Pad(OverrideIndent)}forced_transition, permanently visible in work_brief and work_audit.");
+        lines.Add($"{Pad(OverrideIndent)}forced_transition, which work_audit lists permanently.");
 
         return string.Join("\n", lines);
     }

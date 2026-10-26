@@ -41,7 +41,8 @@ public sealed record ClaimView(
     DateTimeOffset AcquiredAt,
     DateTimeOffset HeartbeatAt,
     DateTimeOffset ExpiresAt,
-    bool Expired);
+    bool Expired,
+    string? HeldBySession);
 
 public sealed record JournalEventView(
     long Seq,

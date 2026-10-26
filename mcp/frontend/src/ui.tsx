@@ -1,7 +1,8 @@
-import { For, Show, type Accessor, type JSX } from 'solid-js'
+import { For, Show, createSignal, onCleanup, type Accessor, type JSX } from 'solid-js'
 import type { BoardRow } from './api.ts'
 import { rowState, type State, type StateKey } from './state.ts'
 import { UNKNOWN, projectName, projectRefIfDifferent } from './format.ts'
+import { CopyIcon } from './icons.tsx'
 
 export const Dot = (props: { k: StateKey | 'note'; title?: string; style?: JSX.CSSProperties }) => (
   <span class={`dot s-${props.k}`} title={props.title} style={props.style} />
@@ -18,6 +19,72 @@ export const ProjectName = (props: { project: { title: string; ref: string } }) 
     <Show when={projectRefIfDifferent(props.project)}>{(ref) => <span class="pref">{ref()}</span>}</Show>
   </>
 )
+
+/**
+ * One-click copy of a callable ref (doc 13). `value` is always the server's `qualifiedRef`, whole,
+ * whatever the ref beside it shows. It often sits inside a row link, so the click is taken on the
+ * button itself and never reaches the link or the router's document listener.
+ */
+export function CopyRef(props: { value: string }) {
+  const [done, setDone] = createSignal<'copied' | 'selected'>()
+  let picked: HTMLSpanElement | undefined
+  let timer: ReturnType<typeof setTimeout> | undefined
+  onCleanup(() => clearTimeout(timer))
+
+  const show = (state: 'copied' | 'selected') => {
+    clearTimeout(timer)
+    setDone(state)
+    timer = setTimeout(() => setDone(undefined), state === 'copied' ? 1600 : 8000)
+  }
+
+  const copy = async () => {
+    try {
+      // A clipboard write can stay pending with no error (a held permission, an unfocused
+      // window); without a deadline the button would show nothing at all.
+      await Promise.race([
+        navigator.clipboard.writeText(props.value),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('clipboard timeout')), 1200)),
+      ])
+      show('copied')
+    } catch {
+      show('selected')
+      if (picked === undefined) return
+      const range = document.createRange()
+      range.selectNodeContents(picked)
+      const selection = window.getSelection()
+      selection?.removeAllRanges()
+      selection?.addRange(range)
+    }
+  }
+
+  const click = (event: MouseEvent) => {
+    event.preventDefault()
+    event.stopPropagation()
+    void copy()
+  }
+
+  return (
+    <span class="copy-ref">
+      <button
+        type="button"
+        class={`copy${done() === 'copied' ? ' done' : ''}`}
+        aria-label={`Copy ref ${props.value}`}
+        title={`Copy ${props.value}`}
+        ref={(el) => el.addEventListener('click', click)}
+      >
+        {done() === 'copied' ? 'Copied' : <CopyIcon />}
+      </button>
+      <Show when={done() === 'selected'}>
+        <span class="copy-sel" ref={picked} title="The clipboard is unavailable here; press Ctrl+C">
+          {props.value}
+        </span>
+      </Show>
+      <span class="sr-only" role="status">
+        {done() === 'copied' ? `Copied ${props.value}` : done() === 'selected' ? `${props.value} selected, press Ctrl+C` : ''}
+      </span>
+    </span>
+  )
+}
 
 /** One segment per leaf, in board order. Gone leaves are already out of `leaves`. */
 export const Segs = (props: { leaves: BoardRow[]; style?: JSX.CSSProperties }) => (

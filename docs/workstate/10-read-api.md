@@ -29,7 +29,12 @@ Answers `200 { "id", "ref", "archivedAt": "…" | null, "changed": true }`; 404 
    404'd on exactly that. A ref a human typed becomes an id through `GET /api/v1/resolve?ref=`.
 2. **Every item, wherever it appears, is an `ItemRef`:**
    `{ id, ref, qualifiedRef, kind, title, status }`. `qualifiedRef` is always present: equal to `ref`
-   when the ref is unique in the workspace, otherwise `run/ref` (the same rule the MCP text uses).
+   when the ref is unique in the workspace, otherwise `run/ref` (the same rule the MCP text uses) —
+   and when `run/ref` is itself shared (two projects with a run of the same name), the shortest
+   project-qualified form that resolves to it alone, `project/ref` or `project/run/ref`.
+   It is the callable form (`BoardQueries.CallableRefAsync`): passed to `work_get` / `work_brief` it
+   resolves to that item alone. The dashboard's copy buttons copy exactly this field and never
+   compose a ref of their own.
 3. **Instants are ISO-8601 with offset.** No "seconds remaining". Every response body carries `asOf`
    (server clock) and `seq` (the newest journal seq the response reflects), so a client can tell
    whether an SSE frame is already reflected.
@@ -62,7 +67,12 @@ Session = { "id": "uuid", "name": "aw-m1", "role": "worker", "externalRole": "re
           // unnamed calls carry "session": null and are identified by actor/role alone
 Claim   = { "item": ItemRef, "run": ItemRef, "session": Session | null, "agent": "controller",  // agent = legacy label
             "role": "worker", "tree": "P:/…/m1-tool-args" | null, "acquiredAt": "…", "heartbeatAt": "…",
-            "expiresAt": "…", "expired": false }
+            "expiresAt": "…", "expired": false,
+            "heldBySession": "aw-m4-2b" | null }
+          // heldBySession: the holding session's name (claim.session_id → agent_session.name), so a
+          // client shows "aw-m4-2b · controller" without reaching into session; null for a claim
+          // taken without a session (a static token with no X-WorkState-Agent), shown by role alone.
+          // Every Claim carries it: overview workingNow, board rows, the item page, /sessions.
 JournalEvent = { "seq": 1, "at": "…", "item": ItemRef | null, "run": ItemRef | null, "session": Session | null,
                  "actor": "controller", "role": "controller", "kind": "…", "summary": "…", "payload": { } }
 ```
@@ -150,12 +160,18 @@ Everything waiting on a **human**, newest first.
 An item that is open and waiting on another item's `blocks` edge is **not** an inbox row: it waits on
 work, not on a person.
 
-### `GET /api/v1/journal?scope={id}&since={seq}&limit=&kinds=`
+### `GET /api/v1/journal?scope={id}&since={seq}&before={seq}&limit=&kinds=`
 Ascending by seq. `kinds` comma-separated:
 `transition,verification,report,finding,note,claim,link,created,carried`.
 ```jsonc
 { "asOf": "…", "seq": 1234, "cursor": 1234, "hasMore": false, "events": [JournalEvent] }
 ```
+- No `since` (or `since=0`): the newest `limit` events. `since={seq}`: the oldest `limit` events after
+  it; `cursor` is the newest seq returned (the next `since`), `hasMore` says more follow.
+- `before={seq}` ("load older"): the newest `limit` events with seq below it, still ascending, in one
+  call; `cursor` is the oldest seq returned (the next `before`, or `before` itself when the page is
+  empty) and `hasMore` says older events remain. A `before` past the newest seq is the newest page.
+  Same `scope` and `kinds` filters. `since` and `before` together is a 400.
 
 ### `GET /api/v1/backlog?project={id}`
 Open follow-ups in the project-level backlog run, grouped by origin (`derived_from` → origin run).

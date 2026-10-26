@@ -43,7 +43,8 @@ internal sealed class AppServer : IAsyncDisposable
         string? workspaceSlug,
         CancellationToken cancellationToken,
         bool dashboardConfigured = true,
-        string? readerToken = null)
+        string? readerToken = null,
+        string? heartbeat = null)
     {
         var app = ApiHost.Build([], builder =>
         {
@@ -58,6 +59,7 @@ internal sealed class AppServer : IAsyncDisposable
                 ["WorkState:Auth:ReaderToken"] = readerToken,
                 ["WorkState:Dashboard:Username"] = dashboardConfigured ? Username : null,
                 ["WorkState:Dashboard:Password"] = dashboardConfigured ? Password : null,
+                ["WorkState:Stream:Heartbeat"] = heartbeat,
             });
         });
 

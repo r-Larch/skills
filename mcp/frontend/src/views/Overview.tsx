@@ -6,8 +6,8 @@ import { CLOSED, refState, tally } from '../state.ts'
 import { backlogHref, itemHref, projectHref, runHref } from '../nav.ts'
 import { honestyCells, openTasks } from '../inbox.ts'
 import { byActivity, runIsOpen } from '../projects.ts'
-import { UNKNOWN, ago, clock, day, plural, projectName, projectTagline, short } from '../format.ts'
-import { Dot, Known, Legend, ProjectName, Segs } from '../ui.tsx'
+import { UNKNOWN, ago, claimHolder, clock, day, plural, projectName, projectTagline, short } from '../format.ts'
+import { CopyRef, Dot, Known, Legend, ProjectName, Segs } from '../ui.tsx'
 import { InboxRowView } from './Inbox.tsx'
 import { PromptActions } from './Prompts.tsx'
 
@@ -148,7 +148,6 @@ export default function Overview() {
 
 function ClaimRow(props: { claim: Claim; asOf: string }) {
   const c = () => props.claim
-  const holder = () => c().session?.name ?? c().agent
   const lease = () => (c().expired ? `lease expired ${ago(c().expiresAt, props.asOf)}` : `lease ends ${ago(c().expiresAt, props.asOf)}`)
 
   return (
@@ -157,7 +156,8 @@ function ClaimRow(props: { claim: Claim; asOf: string }) {
       <div>
         <div class="row-t">{c().item.title}</div>
         <div class="row-m">
-          <span class="who">{holder()}</span> · {c().item.qualifiedRef} · {c().tree ? `${c().tree} · ` : ''}
+          <span class="who">{claimHolder(c())}</span> · {c().item.qualifiedRef} <CopyRef value={c().item.qualifiedRef} />·{' '}
+          {c().tree ? `${c().tree} · ` : ''}
           {lease()}
         </div>
       </div>
@@ -180,7 +180,8 @@ export function ProjectPanel(props: { project: ProjectOverview }) {
           <h2>
             <A href={projectHref(props.project.item.id)}>
               <ProjectName project={props.project.item} />
-            </A>
+            </A>{' '}
+            <CopyRef value={props.project.item.qualifiedRef} />
           </h2>
           <Show when={tagline()}>
             <div class="strip-m">{tagline()}</div>
@@ -286,7 +287,8 @@ function RunStrip(props: { run: RunOverview }) {
     if (holding?.claim) {
       return (
         <>
-          <span class="who">{holding.claim.session?.name ?? holding.claim.agent}</span> is on {holding.item.qualifiedRef}
+          <span class="who">{claimHolder(holding.claim)}</span> is on {holding.item.qualifiedRef}{' '}
+          <CopyRef value={holding.item.qualifiedRef} />
         </>
       )
     }
@@ -306,7 +308,11 @@ function RunStrip(props: { run: RunOverview }) {
         <div class="strip-t" title={props.run.item.title}>
           {short(props.run.item.title)}
         </div>
-        <div class="strip-m">{meta()}</div>
+        <div class="strip-m">
+          <span class="item-ref">{props.run.item.qualifiedRef}</span>
+          <CopyRef value={props.run.item.qualifiedRef} />
+          {meta()}
+        </div>
       </div>
       <Show when={t()} fallback={<div class="segs" />}>
         {(tt) => <Segs leaves={tt().leaves} />}

@@ -259,7 +259,7 @@ function validateWorkstate(v, repoRoot) {
         envFile = path.resolve(repoRoot, w.env_file)
     }
     if (role !== 'none' && envFile === undefined) {
-        throw new Refusal(`workstate.role is "${role}", so a per-session token must be minted, and that needs workstate.env_file: the PATH of the WorkState clone's mcp/.env (never its contents). Pass workstate.role "none" to launch without WorkState.`)
+        throw new Refusal(`workstate.role is "${role}", so a per-session token must be minted, and that needs workstate.env_file: the PATH of WorkState's .env - ~/.workstate/.env, or <clone>/mcp/.env (never its contents). Pass workstate.role "none" to launch without WorkState.`)
     }
 
     return { role, envFile, url, ttlHours, grants }

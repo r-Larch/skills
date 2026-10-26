@@ -6,8 +6,8 @@ import { load } from '../store.ts'
 import { CLOSED, rowState, tally } from '../state.ts'
 import { FILTERS, asFilter, plan, type Filter } from '../plan.ts'
 import { boardHref, runHref } from '../nav.ts'
-import { short } from '../format.ts'
-import { Dot, Known, ProjectName, Segs } from '../ui.tsx'
+import { claimHolder, short } from '../format.ts'
+import { CopyRef, Dot, Known, ProjectName, Segs } from '../ui.tsx'
 import Detail, { asTab, type Tab } from './Detail.tsx'
 import { PromptActions } from './Prompts.tsx'
 
@@ -130,8 +130,10 @@ function RunHeader(props: { board: Board }) {
             <Show when={props.board.project} fallback="Overview">
               {(project) => <ProjectName project={project()} />}
             </Show>
-          </A>{' '}
-          / {props.board.run.qualifiedRef}
+          </A>
+          <Show when={props.board.project}>{(project) => <CopyRef value={project().qualifiedRef} />}</Show> /{' '}
+          {props.board.run.qualifiedRef}
+          <CopyRef value={props.board.run.qualifiedRef} />
         </div>
         <h1>{short(props.board.run.title)}</h1>
         <div class="sub">{sub()}</div>
@@ -202,10 +204,11 @@ function PlanItem(props: { row: BoardRow; indent: number; selected: string; href
       <Dot k={s().k} />
       <div class="item-t">
         <span class="item-ref">{props.row.item.ref}</span>
+        <CopyRef value={props.row.item.qualifiedRef} />
         {props.row.item.title}
       </div>
       <div class="item-side">
-        <Show when={claim()}>{(c) => <span class="who">{c().session?.name ?? c().agent}</span>}</Show>
+        <Show when={claim()}>{(c) => <span class="who">{claimHolder(c())}</span>}</Show>
         {crit()}
       </div>
     </A>
