@@ -10,6 +10,8 @@ export class Refusal extends Error {}
 
 export const PERMISSION_MODES = ['acceptEdits', 'auto', 'bypassPermissions', 'manual', 'dontAsk', 'plan']
 export const TOOLSETS = ['none', 'readonly', 'fix']
+/** Every tool of the server named "workstate" in mcp-<name>.json. */
+export const WORKSTATE_TOOLS = 'mcp__workstate'
 export const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max']
 export const ROLES = ['worker', 'orchestrator', 'controller', 'none']
 export const DEFAULT_WORKSTATE_URL = 'http://127.0.0.1:5290'
@@ -164,7 +166,11 @@ export function validateLaunch(input) {
 
     const permissionMode = /** @type {string} */ (oneOf(a.permission_mode, PERMISSION_MODES, 'permission_mode', 'auto'))
     const toolset = /** @type {'none'|'readonly'|'fix'} */ (oneOf(a.toolset, TOOLSETS, 'toolset', 'fix'))
-    const allowedTools = [...new Set([...toolsetProfile(toolset), ...stringArray(a.allowed_tools, 'allowed_tools')])]
+    const workstate = validateWorkstate(a.workstate, repoRoot)
+    // A minted session must reach its own server without a prompt: under acceptEdits an MCP call
+    // parks the agent. The server, not this list, limits which work_* tools the role sees.
+    const workstateTools = workstate.role === 'none' ? [] : [WORKSTATE_TOOLS]
+    const allowedTools = [...new Set([...toolsetProfile(toolset), ...workstateTools, ...stringArray(a.allowed_tools, 'allowed_tools')])]
     const disallowedTools = stringArray(a.disallowed_tools, 'disallowed_tools')
     const addDirs = stringArray(a.add_dirs, 'add_dirs')
     const model = optString(a.model, 'model')
@@ -201,7 +207,7 @@ export function validateLaunch(input) {
         effort,
         settings,
         appendSystemPrompt,
-        workstate: validateWorkstate(a.workstate, repoRoot),
+        workstate,
         dryRun: a.dry_run === true,
     }
 }

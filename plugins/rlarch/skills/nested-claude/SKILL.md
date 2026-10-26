@@ -51,7 +51,7 @@ prepends the same protocol header, grants the same `toolset` profiles, and retur
 | `repo_root` | required | absolute path of a git working tree (refused otherwise); the agent's cwd |
 | `controller` | required | your address from `ListAgents`, ref included: `'name [6-hex]'` |
 | `permission_mode` | `auto` | `--permission-mode`: `acceptEdits` `auto` `bypassPermissions` `manual` `dontAsk` `plan` |
-| `toolset` | `fix` | the §3 profile: `none` `readonly` `fix` |
+| `toolset` | `fix` | the §3 profile: `none` `readonly` `fix`; with a `workstate.role` other than `none`, `mcp__workstate` is added (the server limits the role's tools) |
 | `allowed_tools` / `disallowed_tools` | `[]` | merged into `--allowedTools` / `--disallowedTools` |
 | `add_dirs` | `[]` | `--add-dir` |
 | `model`, `effort`, `settings`, `append_system_prompt` | — | `--model`, `--effort` (`low`…`max`), `--settings` (path or JSON), `--append-system-prompt` |

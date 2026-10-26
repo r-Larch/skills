@@ -5,6 +5,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { startServer, makeRepo, fakeWorkstate, CONTROLLER, CONTROLLER_TOKEN, MINTED_TOKEN, tmp } from './helpers.mjs'
 import { FIX_TOOLS, READONLY_TOOLS } from '../header.mjs'
+import { WORKSTATE_TOOLS } from '../launch-args.mjs'
 
 /** @param {ReturnType<typeof startServer>} s */
 function bgArgv(s) {
@@ -44,7 +45,7 @@ test('every parameter maps to its flag, variadics closed in order, prompt last',
         const mcp = path.join(repo.briefs, 'mcp-unit-1.json')
         assert.deepEqual(argv, [
             '--bg', '--name', 'unit-1',
-            '--allowedTools', ...READONLY_TOOLS, 'Bash(node --test:*)',
+            '--allowedTools', ...READONLY_TOOLS, WORKSTATE_TOOLS, 'Bash(node --test:*)',
             '--disallowedTools', 'Bash(git push:*)', 'WebFetch',
             '--add-dir', 'P:\\packages\\nuget', '/opt/cache',
             '--mcp-config', mcp,
@@ -96,7 +97,7 @@ test('defaults: auto, fix profile, worker role; --permission-mode closes the las
         const { argv } = bgArgv(s)
         assert.deepEqual(argv, [
             '--bg', '--name', 'unit-2',
-            '--allowedTools', ...FIX_TOOLS,
+            '--allowedTools', ...FIX_TOOLS, WORKSTATE_TOOLS,
             '--mcp-config', path.join(repo.briefs, 'mcp-unit-2.json'),
             '--permission-mode', 'auto',
             prompt(repo.briefs, 'unit-2'),
@@ -145,6 +146,31 @@ test('role none: no mint, no --mcp-config, no config file', async () => {
         assert.equal(ws.requests.length, 0)
         assert.ok(!fs.existsSync(path.join(repo.briefs, 'mcp-unit-4.json')))
         assert.equal(r.structuredContent.workstate, null)
+    } finally {
+        await s.close()
+        await ws.close()
+    }
+})
+
+test('a minted session may call its WorkState tools without a prompt; without WorkState it may not', async () => {
+    const repo = makeRepo()
+    const ws = await fakeWorkstate()
+    const s = startServer()
+    try {
+        const minted = await s.call('agent_launch', {
+            name: 'unit-ws', brief: 'task.md', repo_root: repo.root, controller: CONTROLLER, toolset: 'none',
+            permission_mode: 'acceptEdits', workstate: { env_file: repo.envFile, url: ws.url },
+        })
+        assert.equal(minted.isError, false, minted.content[0].text)
+        const plain = await s.call('agent_launch', {
+            name: 'unit-plain', brief: 'task.md', repo_root: repo.root, controller: CONTROLLER, toolset: 'readonly',
+            workstate: { role: 'none' },
+        })
+        assert.equal(plain.isError, false, plain.content[0].text)
+        const calls = s.claudeCalls().filter((c) => c.argv.includes('--bg'))
+        const allowed = (/** @type {string[]} */ argv) => argv.slice(argv.indexOf('--allowedTools') + 1, argv.findIndex((x, i) => i > argv.indexOf('--allowedTools') && x.startsWith('--')))
+        assert.deepEqual(allowed(calls[0].argv), [WORKSTATE_TOOLS])
+        assert.deepEqual(allowed(calls[1].argv), READONLY_TOOLS)
     } finally {
         await s.close()
         await ws.close()
