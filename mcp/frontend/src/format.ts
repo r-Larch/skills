@@ -37,6 +37,12 @@ export const projectTagline = (p: { title: string }) => p.title.split(PROJECT_SE
 export const projectRefIfDifferent = (p: { title: string; ref: string }) =>
   projectName(p).toLowerCase() === p.ref.toLowerCase() ? null : p.ref
 
-export const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1)
+/** `aw-m4-2b · controller` when a session holds the claim, else the role alone (doc 13). */
+export const claimHolder = (c: { heldBySession?: string | null; session: { name: string } | null; role: string }) => {
+  const name = c.heldBySession ?? c.session?.name
+  return name ? `${name} · ${c.role}` : c.role
+}
+
+export const cap =(s: string) => s.charAt(0).toUpperCase() + s.slice(1)
 
 export const plural = (n: number, one: string, many = `${one}s`) => (n === 1 ? one : many)

@@ -5,7 +5,7 @@ import { inbox } from '../store.ts'
 import { groupInbox, inboxKind } from '../inbox.ts'
 import { itemHref } from '../nav.ts'
 import { ago } from '../format.ts'
-import { Dot, Known } from '../ui.tsx'
+import { CopyRef, Dot, Known } from '../ui.tsx'
 
 export function InboxRowView(props: { row: InboxRow; asOf: string }) {
   const r = () => props.row
@@ -17,7 +17,8 @@ export function InboxRowView(props: { row: InboxRow; asOf: string }) {
       <div>
         <div class="row-t">{r().item.title}</div>
         <div class="row-m">
-          {kind().label} · {r().item.qualifiedRef} · {r().what} · {ago(r().since, props.asOf)}
+          {kind().label} · {r().item.qualifiedRef} <CopyRef value={r().item.qualifiedRef} />· {r().what} ·{' '}
+          {ago(r().since, props.asOf)}
         </div>
         <div class="row-call mono" title={r().call}>
           {r().call}

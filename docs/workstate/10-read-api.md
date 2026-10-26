@@ -32,6 +32,9 @@ Answers `200 { "id", "ref", "archivedAt": "…" | null, "changed": true }`; 404 
    when the ref is unique in the workspace, otherwise `run/ref` (the same rule the MCP text uses) —
    and when `run/ref` is itself shared (two projects with a run of the same name), the shortest
    project-qualified form that resolves to it alone, `project/ref` or `project/run/ref`.
+   It is the callable form (`BoardQueries.CallableRefAsync`): passed to `work_get` / `work_brief` it
+   resolves to that item alone. The dashboard's copy buttons copy exactly this field and never
+   compose a ref of their own.
 3. **Instants are ISO-8601 with offset.** No "seconds remaining". Every response body carries `asOf`
    (server clock) and `seq` (the newest journal seq the response reflects), so a client can tell
    whether an SSE frame is already reflected.
@@ -64,7 +67,12 @@ Session = { "id": "uuid", "name": "aw-m1", "role": "worker", "externalRole": "re
           // unnamed calls carry "session": null and are identified by actor/role alone
 Claim   = { "item": ItemRef, "run": ItemRef, "session": Session | null, "agent": "controller",  // agent = legacy label
             "role": "worker", "tree": "P:/…/m1-tool-args" | null, "acquiredAt": "…", "heartbeatAt": "…",
-            "expiresAt": "…", "expired": false }
+            "expiresAt": "…", "expired": false,
+            "heldBySession": "aw-m4-2b" | null }
+          // heldBySession: the holding session's name (claim.session_id → agent_session.name), so a
+          // client shows "aw-m4-2b · controller" without reaching into session; null for a claim
+          // taken without a session (a static token with no X-WorkState-Agent), shown by role alone.
+          // Every Claim carries it: overview workingNow, board rows, the item page, /sessions.
 JournalEvent = { "seq": 1, "at": "…", "item": ItemRef | null, "run": ItemRef | null, "session": Session | null,
                  "actor": "controller", "role": "controller", "kind": "…", "summary": "…", "payload": { } }
 ```

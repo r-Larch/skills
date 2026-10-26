@@ -2,7 +2,7 @@ import { Show } from 'solid-js'
 import { A, useParams } from '@solidjs/router'
 import { overview } from '../store.ts'
 import { clock, day } from '../format.ts'
-import { Known, Legend, ProjectName } from '../ui.tsx'
+import { CopyRef, Known, Legend, ProjectName } from '../ui.tsx'
 import { ProjectPanel } from './Overview.tsx'
 
 /** One project: its overview card, archived or not, with the Archive / Unarchive switch. */
@@ -28,7 +28,7 @@ export default function Project() {
                   <div>
                     <div class="sub">Project</div>
                     <h1>
-                      <ProjectName project={p().item} />
+                      <ProjectName project={p().item} /> <CopyRef value={p().item.qualifiedRef} />
                     </h1>
                   </div>
                   <div class="stamp">
