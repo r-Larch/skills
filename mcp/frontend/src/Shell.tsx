@@ -6,6 +6,7 @@ import { toggleTheme } from './theme.ts'
 import { tally } from './state.ts'
 import { runHref } from './nav.ts'
 import { clock, short } from './format.ts'
+import { ProjectName } from './ui.tsx'
 import { ActivityIcon, CheckIcon, InboxIcon, OverviewIcon } from './icons.tsx'
 import type { RunOverview } from './api.ts'
 
@@ -59,7 +60,7 @@ export default function Shell(props: ParentProps) {
           {(project) => (
             <>
               <div class="proj" title={project.item.title}>
-                {project.item.ref}
+                <ProjectName project={project.item} />
               </div>
               <For each={project.runs}>
                 {(run) => <RunLink run={run} current={location.pathname.startsWith(runHref(run.item.id))} />}

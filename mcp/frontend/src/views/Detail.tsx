@@ -6,7 +6,7 @@ import { load } from '../store.ts'
 import { CLOSED, pageInput, refState, rowState, state } from '../state.ts'
 import { ago, cap, clock, day } from '../format.ts'
 import { CheckIcon } from '../icons.tsx'
-import { Dot, Pill } from '../ui.tsx'
+import { Dot, Pill, ProjectName } from '../ui.tsx'
 import { EventLine } from './Activity.tsx'
 
 export type Tab = 'overview' | 'evidence' | 'notes' | 'activity' | 'brief'
@@ -66,7 +66,11 @@ export default function Detail(props: Props) {
             {(step, i) => (
               <>
                 {i() > 0 ? ' / ' : ''}
-                <A href={props.href(step)}>{step.ref}</A>
+                <A href={props.href(step)}>
+                  <Show when={step.kind === 'project'} fallback={step.ref}>
+                    <ProjectName project={step} />
+                  </Show>
+                </A>
               </>
             )}
           </For>

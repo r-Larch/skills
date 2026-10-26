@@ -5,7 +5,7 @@ import { load, overview } from '../store.ts'
 import { itemHref, runHref } from '../nav.ts'
 import { refState } from '../state.ts'
 import { plural, short } from '../format.ts'
-import { Dot, Known } from '../ui.tsx'
+import { Dot, Known, ProjectName } from '../ui.tsx'
 
 export default function Backlog() {
   const params = useParams<{ project: string }>()
@@ -19,7 +19,10 @@ export default function Backlog() {
       <div class="page-h">
         <div>
           <div class="crumbs">
-            <A href="/">Overview</A> / {project()?.ref ?? 'project'}
+            <A href="/">Overview</A> /{' '}
+            <Show when={project()} fallback="project">
+              {(p) => <ProjectName project={p()} />}
+            </Show>
           </div>
           <h1>Backlog</h1>
           <div class="sub">

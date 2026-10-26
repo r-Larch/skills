@@ -16,7 +16,7 @@ with a done/total count and a thin progress bar) and one page beside it. Every p
 
 | URL | Page | Reads |
 |---|---|---|
-| `/` | **Overview** — Needs you (top 5), Working now, four honesty counts, then one panel per project: a serif header band, open runs first, closed runs dimmed below, each run a segmented bar with **one segment per leaf**, coloured by state; the legend once below | `overview`, `inbox`, every run's `board` |
+| `/` | **Overview** — Needs you (top 5, then a link to the rest), Working now, four honesty counts, then one panel per project: a serif header band, open runs first, closed runs dimmed below, each run a segmented bar with **one segment per leaf**, coloured by state; the legend once below | `overview`, `inbox`, every run's `board` |
 | `/inbox` | **Needs you** — everything waiting on a person, newest first, each row with the MCP call that resolves it | `inbox` |
 | `/activity` | **Activity** — the last 300 journal events across the workspace, grouped by day | `journal?limit=300` |
 | `/runs/{run}` | **Run** — plan list (filters All / Open / Needs attention; phases as group headers; full titles; ref; claim holder; criteria x/y) beside the detail panel for the run | `runs/{run}/board`, `items/{run}` |
@@ -38,6 +38,21 @@ claim holder, tree, priority, severity, resolution, closed/started), then tabs:
 - **Brief** — the verbatim `work_brief`, as text. Never the main pane.
 
 A claim holder is shown by session name when the claim has one, else by the actor label.
+
+A **project is named** by its title's head — the text before the first ` — `, or the whole title —
+in the sidebar, the overview panel, and every crumb (run, backlog, detail). Where that name differs
+from the ref (ignoring case), the ref follows in small mono type, because the ref is what agents
+type. One helper holds the rule: `src/format.ts` `projectName` / `projectRefIfDifferent`, drawn by
+`src/ui.tsx` `ProjectName`.
+
+### What may be cut
+
+Text may be shortened only in a one-line row of a list that links to a view showing it whole, and
+that row carries the full text in a `title` attribute (the sidebar run links, the overview run
+strips). A capped list says how much it left out and links to the whole list (the overview's
+*Needs you* shows five, then *+N more in the inbox*). Nothing else is cut: detail views, headings,
+crumbs, chips and project names wrap, and anything meant to be copied or run — the inbox's MCP
+call, a commit, a ref, a tree — is always shown whole.
 
 ## The state vocabulary
 
