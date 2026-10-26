@@ -102,21 +102,27 @@ public static class BriefRenderer
 
         AddBinding(lines, model.Binding, model.BindingTotal);
 
-        if (model.AssumptionTotal > 0)
-        {
-            lines.Add(string.Empty);
-            lines.Add($"OPEN ASSUMPTIONS ({model.AssumptionTotal})");
-            lines.AddRange(model.Assumptions.SelectMany(AssumptionRows));
-            AddOverflow(
-                lines,
-                model.AssumptionTotal - model.Assumptions.Count,
-                $"work_threads(scope:\"{handle}\", include:\"assumptions\")");
-        }
-
+        AddAssumptions(lines, model.Assumptions, model.AssumptionTotal, handle);
         AddNotes(lines, model.Notes, model.NoteTotal, model.AddressedTotal, model.AddressedTo, handle, "run");
         AddLastVerify(lines, model.LastVerify);
 
         return Attention.Append(string.Join("\n", lines), model.Attention);
+    }
+
+    internal static void AddAssumptions(List<string> lines, IReadOnlyList<AssumptionLine> assumptions, int total, string handle)
+    {
+        if (total == 0)
+        {
+            return;
+        }
+
+        lines.Add(string.Empty);
+        lines.Add($"OPEN ASSUMPTIONS ({total})");
+        lines.AddRange(assumptions.SelectMany(AssumptionRows));
+        AddOverflow(
+            lines,
+            total - assumptions.Count,
+            $"work_threads(scope:\"{handle}\", include:\"assumptions\")");
     }
 
     internal static void AddBinding(List<string> lines, IReadOnlyList<BindingLine> binding, int total)

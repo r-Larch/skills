@@ -145,6 +145,7 @@ public sealed partial class BoardReader
     {
         var workspaceId = home.WorkspaceId;
         var resolved = new List<ScopeRef>();
+        var assumptions = new List<AssumptionDetailRow>();
         var problems = new List<string>();
 
         foreach (var reference in references)
@@ -169,14 +170,33 @@ public sealed partial class BoardReader
                           + $"→ work_get(refs:[{string.Join(", ", candidates.Select(c => $"\"{c}\""))}])");
                     break;
                 default:
-                    problems.Add($"✗ no item has ref \"{reference}\" "
-                               + $"→ work_search(q:\"{reference}\") or work_tree()");
+                    var assumed = await board.AssumptionByRefAsync(workspaceId, reference.Trim(), cancellationToken);
+                    if (assumed.Count == 1)
+                    {
+                        assumptions.Add(assumed[0]);
+                        break;
+                    }
+
+                    var forms = assumed.Where(a => a.Qualified).Take(5).Select(a => $"\"{a.QualifiedRef}\"").ToList();
+                    problems.Add(assumed.Count == 0
+                        ? $"✗ no item or assumption has ref \"{reference}\" "
+                          + $"→ work_search(q:\"{reference}\") or work_tree()"
+                        : forms.Count == 0
+                            ? $"✗ \"{reference}\" names {assumed.Count} assumptions and no ref names only one "
+                              + "→ work_threads(include:\"assumptions\") lists them"
+                            : $"✗ \"{reference}\" names {assumed.Count} assumptions across runs — qualify it "
+                              + $"→ work_get(refs:[{string.Join(", ", forms)}])");
                     break;
             }
         }
 
         if (resolved.Count == 0)
         {
+            if (assumptions.Count > 0)
+            {
+                return string.Join("\n", [.. problems, .. assumptions.SelectMany(AssumptionDetail), string.Empty, AssumptionNext(assumptions[0])]);
+            }
+
             return problems.Count == 0
                 ? "work_get needs at least one ref → work_next() or work_tree() to find one."
                 : string.Join("\n", problems);
@@ -277,6 +297,8 @@ public sealed partial class BoardReader
             lines.Add($"  uri       {WorkUris.Item(callable)}");
             lines.Add($"  brief     {WorkUris.ItemBrief(callable)} — read it with ReadMcpResourceTool");
         }
+
+        lines.AddRange(assumptions.SelectMany(AssumptionDetail));
 
         facts.TryGetValue(resolved[0].Id, out var head);
         var next = await CallableAsync(resolved[0], head, cancellationToken);

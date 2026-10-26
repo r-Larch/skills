@@ -32,7 +32,9 @@ public sealed record ProjectBriefModel(
     string? AddressedTo,
     VerifyLine? LastVerify,
     string Next,
-    IReadOnlyList<AttentionLine> Attention);
+    IReadOnlyList<AttentionLine> Attention,
+    IReadOnlyList<AssumptionLine>? Assumptions = null,
+    int AssumptionTotal = 0);
 
 /// <summary>
 /// doc 06 §4a. Nobody works on a project, so its NEXT never transitions it: it names the run to
@@ -112,6 +114,7 @@ public static class ProjectBriefRenderer
         }
 
         BriefRenderer.AddBinding(lines, model.Binding, model.BindingTotal);
+        BriefRenderer.AddAssumptions(lines, model.Assumptions ?? [], model.AssumptionTotal, model.ProjectRef);
         BriefRenderer.AddNotes(
             lines, model.Notes, model.NoteTotal, model.AddressedTotal, model.AddressedTo, model.ProjectRef, "project");
         BriefRenderer.AddLastVerify(lines, model.LastVerify);

@@ -291,8 +291,20 @@ BACKLOG (6 open)                   open leaves of the backlog run, then follow-u
 
 BINDING / NOTES IN SCOPE / LAST VERIFY      as the run brief prints them
 
+OPEN ASSUMPTIONS (7)               every open one under the project, qualified: runs number their own A1
+  run-a/A1 Assumption number 1 still holds.   reasoned   medium
+  · +2 more — work_threads(scope:"e2e", include:"assumptions")
+
 NEXT   resume run run-a — work_brief(scope:"run-a")
 ```
+
+An assumption's ref reads back in `work_get(refs:["run-a/A1"])`, which prints it whole: statement,
+state, evidence, reversal, revisit, scope, the resolution once settled, and its import source and why
+when it was imported. A bare `A1` held by two runs is refused with the qualified forms, as an item
+ref is.
+
+> **Changed 2026-10-26 (assumption-reach).** `work_get(refs:["A1"])` answered "no item has ref A1",
+> and the project brief showed none of the project's open assumptions.
 
 With no open run, `NEXT` is `start a run under this project — work_create(items:[{kind:"run",
 parent:"e2e", ref:"<slug>", title:"…"}])`. Titles and notes print whole; recent runs are capped at

@@ -223,6 +223,23 @@ public sealed partial class WorkWriter
                     Retry(at, "body:\"…\"")));
             }
 
+            // A row's ref used to be dropped without a word on thread kinds (import-thread-refs).
+            if (!Blank(record.Ref) && kind is "note" or "rule")
+            {
+                unmet.Add(new Unmet(
+                    kind == "note"
+                        ? $"{at} (note) carries ref \"{record.Ref}\" — notes have no ref; remove it"
+                        : $"{at} (rule) carries ref \"{record.Ref}\" — a rule's ref is numbered C<n> by the server; remove it",
+                    Retry(at, "without ref")));
+            }
+
+            if (kind == "assumption" && !Blank(record.Ref) && AssumptionRefProblem(record.Ref!) is { } badRef)
+            {
+                unmet.Add(new Unmet(
+                    $"{at} (assumption) ref \"{record.Ref}\" {badRef}",
+                    [Retry(at, "ref:\"<one word, e.g. export-reachable>\""), Retry(at, "without ref — the server numbers it A<n>")]));
+            }
+
             if (!Blank(record.Status) && ImportStatus(record.Status) is null)
             {
                 unmet.Add(new Unmet(
@@ -236,6 +253,14 @@ public sealed partial class WorkWriter
         }
 
         return unmet;
+    }
+
+    private static string? AssumptionRefProblem(string reference)
+    {
+        var value = reference.Trim();
+        return value.Contains('/') || value.Any(char.IsWhiteSpace)
+            ? "is not one word — an assumption ref is numbered within its run, and run/ref is how it is qualified"
+            : null;
     }
 
     private static string Retry(string at, string fix) => $"work_import(project:\"…\", items:[…]) with {at} {fix}";
@@ -550,8 +575,20 @@ public sealed partial class WorkWriter
 
             case "assumption":
                 var item = await LoadAsync(connection, transaction, scope.Id, cancellationToken);
+                var chosen = Blank(record.Ref) ? null : record.Ref!.Trim();
+                if (chosen is not null
+                    && await AssumptionRefTakenAsync(connection, transaction, item.RefScopeId, chosen, cancellationToken))
+                {
+                    return ImportStep.No(Refusal.Blocked(
+                        $"work_import(assumption from {source}) — ref \"{chosen}\" is taken under {scope.Ref}.",
+                        "an assumption ref is unique within its run, and this one already names another assumption",
+                        $"work_import(project:\"{project.Ref}\", items:[…]) with a ref of its own on that row",
+                        $"work_import(project:\"{project.Ref}\", items:[…]) without ref — the server numbers it A<n>"));
+                }
+
                 var minted = await AssumeAsync(
-                    connection, transaction, item, actor, body, EvidenceLevel.Asserted, ReversalCost.Medium, null, cancellationToken);
+                    connection, transaction, item, actor, body, EvidenceLevel.Asserted, ReversalCost.Medium, null, cancellationToken,
+                    chosen);
                 assumptionId = await connection.ExecuteScalarAsync<Guid>(new CommandDefinition(
                     """
                     UPDATE assumption SET evidence_note = @note
@@ -740,6 +777,14 @@ public sealed partial class WorkWriter
         if (shown is null)
         {
             return ImportStep.Done(new ImportLine("skipped", kind, "—", source, body, moved));
+        }
+
+        if (kind == "assumption" && !Blank(record.Ref) && !string.Equals(record.Ref!.Trim(), shown, StringComparison.OrdinalIgnoreCase))
+        {
+            return ImportStep.No(Refusal.Blocked(
+                $"work_import(assumption from {source}) — ref \"{record.Ref!.Trim()}\", but this source was imported as {shown}.",
+                "a re-import updates the text of what a source named and never renames it",
+                $"work_import(project:\"…\", items:[…]) with ref:\"{shown}\" or without ref on that row"));
         }
 
         await TouchImportAsync(connection, transaction, actor, existing.Id, record.Why, null, cancellationToken);
