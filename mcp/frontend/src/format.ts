@@ -37,6 +37,6 @@ export const projectTagline = (p: { title: string }) => p.title.split(PROJECT_SE
 export const projectRefIfDifferent = (p: { title: string; ref: string }) =>
   projectName(p).toLowerCase() === p.ref.toLowerCase() ? null : p.ref
 
-export const cap =(s: string) => s.charAt(0).toUpperCase() + s.slice(1)
+export const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1)
 
 export const plural = (n: number, one: string, many = `${one}s`) => (n === 1 ? one : many)
