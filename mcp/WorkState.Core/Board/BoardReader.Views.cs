@@ -49,9 +49,14 @@ public sealed partial class BoardReader
                 Evidence: EvidenceOf(fact),
                 Flags: fact?.ReviewRequired == true ? [Flag.ReviewRequired] : null)));
 
-            lines.Add(row.VerifyCmd is { Length: > 0 }
-                ? $"      verify  {Glyph.Clip(row.VerifyCmd, 84)}"
-                : $"      verify  none recorded — work_update(ref:\"{row.Ref}\", verify_cmd:\"…\") before closing");
+            if (row.VerifyCmd is { Length: > 0 })
+            {
+                lines.AddRange(BriefRenderer.Wrap("      verify  ", row.VerifyCmd, 14));
+            }
+            else
+            {
+                lines.Add($"      verify  none recorded — work_update(ref:\"{row.Ref}\", verify_cmd:\"…\") before closing");
+            }
         }
 
         lines.Add(string.Empty);
@@ -173,6 +178,7 @@ public sealed partial class BoardReader
             ? await board.LinksAsync(ids, cancellationToken)
             : [];
         var verifications = (await board.VerificationsAsync(ids, cancellationToken)).ToLookup(v => v.ItemId);
+        var reports = (await board.ReportsAsync(ids, cancellationToken)).ToLookup(r => r.ItemId);
         var blocked = (await board.BlockedByAsync(ids, cancellationToken)).ToLookup(b => b.ItemId, b => b.BlockedByRef);
 
         var lines = new List<string>(problems);
@@ -191,8 +197,12 @@ public sealed partial class BoardReader
                 Evidence: EvidenceOf(fact),
                 Flags: FlagsFor(item.Id, item.Status, fact, blocked))));
 
-            // "Full detail": intent, criteria and evidence wrap like the worker brief and never clip.
-            // Boards keep one clipped row per item; this is the call a board row routes to.
+            // The head row is the one place this view shortens; a title it cut is printed whole here.
+            if (Glyph.Flat(item.Title).Length > Columns.Title)
+            {
+                lines.AddRange(BriefRenderer.Wrap("  title     ", item.Title, 12));
+            }
+
             if (item.Intent is { Length: > 0 })
             {
                 lines.AddRange(BriefRenderer.Wrap("  intent    ", item.Intent, 12));
@@ -204,13 +214,22 @@ public sealed partial class BoardReader
                 lines.AddRange(BriefRenderer.Wrap(label, criterion.Text, label.Length));
             }
 
-            foreach (var verification in verifications[item.Id].Take(2))
+            foreach (var verification in verifications[item.Id])
             {
                 lines.AddRange(BriefRenderer.Wrap(
                     "  evidence  ",
                     $"{(verification.Passed ? "✓" : "✗")} {verification.ResultLine} "
                     + $"by {verification.RunBy.ToString().ToLowerInvariant()}, "
                     + $"{Glyph.Age(Since(verification.At))} ago",
+                    12));
+            }
+
+            // work_history lists a report as one line; this is the only view that prints its body.
+            foreach (var report in reports[item.Id])
+            {
+                lines.AddRange(BriefRenderer.Wrap(
+                    "  report    ",
+                    $"attempt {report.N} {report.Status} by {report.AgentName ?? Glyph.None} — {report.Raw}",
                     12));
             }
 
@@ -251,20 +270,23 @@ public sealed partial class BoardReader
         var hits = await queries.SearchAsync(workspaceId, query, limit, cancellationToken);
         if (hits.Count == 0)
         {
-            return $"SEARCH \"{Glyph.Clip(query, 40)}\" — no hits.\n"
+            return $"SEARCH \"{Glyph.Flat(query)}\" — no hits.\n"
                  + "      Try fewer words, or work_tree() to see what is here.";
         }
 
-        var lines = new List<string> { $"SEARCH \"{Glyph.Clip(query, 40)}\" — {hits.Count} hits", string.Empty };
+        var lines = new List<string> { $"SEARCH \"{Glyph.Flat(query)}\" — {hits.Count} hits", string.Empty };
 
         lines.AddRange(hits.Select(hit =>
-            $"{Glyph.Pad(Glyph.Clip(hit.Ref, 18), 18)}  "
+            $"{Glyph.Pad(Glyph.Flat(hit.Ref), 18)}  "
             + $"{Glyph.Pad(hit.Source == "item" ? "item" : "doc", 5)}  "
-            + $"{Glyph.Pad(Glyph.Clip(hit.Title, 30), 30)}  "
-            + Glyph.Clip(hit.Snippet, 40)));
+            + $"{Glyph.Pad(Glyph.Row(hit.Title, 30), 30)}  "
+            + Glyph.Row(hit.Snippet, 40)));
 
         lines.Add(string.Empty);
-        lines.Add($"Next: work_get(refs:[\"{hits[0].Ref}\"]) on a hit.");
+        lines.Add(hits[0].Source == "item"
+            ? $"Next: work_get(refs:[\"{hits[0].Ref}\"]) on a hit."
+            : $"Next: read {WorkUris.Doc(hits[0].Ref.Split('#')[0])} for a doc hit's whole text, "
+              + "work_get(refs:[…]) for an item hit.");
         return string.Join("\n", lines);
     }
 
@@ -280,11 +302,12 @@ public sealed partial class BoardReader
         if (wanted.Contains("assumptions"))
         {
             var assumptions = await board.AssumptionsAsync(scope.WorkspaceId, scope.Item.Id, true, cancellationToken);
-            lines.AddRange(assumptions.Select(a =>
-                $"{Glyph.Pad(a.Ref, 6)}  {Glyph.Pad("assum", 6)}  "
-                + $"{Glyph.Pad(Glyph.Clip(a.Statement, 46), 46)}  "
-                + $"{Glyph.Pad(a.Evidence.ToString().ToLowerInvariant(), 9)}  "
-                + $"— work_assume(ref:\"{a.Ref}\", resolve:\"confirmed\", evidence:\"…\")"));
+            // An assumption has no detail view, so this is where its statement is read whole.
+            lines.AddRange(assumptions.SelectMany(a => WrappedRow(
+                $"{Glyph.Pad(a.Ref, 6)}  {Glyph.Pad("assum", 6)}  ",
+                a.Statement,
+                $"{Glyph.Pad(a.Evidence.ToString().ToLowerInvariant(), 9)}  "
+                + $"— work_assume(ref:\"{a.Ref}\", resolve:\"confirmed\", evidence:\"…\")")));
         }
 
         var threads = await queries.OpenThreadsAsync(scope.WorkspaceId, scope.Item.Id, cancellationToken);
@@ -293,7 +316,7 @@ public sealed partial class BoardReader
         {
             lines.AddRange(threads.Where(t => t.Type == "finding").Select(t =>
                 $"{Glyph.Pad(t.Ref, 6)}  {Glyph.Pad("find", 6)}  "
-                + $"{Glyph.Pad(Glyph.Clip(t.Text, 46), 46)}  "
+                + $"{Glyph.Pad(Glyph.Row(t.Text, 46), 46)}  "
                 + $"— work_status(ref:\"{t.Ref}\", to:\"done\")"));
         }
 
@@ -301,7 +324,7 @@ public sealed partial class BoardReader
         {
             lines.AddRange(threads.Where(t => t.Type == "followup").Select(t =>
                 $"{Glyph.Pad(t.Ref, 6)}  {Glyph.Pad("foll", 6)}  "
-                + $"{Glyph.Pad(Glyph.Clip(t.Text, 46), 46)}  "
+                + $"{Glyph.Pad(Glyph.Row(t.Text, 46), 46)}  "
                 + $"— work_status(ref:\"{t.Ref}\", to:\"in_progress\")"));
         }
 
@@ -310,12 +333,14 @@ public sealed partial class BoardReader
             // Only the worker brief of its addressee consumes a note (Housekeeping.ConsumeNotesAsync),
             // so a note with no addressee is a record that never closes — not a thread.
             var notes = await board.UnconsumedNotesAsync(scope.WorkspaceId, scope.Item.Id, cancellationToken);
-            foreach (var n in notes.Where(n => n.ToItemId is not null).Take(20))
+            // A note has no detail view and its brief consumes it, so its body is printed whole here.
+            foreach (var n in notes.Where(n => n.ToItemId is not null))
             {
-                lines.Add($"{Glyph.Pad(n.ToRef!, 6)}  {Glyph.Pad("note", 6)}  "
-                        + $"{Glyph.Pad(Glyph.Clip(n.Body, 46), 46)}  "
-                        + $"— work_brief(scope:\"{await AddresseeRefAsync(scope.WorkspaceId, n, cancellationToken)}\", "
-                        + "for:\"worker\") consumes it");
+                lines.AddRange(WrappedRow(
+                    $"{Glyph.Pad(n.ToRef!, 6)}  {Glyph.Pad("note", 6)}  ",
+                    n.Body,
+                    $"— work_brief(scope:\"{await AddresseeRefAsync(scope.WorkspaceId, n, cancellationToken)}\", "
+                    + "for:\"worker\") consumes it"));
             }
         }
 
@@ -396,15 +421,11 @@ public sealed partial class BoardReader
         foreach (var group in rows.GroupBy(r => r.Check))
         {
             lines.Add($"{group.Key} ({group.Count()})");
-            foreach (var row in group.Take(10))
+            foreach (var row in group)
             {
-                lines.Add($"  ✗ {Glyph.Pad(Glyph.Clip(row.Ref, 12), 12)} {Glyph.Clip(row.Problem, 80)}");
-                lines.Add($"      → {Glyph.Clip(row.Route, 92)}");
-            }
-
-            if (group.Count() > 10)
-            {
-                lines.Add($"  · +{group.Count() - 10} more of the same shape");
+                var label = $"  ✗ {Glyph.Pad(Glyph.Flat(row.Ref), 12)} ";
+                lines.AddRange(BriefRenderer.Wrap(label, row.Problem, label.Length));
+                lines.AddRange(BriefRenderer.Wrap("      → ", row.Route, 8));
             }
         }
 
@@ -439,12 +460,16 @@ public sealed partial class BoardReader
             string.Empty,
         };
 
-        lines.AddRange(events.Select(e =>
-            $"{Glyph.Pad(e.Seq.ToString(), 7)}  "
-            + $"{Glyph.Pad(Glyph.Clip(e.ItemRef ?? Glyph.None, 6), 6)}  "
-            + $"{Glyph.Pad(Glyph.Clip(e.Kind, 18), 18)}  "
-            + $"{Glyph.Pad(Glyph.Clip(e.Actor, 18), 18)}  "
-            + Glyph.Clip(e.Summary ?? string.Empty, 40)));
+        // An event has no detail view, so its summary wraps whole under its row.
+        foreach (var e in events)
+        {
+            var label = $"{Glyph.Pad(e.Seq.ToString(), 7)}  "
+                        + $"{Glyph.Pad(Glyph.Flat(e.ItemRef ?? Glyph.None), 6)}  "
+                        + $"{Glyph.Pad(Glyph.Flat(e.Kind), 18)}  "
+                        + $"{Glyph.Pad(Glyph.Flat(e.Actor), 18)}  ";
+            var row = BriefRenderer.Wrap(label, e.Summary, 9);
+            lines.AddRange(row.Count > 0 ? row : [label.TrimEnd()]);
+        }
 
         lines.Add(string.Empty);
         lines.Add($"Next: work_get(refs:[\"{events.First(e => e.ItemRef is not null).ItemRef}\"]) "
@@ -472,11 +497,11 @@ public sealed partial class BoardReader
 
         foreach (var rule in rules)
         {
-            lines.Add($"{(rule.Kind == ConstraintKind.RedLine ? "!" : "·")} "
-                    + $"{Glyph.Pad(Glyph.Flat(rule.Ref), 4)}{Glyph.Clip(rule.Text, 92)}");
+            var label = $"{(rule.Kind == ConstraintKind.RedLine ? "!" : "·")} {Glyph.Pad(Glyph.Flat(rule.Ref), 4)}";
+            lines.AddRange(BriefRenderer.Wrap(label, rule.Text, label.Length));
             if (rule.Route is { Length: > 0 })
             {
-                lines.Add($"    → {Glyph.Clip(rule.Route, 92)}");
+                lines.AddRange(BriefRenderer.Wrap("    → ", rule.Route, 6));
             }
         }
 
@@ -567,4 +592,22 @@ public sealed partial class BoardReader
     }
 
     private static TimeSpan? Ago(DateTimeOffset? at) => at is { } value ? Since(value) : null;
+
+    private const int ThreadTextWidth = 46;
+
+    /// <summary>
+    /// A threads row whose text is the only full copy anywhere. While the text fits its column the
+    /// row is the usual one line; a longer text wraps whole and the tail (evidence, route) moves to a
+    /// line of its own beneath it, so neither the text nor the call is broken up.
+    /// </summary>
+    private static IEnumerable<string> WrappedRow(string head, string? text, string tail)
+    {
+        var flat = Glyph.Flat(text);
+        if (flat.Length <= ThreadTextWidth)
+        {
+            return [$"{head}{Glyph.Pad(flat, ThreadTextWidth)}  {tail}"];
+        }
+
+        return [.. BriefRenderer.Wrap(head, flat, head.Length), $"{new string(' ', head.Length)}{tail}"];
+    }
 }

@@ -86,7 +86,7 @@ public static class ToolArguments
                      p.Required && !arguments.ContainsKey(p.Name) && !suggested.Contains(p.Name)))
         {
             unmet.Add(new Unmet(
-                $"{missing.Name} is required and was not sent — {Glyph.Clip(missing.Description, 90)}",
+                $"{missing.Name} is required and was not sent — {Glyph.Flat(missing.Description)}",
                 schema.Example(missing)));
         }
 
@@ -117,7 +117,7 @@ public static class ToolArguments
     private static string Unbound(Schema schema, Exception failure)
         => Refusal.Blocked(
             $"{schema.Name} — an argument cannot bind. Nothing ran.",
-            $"binding refused it: {Glyph.Clip(failure.Message, 140)}",
+            $"binding refused it: {Glyph.Flat(failure.Message)}",
             $"{schema.Example(null)} with each argument in the shape its tools/list entry declares");
 
     private static CallToolResult Refused(string text) => new()

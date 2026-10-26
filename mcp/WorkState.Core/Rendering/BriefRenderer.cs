@@ -47,13 +47,12 @@ public sealed record BriefModel(
 public static class BriefRenderer
 {
     private const int GoalIndent = 5;
+    private const int StatementWidth = 48;
 
     /// <summary>
-    /// doc 06 §4. Target ≤35 lines, paid on every session start, and the reason every section is
-    /// capped rather than complete: an unbounded brief is a brief nobody can afford to call.
-    /// <paramref name="full"/> is the worker variant, which a controller pastes into a prompt
-    /// whole: its GOAL and its rules wrap in full. The resume variant keeps both capped, because
-    /// wrapped rules cost the sample fixture six lines over the 35-line target.
+    /// doc 06 §4 and "What may be shortened": every text a section shows wraps whole; only the
+    /// number of rules, assumptions and notes is capped, each cap naming the call that lists the rest.
+    /// <paramref name="full"/> is the worker variant, which a controller pastes into a prompt.
     /// </summary>
     public static string Render(BriefModel model, bool full = false)
     {
@@ -93,7 +92,7 @@ public static class BriefRenderer
 
         if (model.Goal is { Length: > 0 })
         {
-            lines.AddRange(Wrap("GOAL ", model.Goal, GoalIndent, full ? null : 3));
+            lines.AddRange(Wrap("GOAL ", model.Goal, GoalIndent));
         }
 
         lines.Add(string.Empty);
@@ -113,14 +112,11 @@ public static class BriefRenderer
             // ref that is already four wide, and the corpus runs to C258 — so without it every
             // line from C100 up reads "C148Never connect to …". AssumptionRow has always appended
             // this space; copying the column without it is how the defect arrived.
-            //
-            // In the worker variant a rule wraps and never clips: the route is the end of the line,
-            // and a red line with its route cut off forbids without saying what to do instead.
             foreach (var b in model.Binding)
             {
                 var label = $"  {(b.RedLine ? "!" : "·")} {Glyph.Pad(Glyph.Flat(b.Ref), 4)} ";
                 var text = b.Route is { Length: > 0 } ? $"{b.Text} — {b.Route}" : b.Text;
-                lines.AddRange(full ? Wrap(label, text, label.Length) : [label + Glyph.Clip(text, 87)]);
+                lines.AddRange(Wrap(label, text, label.Length));
             }
 
             AddOverflow(lines, model.BindingTotal - model.Binding.Count, $"read {WorkUris.Conventions}");
@@ -130,7 +126,7 @@ public static class BriefRenderer
         {
             lines.Add(string.Empty);
             lines.Add($"OPEN ASSUMPTIONS ({model.AssumptionTotal})");
-            lines.AddRange(model.Assumptions.Select(AssumptionRow));
+            lines.AddRange(model.Assumptions.SelectMany(AssumptionRows));
             AddOverflow(
                 lines,
                 model.AssumptionTotal - model.Assumptions.Count,
@@ -149,28 +145,26 @@ public static class BriefRenderer
                 : $"NOTES IN SCOPE ({model.NoteTotal})   — carried forward by this run; "
                   + "none names an item, so none is consumed");
 
-            // In the worker variant these are notes addressed to the worker's own task, consumed as
-            // they render: a clipped note is one whose end nobody will ever read.
-            lines.AddRange(full
-                ? model.Notes.SelectMany(n => Wrap("  ", n, 2))
-                : model.Notes.Select(n => $"  {Glyph.Clip(n, 94)}"));
+            lines.AddRange(model.Notes.SelectMany(n => Wrap("  ", n, 2)));
 
             var hidden = model.NoteTotal - model.Notes.Count;
             if (hidden > 0)
             {
-                lines.Add(
-                    $"  · +{hidden} more unconsumed in scope — "
-                    + $"work_threads(scope:\"{handle}\", include:\"notes\")");
+                // work_threads lists only addressed notes; a carried note is printed whole in history.
+                lines.Add(model.AddressedTo is { Length: > 0 }
+                    ? $"  · +{hidden} more unconsumed in scope — work_threads(scope:\"{handle}\", include:\"notes\")"
+                    : $"  · +{hidden} more carried in scope — work_history() prints each note whole");
             }
         }
 
         if (model.LastVerify is { } verify)
         {
             lines.Add(string.Empty);
-            var command = verify.Command is { Length: > 0 } ? $"{Glyph.Clip(verify.Command, 46)} → " : string.Empty;
-            lines.Add(
-                $"LAST VERIFY  {command}{Glyph.Clip(verify.ResultLine, 34)}, "
-                + $"by {verify.RunBy}, {Glyph.Age(verify.Ago)} ago");
+            var command = verify.Command is { Length: > 0 } ? $"{verify.Command} → " : string.Empty;
+            lines.AddRange(Wrap(
+                "LAST VERIFY  ",
+                $"{command}{verify.ResultLine}, by {verify.RunBy}, {Glyph.Age(verify.Ago)} ago",
+                13));
         }
 
         return Attention.Append(string.Join("\n", lines), model.Attention);
@@ -201,20 +195,30 @@ public static class BriefRenderer
              work_brief again once anything exists — it becomes the recovery payload for the session.
            """;
 
-    private static string AssumptionRow(AssumptionLine line)
+    /// <summary>
+    /// One aligned row while the statement fits its column. A longer statement wraps whole across the
+    /// line and its evidence and reversal move to a line of their own beneath it, so the statement
+    /// reads as one unbroken sentence.
+    /// </summary>
+    private static IEnumerable<string> AssumptionRows(AssumptionLine line)
     {
-        var builder = new StringBuilder("  ");
-        builder.Append(Glyph.Pad(Glyph.Flat(line.Ref), 4)).Append(' ');
-        builder.Append(Glyph.Pad(Glyph.Clip(line.Statement, 48), 48)).Append("  ");
-        builder.Append(Glyph.Pad(line.Evidence, 9)).Append("  ");
-        builder.Append(Glyph.Pad(line.Reversal ?? Glyph.None, 7));
+        var head = $"  {Glyph.Pad(Glyph.Flat(line.Ref), 4)} ";
+        var tail = new StringBuilder();
+        tail.Append(Glyph.Pad(line.Evidence, 9)).Append("  ");
+        tail.Append(Glyph.Pad(line.Reversal ?? Glyph.None, 7));
 
         if (line.RevisitRef is { Length: > 0 })
         {
-            builder.Append("  ").Append(Flag.Revisit(line.RevisitRef));
+            tail.Append("  ").Append(Flag.Revisit(line.RevisitRef));
         }
 
-        return builder.ToString().TrimEnd();
+        var statement = Glyph.Flat(line.Statement);
+        if (statement.Length <= StatementWidth)
+        {
+            return [$"{head}{Glyph.Pad(statement, StatementWidth)}  {tail}".TrimEnd()];
+        }
+
+        return [.. Wrap(head, statement, head.Length), $"{new string(' ', head.Length)}{tail}".TrimEnd()];
     }
 
     private static void AddOverflow(List<string> lines, int hidden, string route)
@@ -225,7 +229,7 @@ public static class BriefRenderer
         }
     }
 
-    internal static IEnumerable<string> Wrap(string label, string text, int indent, int? maxLines = null)
+    public static IReadOnlyList<string> Wrap(string label, string? text, int indent, int width = Columns.Width)
     {
         var words = Glyph.Flat(text).Split(' ', StringSplitOptions.RemoveEmptyEntries);
         var pad = new string(' ', indent);
@@ -235,17 +239,9 @@ public static class BriefRenderer
 
         foreach (var word in words)
         {
-            if (current.Length > prefix && current.Length + 1 + word.Length > Columns.Width)
+            if (current.Length > prefix && current.Length + 1 + word.Length > width)
             {
                 lines.Add(current.ToString());
-                if (lines.Count == maxLines)
-                {
-                    var last = lines[^1];
-                    var cut = Math.Min(last.Length, Columns.Width - 1);
-                    lines[^1] = last[..cut].TrimEnd() + Glyph.Ellipsis;
-                    return lines;
-                }
-
                 current = new StringBuilder(pad);
                 prefix = indent;
             }

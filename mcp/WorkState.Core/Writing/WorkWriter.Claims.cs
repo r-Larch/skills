@@ -98,7 +98,7 @@ public sealed partial class WorkWriter
             return Refusal.Blocked(
                 $"work_status({item.Ref} → in_progress). Another workspace's writer holds this working tree.",
                 $"{live.QualifiedRef} in another workspace holds the write claim on "
-                + $"\"{Glyph.Clip(live.SerializationKey, 40)}\" (held by {live.Holder}{you}); {Lease(live)}",
+                + $"\"{Glyph.Flat(live.SerializationKey)}\" (held by {live.Holder}{you}); {Lease(live)}",
                 $"{retake} once that lease lapses and that "
                 + "workspace's next work_brief, work_next or work_status sweeps it",
                 "work_next(scope:\"<another run>\") — two runs in different worktrees proceed in "
@@ -123,7 +123,7 @@ public sealed partial class WorkWriter
 
         return Refusal.Blocked(
             $"work_status({item.Ref} → in_progress). Another writer holds this working tree.",
-            $"{live.QualifiedRef} holds the write claim on \"{Glyph.Clip(live.SerializationKey, 40)}\" "
+            $"{live.QualifiedRef} holds the write claim on \"{Glyph.Flat(live.SerializationKey)}\" "
             + $"(held by {live.Holder}{you}); {Lease(live)}",
             [.. routes]);
     }
@@ -226,7 +226,7 @@ public sealed partial class WorkWriter
             new { agent = actor.Name, session = actor.Session, serialization_key = treeLock.Key, tree = treeLock.Tree, ttl_minutes = ttl },
             cancellationToken);
 
-        return $"acquired by {actor.Label}, {ttl}m lease on \"{Glyph.Clip(treeLock.Key, 40)}\"";
+        return $"acquired by {actor.Label}, {ttl}m lease on \"{Glyph.Flat(treeLock.Key)}\"";
     }
 
     /// <summary>doc 11 — the tree a session last claimed on, and its first one as its cwd if no header named one.</summary>

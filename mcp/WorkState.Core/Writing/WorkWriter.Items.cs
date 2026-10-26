@@ -78,7 +78,7 @@ public sealed partial class WorkWriter
                 n => n == 1 ? $"{item.Ref}-d" : $"{item.Ref}-d{n}",
                 cancellationToken),
             await NextSeqAsync(connection, transaction, parent.Id, cancellationToken),
-            Glyph.Clip(item.Title, 180),
+            item.Title,
             item.Intent,
             item.VerifyCmd);
 
@@ -98,7 +98,7 @@ public sealed partial class WorkWriter
             item.Id,
             actor,
             "deferred",
-            $"{item.Ref} deferred to {carried.Ref} under {parent.Ref}: {Glyph.Clip(args.Reason, 40)}",
+            $"{item.Ref} deferred to {carried.Ref} under {parent.Ref}: {Glyph.Flat(args.Reason)}",
             new { moved_to = carried.Ref, under = parent.Ref, target = args.Target, reason = args.Reason },
             cancellationToken);
 
@@ -111,7 +111,7 @@ public sealed partial class WorkWriter
             $"OK  {item.Ref}  {Transitions.Name(item.Status)} → done (obsolete) — deferred, not dropped",
             $"    moved to  {carried.Ref} (followup, open) under {parent.Ref}, carrying its criteria",
             $"    link      {carried.Ref} derived_from {item.Ref}",
-            $"    reason    {Glyph.Clip(args.Reason, 84)}",
+            $"    reason    {Glyph.Row(args.Reason, 84)}",
             string.Empty,
             $"Next: work_next(scope:\"{scope}\") — {carried.Ref} is open and on the frontier there."));
     }

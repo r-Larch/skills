@@ -202,7 +202,7 @@ public sealed partial class WorkWriter(NpgsqlDataSource dataSource, BoardQueries
             actor,
             forced is null ? "status" : "forced_transition",
             $"{item.Ref} {Transitions.Name(item.Status)} → {Transitions.Name(status)}"
-            + (args.Reason is { Length: > 0 } ? $": {Glyph.Clip(args.Reason, 40)}" : string.Empty),
+            + (args.Reason is { Length: > 0 } ? $": {Glyph.Flat(args.Reason)}" : string.Empty),
             new
             {
                 from = Transitions.Name(item.Status),
@@ -232,17 +232,17 @@ public sealed partial class WorkWriter(NpgsqlDataSource dataSource, BoardQueries
 
         if (carried is { Length: > 0 })
         {
-            lines.Add($"    backlog {Glyph.Clip(carried, 86)}");
+            lines.Add($"    backlog {Glyph.Flat(carried)}");
         }
 
         if (args.Reason is { Length: > 0 })
         {
-            lines.Add($"    reason  {Glyph.Clip(args.Reason, 86)}");
+            lines.Add($"    reason  {Glyph.Row(args.Reason, 86)}");
         }
 
         if (args.Commit is { Length: > 0 })
         {
-            lines.Add($"    commit  {Glyph.Clip(args.Commit, 86)}");
+            lines.Add($"    commit  {Glyph.Flat(args.Commit)}");
         }
 
         if (claimLine is { Length: > 0 })
@@ -255,7 +255,7 @@ public sealed partial class WorkWriter(NpgsqlDataSource dataSource, BoardQueries
             lines.Add($"    FORCED over {forced.Length} unmet condition(s) — recorded as a "
                     + "forced_transition, visible in");
             lines.Add("            work_brief and work_audit until someone closes it honestly:");
-            lines.AddRange(forced.Select(f => $"              · {Glyph.Clip(f, 84)}"));
+            lines.AddRange(forced.Select(f => $"              · {Glyph.Flat(f)}"));
         }
 
         lines.Add(string.Empty);
@@ -662,7 +662,7 @@ public sealed partial class WorkWriter(NpgsqlDataSource dataSource, BoardQueries
                 role = Pg.Label(actor.Role),
                 kind,
                 payload = JsonSerializer.Serialize(payload),
-                summary = Glyph.Clip(summary, 120),
+                summary = Glyph.Flat(summary),
             },
             transaction,
             cancellationToken: cancellationToken));
