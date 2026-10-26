@@ -1,0 +1,45 @@
+# WorkState without a clone: pulls the published image instead of building mcp/Dockerfile.
+# Keep the services in step with mcp/compose.yml; only `image:` differs. The project name is the same
+# (`workstate`), so a machine that used the clone-based compose keeps its volume and its data.
+# workstate-setup copies this file to ~/.workstate/compose.yml and runs it with that directory's .env.
+
+name: workstate
+
+services:
+  db:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-workstate}
+      POSTGRES_USER: ${POSTGRES_USER:-workstate}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    volumes:
+      - workstate-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-workstate} -d ${POSTGRES_DB:-workstate}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  api:
+    image: ghcr.io/r-larch/workstate-api:${WORKSTATE_VERSION:-latest}
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_HTTP_PORTS: 8080
+      WorkState__Auth__WorkerToken: ${WORKSTATE_WORKER_TOKEN:?set WORKSTATE_WORKER_TOKEN in .env}
+      WorkState__Auth__OrchestratorToken: ${WORKSTATE_ORCHESTRATOR_TOKEN:?set WORKSTATE_ORCHESTRATOR_TOKEN in .env}
+      WorkState__Auth__ControllerToken: ${WORKSTATE_CONTROLLER_TOKEN:?set WORKSTATE_CONTROLLER_TOKEN in .env}
+      WorkState__Auth__ReaderToken: ${WORKSTATE_READER_TOKEN:-}
+      WorkState__Dashboard__Username: ${WORKSTATE_DASHBOARD_USERNAME:?set WORKSTATE_DASHBOARD_USERNAME in .env}
+      WorkState__Dashboard__Password: ${WORKSTATE_DASHBOARD_PASSWORD:?set WORKSTATE_DASHBOARD_PASSWORD in .env}
+      ConnectionStrings__WorkState: >-
+        Host=db;Port=5432;Database=${POSTGRES_DB:-workstate};Username=${POSTGRES_USER:-workstate};Password=${POSTGRES_PASSWORD}
+    ports:
+      - "${WORKSTATE_BIND:-127.0.0.1}:${WORKSTATE_API_PORT:-5290}:8080"
+    restart: unless-stopped
+
+volumes:
+  workstate-db-data:

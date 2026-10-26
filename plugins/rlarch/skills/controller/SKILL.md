@@ -131,8 +131,9 @@ the agents server is unavailable). Per unit:
   routine work. It is set per launch, so choose it per unit.
 - `workstate.role: "worker"` for every unit. The agent then writes under its own minted token, its
   evidence is a **worker's**, and it can never close the unit — the close stays yours.
-- `workstate.env_file` — the PATH of the WorkState clone's `mcp/.env`. A path, never a value: the
-  server reads the controller token from it in code, and neither token reaches your transcript.
+- `workstate.env_file` — the PATH of the WorkState `.env` (`~/.workstate/.env`, or `<clone>/mcp/.env`
+  for a clone install). A path, never a value: the server reads the controller token from it in
+  code, and neither token reaches your transcript.
 - `agent_stop` when the unit is done; it revokes the token.
 
 **Launch every agent in auto mode** unless the unit needs otherwise — the default of `agent_launch`'s
