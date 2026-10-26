@@ -221,6 +221,33 @@ public sealed class EvidenceTests(PostgresFixture fixture)
         Assert.False(allowed.Refused, allowed.Text);
     }
 
+    /// <summary>closed-trailers. The OK trailer proposed work_status(done) on an item already done.</summary>
+    [Fact]
+    public async Task Verifying_a_done_item_proposes_no_move_and_an_open_item_keeps_its_trailer()
+    {
+        var world = await WriteSeed.CreateAsync(fixture);
+        await WriteSeed.ChildAsync(world, world.PhaseId, "1.9", status: ItemStatus.Done);
+
+        foreach (var passed in new[] { true, false })
+        {
+            var onDone = await world.Writer.VerifyAsync(
+                world.WorkspaceId, "1.9", WriteSeed.Orchestrator,
+                "dotnet test", passed ? "Passed! 91" : "Failed! 3", passed, null, null, null, Ct);
+
+            Assert.False(onDone.Refused, onDone.Text);
+            Assert.DoesNotContain("work_status(", onDone.Text, StringComparison.Ordinal);
+            Assert.Contains("Next: nothing to move — 1.9 is already done", onDone.Text, StringComparison.Ordinal);
+        }
+
+        Assert.Equal(ItemStatus.Done, await world.StatusAsync("1.9"));
+
+        var onOpen = await world.Writer.VerifyAsync(
+            world.WorkspaceId, "1.1", WriteSeed.Orchestrator,
+            "dotnet test --filter Guard", "Passed! 91", true, null, null, null, Ct);
+
+        Assert.EndsWith("\n\nNext: work_status(ref:\"1.1\", to:\"done\").", onOpen.Text, StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task A_note_addressed_to_an_item_is_delivered_once_and_then_marked_consumed()
     {

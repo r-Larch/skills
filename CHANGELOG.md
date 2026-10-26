@@ -4,6 +4,22 @@ What changes for someone who has the `rlarch` plugin installed, newest first. Fo
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions are the `version` field in
 `plugins/rlarch/.claude-plugin/plugin.json`, which is what the updater gates on.
 
+## [2.2.1] - 2026-10-26
+
+### Fixed
+
+- **dotnet-source on macOS/Linux: the daemon survives its caller.** It now starts its own session and
+  ignores SIGHUP, so it no longer dies when the shell or harness that ran `ds serve` kills its process
+  group or hangs up. (Windows unchanged.)
+- **dotnet-source on macOS/Linux: a killed daemon no longer blocks every later `serve`.** Its marker
+  outlived it (`DeleteOnClose` is not kernel-backed on Unix) and each new `serve` exited 2 until the
+  file was deleted by hand. The single-instance lock is now a kernel `flock`, which is released when
+  the process dies. Verified on Linux (WSL); macOS uses the same calls but is not tested.
+- WorkState server (rebuild with `docker compose -f mcp/compose.yml up -d --build` to get it):
+  `work_get` prints intent, criteria and evidence in full; no `Next:` trailer proposes moving an item
+  that is already closed; `done` is accepted from `ready` for an item that was started and whose
+  lease lapsed.
+
 ## [2.2.0] - 2026-10-23
 
 The first published 2.x. It includes everything that was numbered **2.0.0** and **2.1.0** on the

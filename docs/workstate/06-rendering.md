@@ -198,6 +198,14 @@ The resume brief's `NEXT` is unchanged, and it keeps clipping notes to one line.
 > consumption marks exactly the rendered notes by id — a note written between render and consume
 > stays for the next brief.
 
+**`work_get` (and `work://item/<ref>`, which renders the same view) prints in full.** Intent, each
+criterion and each evidence line wrap at 100 columns under an indented continuation, like the worker
+brief. The boards — `work_tree`, `work_next`, `work_search` — keep one clipped row per item; `work_get`
+is the call such a row routes to.
+
+> **Changed 2026-10-26 (tool-text).** `work_get` is described as "full detail" but clipped `intent` to
+> 86 columns, each criterion to 80 and each evidence result line to 44.
+
 **The note header names what it is holding.** `ADDRESSED TO YOU (n)` counts only notes that name a
 target item — those are the ones a worker brief renders and consumes. Where a run carries unconsumed
 notes that name nobody, the section is instead:

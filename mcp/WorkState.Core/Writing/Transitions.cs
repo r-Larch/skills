@@ -47,6 +47,16 @@ public static class Transitions
     /// </summary>
     private const string ClosesDirectly = "finding";
 
+    /// <summary>
+    /// A lapsed lease is a timer, not a return to the queue: the sweep moves an expired claim's item
+    /// to <c>ready</c> while a nested agent is still working it for hours, and <c>done</c> was then
+    /// refused until a ceremonial <c>in_progress</c>. So <c>done</c> is reachable from <c>ready</c>
+    /// for an item that has been started — the five conditions still apply unchanged. A never-started
+    /// item stays refused: nobody has done its work.
+    /// </summary>
+    private static bool ClosesAfterLapse(ItemStatus status, bool started)
+        => started && status == ItemStatus.Ready;
+
     public static bool IsTerminal(ItemStatus status) => Terminal.Contains(status);
 
     public static bool TryParse(string? to, out Move move)
@@ -81,7 +91,7 @@ public static class Transitions
     /// The moves that are legal right now, in the order doc 07 §2 draws them. The refusal for an
     /// illegal move lists these, because a prohibition without its route is a trap (doc 04 §3).
     /// </summary>
-    public static IReadOnlyList<Move> LegalFrom(ItemStatus status, string? kind = null)
+    public static IReadOnlyList<Move> LegalFrom(ItemStatus status, string? kind = null, bool started = false)
     {
         if (IsTerminal(status))
         {
@@ -97,7 +107,8 @@ public static class Transitions
             }
         }
 
-        if (string.Equals(kind, ClosesDirectly, StringComparison.OrdinalIgnoreCase) && !moves.Contains(Move.Done))
+        if ((string.Equals(kind, ClosesDirectly, StringComparison.OrdinalIgnoreCase) || ClosesAfterLapse(status, started))
+            && !moves.Contains(Move.Done))
         {
             moves.Add(Move.Done);
         }
@@ -107,14 +118,14 @@ public static class Transitions
         return [.. moves.OrderBy(m => (int)m)];
     }
 
-    public static bool Legal(ItemStatus from, Move to, string? kind = null)
-        => LegalFrom(from, kind).Contains(to);
+    public static bool Legal(ItemStatus from, Move to, string? kind = null, bool started = false)
+        => LegalFrom(from, kind, started).Contains(to);
 
     /// <summary>
     /// doc 07 §2's two rows that are refusals rather than transitions, plus the generic illegal
     /// move. Each names the call that actually achieves what the caller was reaching for.
     /// </summary>
-    public static string Refuse(string reference, ItemStatus from, Move to, string? kind = null)
+    public static string Refuse(string reference, ItemStatus from, Move to, string? kind = null, bool started = false)
     {
         var headline = $"work_status({reference} → {Name(to)}). {reference} is {Name(from)}.";
 
@@ -137,7 +148,7 @@ public static class Transitions
                 + "if it replaces this outright");
         }
 
-        var legal = LegalFrom(from, kind).Select(Name).ToList();
+        var legal = LegalFrom(from, kind, started).Select(Name).ToList();
         return Refusal.Blocked(
             headline,
             $"{Name(to)} is not reachable from {Name(from)}",
