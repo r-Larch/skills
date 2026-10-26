@@ -191,23 +191,27 @@ public sealed partial class BoardReader
                 Evidence: EvidenceOf(fact),
                 Flags: FlagsFor(item.Id, item.Status, fact, blocked))));
 
+            // "Full detail": intent, criteria and evidence wrap like the worker brief and never clip.
+            // Boards keep one clipped row per item; this is the call a board row routes to.
             if (item.Intent is { Length: > 0 })
             {
-                lines.Add($"  intent    {Glyph.Clip(item.Intent, 86)}");
+                lines.AddRange(BriefRenderer.Wrap("  intent    ", item.Intent, 12));
             }
 
             foreach (var criterion in criteria[item.Id])
             {
-                lines.Add($"  {(criterion.Checked ? "✓" : "✗")} c{criterion.Seq}     "
-                        + Glyph.Clip(criterion.Text, 80));
+                var label = $"  {(criterion.Checked ? "✓" : "✗")} c{criterion.Seq}     ";
+                lines.AddRange(BriefRenderer.Wrap(label, criterion.Text, label.Length));
             }
 
             foreach (var verification in verifications[item.Id].Take(2))
             {
-                lines.Add($"  evidence  {(verification.Passed ? "✓" : "✗")} "
-                        + $"{Glyph.Clip(verification.ResultLine, 44)} "
-                        + $"by {verification.RunBy.ToString().ToLowerInvariant()}, "
-                        + $"{Glyph.Age(Since(verification.At))} ago");
+                lines.AddRange(BriefRenderer.Wrap(
+                    "  evidence  ",
+                    $"{(verification.Passed ? "✓" : "✗")} {verification.ResultLine} "
+                    + $"by {verification.RunBy.ToString().ToLowerInvariant()}, "
+                    + $"{Glyph.Age(Since(verification.At))} ago",
+                    12));
             }
 
             foreach (var link in links.Where(l => l.FromId == item.Id || l.ToId == item.Id))
