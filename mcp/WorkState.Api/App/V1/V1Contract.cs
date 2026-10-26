@@ -197,7 +197,17 @@ public sealed record ItemPageView(
     LinksView Links,
     IReadOnlyList<AssumptionView> Assumptions,
     IReadOnlyList<JournalEventView> Events,
-    bool EventsHasMore);
+    bool EventsHasMore,
+    ImportedView? Imported = null);
+
+/// <summary>Set on an item <c>work_import</c> wrote: its source in the repo, and why it was judged still true.</summary>
+public sealed record ImportedView(
+    string Path,
+    string? Anchor,
+    string Why,
+    string ImportedBy,
+    SessionView? Session,
+    DateTimeOffset At);
 
 public sealed record InboxRowView(
     string Key,

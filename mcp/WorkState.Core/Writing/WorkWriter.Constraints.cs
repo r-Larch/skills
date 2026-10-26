@@ -104,34 +104,8 @@ public sealed partial class WorkWriter
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
 
-        var minted = await FreeConstraintRefAsync(connection, transaction, workspaceId, cancellationToken);
-
-        const string sql =
-            """
-            INSERT INTO constraint_rule
-                (id, workspace_id, scope_item_id, ref, kind, text, route, covers_risk, severity,
-                 added_by_item_id)
-            VALUES (@id, @workspace, @scope, @ref, @kind::constraint_kind, @text, @route,
-                    @covers, @severity, @from);
-            """;
-
-        await connection.ExecuteAsync(new CommandDefinition(
-            sql,
-            new
-            {
-                id = Guid.CreateVersion7(),
-                workspace = workspaceId,
-                scope = scopeItemId,
-                @ref = minted,
-                kind = Pg.Label(kind),
-                text = args.Text!.Trim(),
-                route = Blank(args.Route) ? null : args.Route!.Trim(),
-                covers = args.CoversRisk ?? [],
-                severity = Blank(args.Severity) ? "binding" : args.Severity!.Trim().ToLowerInvariant(),
-                from = addedBy,
-            },
-            transaction,
-            cancellationToken: cancellationToken));
+        var (_, minted) = await InsertConstraintAsync(
+            connection, transaction, workspaceId, scopeItemId, kind, args, addedBy, cancellationToken);
 
         await EventAsync(
             connection,
@@ -162,6 +136,50 @@ public sealed partial class WorkWriter
                 + $"scope, until work_constrain(ref:\"{minted}\", retire:true, reason:\"…\").");
 
         return WriteResult.Ok(string.Join("\n", lines));
+    }
+
+    /// <summary>Shared by <c>work_constrain</c> and <c>work_import</c>'s rule records.</summary>
+    private static async Task<(Guid Id, string Ref)> InsertConstraintAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        Guid workspaceId,
+        Guid? scopeItemId,
+        ConstraintKind kind,
+        ConstrainArgs args,
+        Guid? addedBy,
+        CancellationToken cancellationToken)
+    {
+        var id = Guid.CreateVersion7();
+        var minted = await FreeConstraintRefAsync(connection, transaction, workspaceId, cancellationToken);
+
+        const string sql =
+            """
+            INSERT INTO constraint_rule
+                (id, workspace_id, scope_item_id, ref, kind, text, route, covers_risk, severity,
+                 added_by_item_id)
+            VALUES (@id, @workspace, @scope, @ref, @kind::constraint_kind, @text, @route,
+                    @covers, @severity, @from);
+            """;
+
+        await connection.ExecuteAsync(new CommandDefinition(
+            sql,
+            new
+            {
+                id,
+                workspace = workspaceId,
+                scope = scopeItemId,
+                @ref = minted,
+                kind = Pg.Label(kind),
+                text = args.Text!.Trim(),
+                route = Blank(args.Route) ? null : args.Route!.Trim(),
+                covers = args.CoversRisk ?? [],
+                severity = Blank(args.Severity) ? "binding" : args.Severity!.Trim().ToLowerInvariant(),
+                from = addedBy,
+            },
+            transaction,
+            cancellationToken: cancellationToken));
+
+        return (id, minted);
     }
 
     private async Task<WriteResult> RetireAsync(

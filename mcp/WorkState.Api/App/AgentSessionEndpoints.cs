@@ -17,7 +17,8 @@ public sealed record MintSessionRequest(
     string? ExternalRole = null,
     int? TtlHours = null,
     bool? Replace = null,
-    RepoArg? Repo = null);
+    RepoArg? Repo = null,
+    string[]? Grants = null);
 
 public sealed record MintSessionResponse(Guid SessionId, string Name, string Role, string Token, DateTimeOffset ExpiresAt);
 
@@ -71,6 +72,23 @@ public static class AgentSessionEndpoints
                 $"a {Pg(caller)} cannot mint a {Pg(role)} token; a role is never raised");
         }
 
+        var grants = (request.Grants ?? []).Select(g => g?.Trim().ToLowerInvariant() ?? string.Empty).Distinct().ToArray();
+        if (grants.FirstOrDefault(g => !SessionGrants.All.Contains(g)) is { } unknown)
+        {
+            return Error(
+                StatusCodes.Status400BadRequest,
+                $"\"{unknown}\" is not a grant; grants takes {string.Join(", ", SessionGrants.All)}");
+        }
+
+        // work_import writes plan items, which is an orchestrator's act; a worker holding the grant
+        // would see a tool that writes what its own role cannot.
+        if (grants.Contains(SessionGrants.Import) && Rank(role) < Rank(ActorRole.Orchestrator))
+        {
+            return Error(
+                StatusCodes.Status400BadRequest,
+                "the import grant needs role orchestrator or controller; mint role: \"orchestrator\", grants: [\"import\"]");
+        }
+
         if (await board.WorkspaceAsync(workspace.Slug, cancellationToken) is not { } workspaceId)
         {
             return Error(StatusCodes.Status409Conflict, "no workspace exists yet to mint a session into");
@@ -89,7 +107,8 @@ public static class AgentSessionEndpoints
                 request.Cwd,
                 request.ExternalRole,
                 request.ClaudeSessionId,
-                request.Repo),
+                request.Repo,
+                grants),
             cancellationToken);
 
         if (result.Minted is not { } minted)

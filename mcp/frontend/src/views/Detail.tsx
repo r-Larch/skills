@@ -169,7 +169,7 @@ function OverviewTab(props: Props) {
     return row ? rowState(row) : refState(item)
   }
   const empty = () =>
-    !p().intent && blockers().length === 0 && p().criteria.length === 0 && !p().verifyCmd && p().children.length === 0 && p().findings.length === 0
+    !p().intent && !p().imported && blockers().length === 0 && p().criteria.length === 0 && !p().verifyCmd && p().children.length === 0 && p().findings.length === 0
 
   return (
     <>
@@ -177,6 +177,18 @@ function OverviewTab(props: Props) {
         {(intent) => (
           <Section title="What this is for">
             <div class="prose">{intent()}</div>
+          </Section>
+        )}
+      </Show>
+
+      <Show when={p().imported}>
+        {(imported) => (
+          <Section title="Imported from">
+            <div class="prose">
+              <code>{imported().anchor ? `${imported().path}#${imported().anchor}` : imported().path}</code> by{' '}
+              {imported().session?.name ?? imported().importedBy}, {day(imported().at)}
+            </div>
+            <div class="prose">{imported().why}</div>
           </Section>
         )}
       </Show>

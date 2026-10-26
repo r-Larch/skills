@@ -185,6 +185,7 @@ export type ItemPage = {
   assumptions: { ref: string; text: string; status: string; revisitWhen: ItemRef | null }[]
   events: JournalEvent[]
   eventsHasMore: boolean
+  imported?: { path: string; anchor: string | null; why: string; importedBy: string; session: Session | null; at: string } | null
 }
 
 export type InboxRow = {

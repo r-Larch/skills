@@ -1,5 +1,8 @@
 using System.Text.RegularExpressions;
+using WorkState.Tests.AgentImport;
+using WorkState.Tests.App;
 using WorkState.Tests.Store;
+using WorkState.Tests.Write;
 using Xunit;
 using static WorkState.Tests.Store.Tokens;
 
@@ -121,6 +124,48 @@ public sealed partial class RenderedCallTests(PostgresFixture fixture)
         }
     }
 
+    /// <summary>
+    /// work_import is hidden from every session without the grant, so no text such a session can be
+    /// shown may tell it to call work_import: the call is rendered only by the import writer, which
+    /// only work_import reaches, and by that tool's own method.
+    /// </summary>
+    [Fact]
+    public void A_rendered_work_import_call_comes_only_from_the_import_path()
+    {
+        var outside = new List<string>();
+
+        foreach (var file in SourceFiles())
+        {
+            var name = Path.GetFileName(file);
+            if (name == "WorkWriter.Import.cs")
+            {
+                continue;
+            }
+
+            var lines = File.ReadAllLines(file);
+            var inImportTool = false;
+            for (var i = 0; i < lines.Length; i++)
+            {
+                if (name == "WorkWriteTools.cs" && lines[i].Contains("Task<CallToolResult> ImportAsync(", StringComparison.Ordinal))
+                {
+                    inImportTool = true;
+                }
+                else if (inImportTool && lines[i].Contains("Task<CallToolResult> ", StringComparison.Ordinal))
+                {
+                    inImportTool = false;
+                }
+
+                if (!inImportTool && lines[i].Contains("work_import(", StringComparison.Ordinal)
+                    && !lines[i].TrimStart().StartsWith("//", StringComparison.Ordinal))
+                {
+                    outside.Add($"{name}:{i + 1}  {lines[i].Trim()}");
+                }
+            }
+        }
+
+        Assert.True(outside.Count == 0, "work_import( rendered outside the import path:\n" + string.Join("\n", outside));
+    }
+
     private static IEnumerable<string> SourceFiles()
     {
         var root = new DirectoryInfo(AppContext.BaseDirectory);
@@ -139,17 +184,29 @@ public sealed partial class RenderedCallTests(PostgresFixture fixture)
                         && !f.Contains($"{Path.DirectorySeparatorChar}Migrations{Path.DirectorySeparatorChar}", StringComparison.Ordinal));
     }
 
+    /// <summary>
+    /// The static controller's tools/list, unioned with a minted controller's that carries every
+    /// grant: some tools (work_import) are shown only to granted sessions, never to a static token.
+    /// </summary>
     private async Task<Dictionary<string, HashSet<string>>> DeclaredAsync()
     {
-        await using var server = await ReadServer.StartAsync(fixture.ConnectionString, null, Ct);
-        await using var client = await server.ConnectAsync(ReadServer.ControllerToken, Ct);
+        var world = await WriteSeed.CreateAsync(fixture);
+        await using var server = await AppServer.StartAsync(fixture.ConnectionString, world.Slug, Ct);
+        var (_, minted) = await ImportVisibilityTests.MintAsync(
+            server, ReadServer.ControllerToken, new { name = "aw-rendered", role = "controller", grants = new[] { "import" } });
 
-        var tools = await client.ListToolsAsync(cancellationToken: Ct);
-        return tools.ToDictionary(
-            t => t.Name,
-            t => t.ProtocolTool.InputSchema.TryGetProperty("properties", out var properties)
-                ? properties.EnumerateObject().Select(p => p.Name).ToHashSet(StringComparer.Ordinal)
-                : [],
-            StringComparer.Ordinal);
+        var declared = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
+        foreach (var token in new[] { ReadServer.ControllerToken, ImportVisibilityTests.Token(minted) })
+        {
+            await using var client = await server.ConnectAsync(token, Ct);
+            foreach (var t in await client.ListToolsAsync(cancellationToken: Ct))
+            {
+                declared[t.Name] = t.ProtocolTool.InputSchema.TryGetProperty("properties", out var properties)
+                    ? properties.EnumerateObject().Select(p => p.Name).ToHashSet(StringComparer.Ordinal)
+                    : [];
+            }
+        }
+
+        return declared;
     }
 }

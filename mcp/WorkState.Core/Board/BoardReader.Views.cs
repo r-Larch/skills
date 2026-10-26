@@ -183,6 +183,7 @@ public sealed partial class BoardReader
         var projects = resolved.Where(r => r.Kind == "project").Select(r => r.Id).Distinct().ToList();
         var repos = (projects.Count == 0 ? [] : await board.ProjectReposAsync(projects, cancellationToken))
             .ToLookup(r => r.ProjectId);
+        var imports = (await board.ImportsAsync(ids, cancellationToken)).ToLookup(r => r.ItemId);
 
         var lines = new List<string>(problems);
 
@@ -214,6 +215,15 @@ public sealed partial class BoardReader
             foreach (var repo in repos[item.Id])
             {
                 lines.Add($"  repo      {Glyph.Pad(repo.Kind, 6)} {repo.Key}");
+            }
+
+            foreach (var imported in imports[item.Id])
+            {
+                lines.AddRange(BriefRenderer.Wrap(
+                    "  imported  ",
+                    $"from {imported.Source} by {imported.ImportedBy}, {Glyph.Age(Since(imported.UpdatedAt))} ago",
+                    12));
+                lines.AddRange(BriefRenderer.Wrap("  why       ", imported.Why, 12));
             }
 
             foreach (var criterion in criteria[item.Id])

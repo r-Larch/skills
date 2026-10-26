@@ -32,6 +32,9 @@ public static class CallerSession
 
     public const string SessionNameClaim = "workstate:session-name";
 
+    /// <summary>One per grant the minted token carries; a static token never has one.</summary>
+    public const string GrantClaim = "workstate:grant";
+
     public static McpRequestHandler<CallToolRequestParams, CallToolResult> Filter(
         McpRequestHandler<CallToolRequestParams, CallToolResult> next)
         => async (context, cancellationToken) =>

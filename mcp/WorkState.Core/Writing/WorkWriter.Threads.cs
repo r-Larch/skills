@@ -78,28 +78,8 @@ public sealed partial class WorkWriter
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
 
-        const string sql =
-            """
-            INSERT INTO note (id, workspace_id, from_item_id, kind, body, to_item_id, to_selector, created_by, session_id)
-            VALUES (@id, @workspace, @from, @kind::note_kind, @body, @to, @selector::jsonb, @actor, @session);
-            """;
-
-        await connection.ExecuteAsync(new CommandDefinition(
-            sql,
-            new
-            {
-                id = Guid.CreateVersion7(),
-                session = actor.SessionId,
-                workspace = workspaceId,
-                from = fromItemId,
-                kind = Pg.Label(noteKind),
-                body = body!.Trim(),
-                to = toItemId,
-                selector,
-                actor = actor.Name,
-            },
-            transaction,
-            cancellationToken: cancellationToken));
+        await InsertNoteAsync(
+            connection, transaction, workspaceId, actor, noteKind, body!, fromItemId, toItemId, selector, cancellationToken);
 
         await EventAsync(
             connection,
@@ -124,6 +104,47 @@ public sealed partial class WorkWriter
                 ? "Next: nothing — a note is a side effect, not a step."
                 : $"Next: nothing — it renders into work_brief(scope:\"{to}\", for:\"worker\") and is "
                   + "marked consumed there."));
+    }
+
+    /// <summary>Shared by <c>work_note</c> and <c>work_import</c>'s note records.</summary>
+    private static async Task<Guid> InsertNoteAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        Guid workspaceId,
+        Actor actor,
+        NoteKind kind,
+        string body,
+        Guid? fromItemId,
+        Guid? toItemId,
+        string? selector,
+        CancellationToken cancellationToken)
+    {
+        const string sql =
+            """
+            INSERT INTO note (id, workspace_id, from_item_id, kind, body, to_item_id, to_selector, created_by, session_id)
+            VALUES (@id, @workspace, @from, @kind::note_kind, @body, @to, @selector::jsonb, @actor, @session);
+            """;
+
+        var id = Guid.CreateVersion7();
+
+        await connection.ExecuteAsync(new CommandDefinition(
+            sql,
+            new
+            {
+                id,
+                session = actor.SessionId,
+                workspace = workspaceId,
+                from = fromItemId,
+                kind = Pg.Label(kind),
+                body = body.Trim(),
+                to = toItemId,
+                selector,
+                actor = actor.Name,
+            },
+            transaction,
+            cancellationToken: cancellationToken));
+
+        return id;
     }
 
     /// <summary>
