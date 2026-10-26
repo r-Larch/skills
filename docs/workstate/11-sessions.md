@@ -25,7 +25,8 @@ reconnects, resumes and compaction.
 
 **Or from a minted token (doc 14 §2).** A launcher can mint a session instead of naming it:
 `POST /api/agent-sessions {name, role, launchedBy?, origin?, cwd?, externalRole?, claudeSessionId?,
-ttlHours?, replace?}` creates (or reuses) the row for `name` and returns a `wss_` token once. A call
+ttlHours?, replace?}` creates (or reuses) the row for `name` and returns a `wss_` token once;
+`ttlHours` (default 72) is an idle window that every use renews, with no hard cap. A call
 with that token *is* that session: the name comes from the credential, `X-WorkState-Agent` is ignored,
 and the other headers still fill the row as above. `externalRole` fills `external_role` exactly as
 `X-WorkState-Foreman-Role` does. The collision rule below holds for a mint too: a name held under a

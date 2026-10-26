@@ -111,6 +111,7 @@ public sealed partial class SessionStore
                SET token_hash           = @hash,
                    granted_role         = @role::actor_role,
                    token_expires_at     = now() + make_interval(hours => @ttl),
+                   token_ttl_hours      = @ttl,
                    revoked_at           = NULL,
                    minted_by_session_id = @mintedBy,
                    role                 = @role::actor_role,
@@ -149,11 +150,23 @@ public sealed partial class SessionStore
         return new MintResult(new MintedToken(row.Id, name, request.Role, token, expiresAt), null);
     }
 
-    /// <summary>A token that is unknown, revoked or expired finds nothing, and the three read alike.</summary>
+    /// <summary>
+    /// A token that is unknown, revoked or expired finds nothing, and the three read alike. A live one
+    /// slides its expiry to now plus its own window, written at most once a minute; a concurrent use
+    /// waits on the row, re-reads it renewed, skips the write and still authenticates.
+    /// </summary>
     public async Task<TokenSession?> AuthenticateAsync(string token, CancellationToken cancellationToken = default)
     {
         const string sql =
             """
+            UPDATE agent_session
+               SET token_expires_at = now() + make_interval(hours => coalesce(token_ttl_hours, @defaultTtl))
+             WHERE token_hash = @hash
+               AND revoked_at IS NULL
+               AND token_expires_at > now()
+               AND token_expires_at < now() + make_interval(hours => coalesce(token_ttl_hours, @defaultTtl))
+                                            - interval '1 minute';
+
             SELECT id                 AS "SessionId",
                    name               AS "Name",
                    granted_role::text AS "Role",
@@ -166,7 +179,10 @@ public sealed partial class SessionStore
 
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
         var row = await connection.QuerySingleOrDefaultAsync<TokenRow>(
-            new CommandDefinition(sql, new { hash = SessionToken.Hash(token) }, cancellationToken: cancellationToken));
+            new CommandDefinition(
+                sql,
+                new { hash = SessionToken.Hash(token), defaultTtl = DefaultTtlHours },
+                cancellationToken: cancellationToken));
 
         return row is { } r
             ? new TokenSession(r.SessionId, r.Name, Enum.Parse<ActorRole>(r.Role, ignoreCase: true), r.WorkspaceId)

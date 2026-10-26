@@ -192,7 +192,7 @@ The pre-v1 cookie-only `/api/*` routes are removed; `/api/session` and `/api/age
 |---|---|---|
 | worker · orchestrator · controller | `WorkState:Auth:{Worker,Orchestrator,Controller}Token` · `WORKSTATE_{WORKER,ORCHESTRATOR,CONTROLLER}_TOKEN` (required in compose) | `/mcp` by role, and `GET /api/v1/*` + `/api/stream`; orchestrator and controller also `/api/agent-sessions` |
 | reader | `WorkState:Auth:ReaderToken` · `WORKSTATE_READER_TOKEN` (**optional**: compose passes `${WORKSTATE_READER_TOKEN:-}`, and empty means no reader token exists) | `GET /api/v1/*` and `/api/stream` only — `/mcp` refuses it (403), and so does `/api/session` |
-| minted `wss_…` (per session) | none — `POST /api/agent-sessions` with an orchestrator or controller bearer returns it once; the store keeps only its SHA-256. Expires after `ttlHours` (default 72, max 720), revoked by `DELETE` | exactly what a static token of its granted role reaches (never above its minter's role), and its calls are that session's: `X-WorkState-Agent` is ignored |
+| minted `wss_…` (per session) | none — `POST /api/agent-sessions` with an orchestrator or controller bearer returns it once; the store keeps only its SHA-256. Expires after `ttlHours` (default 72, max 720) **unused** — an idle window each use renews, no hard cap — revoked by `DELETE` | exactly what a static token of its granted role reaches (never above its minter's role), and its calls are that session's: `X-WorkState-Agent` is ignored |
 
 Foreman authenticates with the reader token: it watches every project and can write nothing.
 

@@ -1,6 +1,6 @@
 ---
 name: nested-claude
-description: Run Claude Code inside Claude Code — spawn nested `claude` sessions as background agents, each with a fresh context window, address them by name, drive them over a READY/BLOCKED/DONE protocol with the spawning session as their controller, arm a watchdog that wakes you when one is blocked or stalled instead of polling it, and attach a terminal window to watch or unblock one. Covers launch, the permission profiles an unattended agent needs, addressing, steering, watching, wrap-up, stopping, crash recovery and cleanup. USE FOR: work too large for one context window where each unit needs its own; any job whose worker must itself spawn subagents (an Agent-tool subagent cannot, so it cannot run /rlarch:orchestrate); a supervised fix or refactor loop a human wants to watch; agents that must outlive the controller. DO NOT USE FOR: work that fits in one Agent-tool subagent (cheaper, and needs none of this), or anything you would run once and never steer.
+description: "Run Claude Code inside Claude Code — spawn nested `claude` sessions as background agents, each with a fresh context window, address them by name, drive them over a READY/BLOCKED/DONE protocol with the spawning session as their controller, arm a watchdog that wakes you when one is blocked or stalled instead of polling it, and attach a terminal window to watch or unblock one. Covers launch, the permission profiles an unattended agent needs, addressing, steering, watching, wrap-up, stopping, crash recovery and cleanup. USE FOR: work too large for one context window where each unit needs its own; any job whose worker must itself spawn subagents (an Agent-tool subagent cannot, so it cannot run /rlarch:orchestrate); a supervised fix or refactor loop a human wants to watch; agents that must outlive the controller. DO NOT USE FOR: work that fits in one Agent-tool subagent (cheaper, and needs none of this), or anything you would run once and never steer."
 ---
 
 # Nested Claude
@@ -55,7 +55,7 @@ prepends the same protocol header, grants the same `toolset` profiles, and retur
 | `allowed_tools` / `disallowed_tools` | `[]` | merged into `--allowedTools` / `--disallowedTools` |
 | `add_dirs` | `[]` | `--add-dir` |
 | `model`, `effort`, `settings`, `append_system_prompt` | — | `--model`, `--effort` (`low`…`max`), `--settings` (path or JSON), `--append-system-prompt` |
-| `workstate` | `{role: "worker"}` | `role` (`worker` `orchestrator` `controller` `none`), `env_file` (the PATH of the WorkState clone's `mcp/.env`, never its contents), `url` (default `http://127.0.0.1:5290`), `ttl_hours` |
+| `workstate` | `{role: "worker"}` | `role` (`worker` `orchestrator` `controller` `none`), `env_file` (the PATH of the WorkState clone's `mcp/.env`, never its contents), `url` (default `http://127.0.0.1:5290`), `ttl_hours` (idle window, default 72: the token lapses after that long unused; every use renews it, no hard cap) |
 | `dry_run` | `false` | validate and return the argv; mints and spawns nothing (the token shows as `<minted>`) |
 
 An auto-mode worker — the usual case:
