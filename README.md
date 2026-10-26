@@ -1,9 +1,10 @@
 # r-Larch/skills — Claude Code plugin marketplace (`rlarch`)
 
 A personal [Claude Code](https://code.claude.com) marketplace with **one plugin, `rlarch`**, carrying
-eight skills: three for code navigation (.NET and TypeScript), three for running work too big for a
-single context window, one for cleaning up comments, and one that sets up
-[WorkState](#workstate) — the server `orchestrate` and `controller` require and record their work in.
+nine skills: three for code navigation (.NET and TypeScript), three for running work too big for a
+single context window, one for cleaning up comments, one that sets up
+[WorkState](#workstate) — the server `orchestrate` and `controller` require and record their work in —
+and one that imports a repo's existing plans into it.
 
 ## Install
 
@@ -19,7 +20,7 @@ claude plugin marketplace add r-Larch/skills
 claude plugin install rlarch@rlarch
 ```
 
-Restart Claude Code afterwards. Confirm with `claude plugin details rlarch` — it should list eight
+Restart Claude Code afterwards. Confirm with `claude plugin details rlarch` — it should list nine
 skills.
 
 > **Upgrading from 1.x?** `orchestrate` and `controller` now require WorkState. Read
