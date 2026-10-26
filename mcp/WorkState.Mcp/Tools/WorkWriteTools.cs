@@ -247,7 +247,7 @@ public sealed class WorkWriteTools(
         [Description("carry_forward | do_not_rederive | correction | incident | environment | decision | observation")]
         string kind,
         [Description("The note, in one or two lines.")] string body,
-        [Description("A future item's ref, or a selector like \"phase:3\".")]
+        [Description("A future item's ref, e.g. \"3.1\".")]
         string? to = null,
         [Description("The item this came out of.")] string? from = null,
         CancellationToken cancellationToken = default)

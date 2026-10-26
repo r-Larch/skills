@@ -107,7 +107,7 @@ public static class ApiHost
                 {
                     Name = "workstate",
                     Title = "WorkState",
-                    Version = "0.4.0",
+                    Version = "0.5.0",
                 };
                 options.ServerInstructions = WorkStateServerInstructions.Text;
             })
@@ -182,6 +182,10 @@ public static class ApiHost
         builder.Services.AddSingleton(sp => new BoardReader(
             sp.GetRequiredService<WorkStateQueries>(),
             sp.GetRequiredService<BoardQueries>()));
+
+        var stream = new StreamOptions();
+        builder.Configuration.GetSection(StreamOptions.Section).Bind(stream);
+        builder.Services.AddSingleton(stream);
 
         // One LISTEN per process, owning a connection of its own for the lifetime of the host.
         builder.Services.AddSingleton<EventStream>();

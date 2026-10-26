@@ -268,4 +268,23 @@ public sealed class EvidenceTests(PostgresFixture fixture)
 
         Assert.DoesNotContain("truncate facet values", again, StringComparison.Ordinal);
     }
+
+    /// <summary>note-selector. A selector was stored and answered "renders into work_brief", and no brief read it.</summary>
+    [Fact]
+    public async Task A_note_addressed_to_a_selector_is_refused_with_the_route_to_a_ref_and_stores_nothing()
+    {
+        var world = await WriteSeed.CreateAsync(fixture);
+
+        var refused = await world.Writer.NoteAsync(
+            world.WorkspaceId, WriteSeed.Orchestrator, "carry_forward", "mind the facet cap", "phase:1", null, Ct);
+
+        Assert.True(refused.Refused, refused.Text);
+        RefusalShape.SelfCorrecting(refused.Text);
+        Assert.Contains("is a selector, not a ref", refused.Text, StringComparison.Ordinal);
+        Assert.Contains("to:\"<a ref>\"", refused.Text, StringComparison.Ordinal);
+        Assert.Contains("work_tree()", refused.Text, StringComparison.Ordinal);
+
+        await using var db = fixture.NewContext();
+        Assert.False(await db.Notes.AnyAsync(n => n.WorkspaceId == world.WorkspaceId, Ct));
+    }
 }

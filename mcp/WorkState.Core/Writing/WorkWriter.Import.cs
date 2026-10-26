@@ -568,7 +568,7 @@ public sealed partial class WorkWriter
         {
             case "note":
                 noteId = await InsertNoteAsync(
-                    connection, transaction, workspaceId, actor, NoteKind.CarryForward, body, project.Id, parent?.Id, null,
+                    connection, transaction, workspaceId, actor, NoteKind.CarryForward, body, project.Id, parent?.Id,
                     cancellationToken);
                 shown = parent is null ? "note" : $"note → {parent.Ref}";
                 break;

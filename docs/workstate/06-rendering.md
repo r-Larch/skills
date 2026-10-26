@@ -31,8 +31,7 @@ Text is shortened with `…` in exactly two places, and only by `Glyph.Row`:
 
 1. **A one-line row of a list view** — `work_tree`, `work_next`, `work_search`, board rows, the
    finding and followup lines of `work_threads`, attention lines, the head row of `work_get` — and
-   only when the row carries the ref of the thing, so `work_get(ref)` (or `work://doc/<slug>` for a
-   doc hit) prints it whole.
+   only when the row carries the ref of the thing, so `work_get(ref)` prints it whole.
 2. **A write confirmation echoing the caller's own input** — `OK  note recorded` and the preview of
    the body just sent.
 
@@ -409,7 +408,7 @@ REFUSED  work_status(2.4 → done). 3 conditions unmet.
         work_status(ref:"F-07", to:"deferred", target:"backlog", reason:"…")
 
   Override: work_status(ref:"2.4", to:"done", force:true, reason:"…") — recorded as a
-  forced_transition, permanently visible in work_brief and work_audit.
+  forced_transition, which work_audit lists permanently.
 ```
 
 **Rules, all load-bearing:**

@@ -22,7 +22,7 @@ public sealed partial class NoClipSourceTests
     {
         ["Rendering/BoardRenderer.cs:Row"] = "row: a board row carries the ref; work_get prints the title",
         ["Rendering/BoardRenderer.cs:TreeRow"] = "row: a work_tree row carries the ref; work_get prints the title",
-        ["Board/BoardReader.Views.cs:SearchAsync"] = "row: a search hit carries its ref; work_get / work://doc prints it",
+        ["Board/BoardReader.Views.cs:SearchAsync"] = "row: a search hit carries its ref; work_get prints it",
         ["Board/BoardReader.Views.cs:ThreadsAsync"] = "row: a finding/followup row carries its ref; work_get prints the title",
         ["Board/BoardReader.cs:AttentionAsync"] = "row: the blocker attention line carries the finding ref",
         ["Writing/WorkWriter.Threads.cs:NoteAsync"] = "echo: the note body the caller just sent",

@@ -73,6 +73,42 @@ public sealed class AppStreamTests(PostgresFixture fixture)
     }
 
     /// <summary>
+    /// sse-heartbeat-test. An idle stream writes an SSE comment on the configured interval, so a
+    /// proxy does not close a board that simply has nothing to say.
+    /// </summary>
+    [Fact]
+    public async Task An_idle_stream_sends_a_heartbeat_comment_on_the_configured_interval()
+    {
+        var world = await WriteSeed.CreateAsync(fixture);
+        await using var server = await AppServer.StartAsync(
+            fixture.ConnectionString, world.Slug, Ct, heartbeat: "00:00:00.200");
+        var client = await server.SignInAsync(Ct);
+
+        using var session = CancellationTokenSource.CreateLinkedTokenSource(Ct);
+        session.CancelAfter(TimeSpan.FromSeconds(30));
+
+        var response = await client.GetAsync(
+            "/api/stream", HttpCompletionOption.ResponseHeadersRead, session.Token);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        await using var body = await response.Content.ReadAsStreamAsync(session.Token);
+        using var reader = new StreamReader(body);
+
+        using var within = CancellationTokenSource.CreateLinkedTokenSource(session.Token);
+        within.CancelAfter(TimeSpan.FromSeconds(10));
+
+        string? line;
+        do
+        {
+            line = await reader.ReadLineAsync(within.Token);
+        }
+        while (line is not null && line != ": heartbeat");
+
+        Assert.Equal(": heartbeat", line);
+    }
+
+    /// <summary>
     /// The workspace row is written by the first write, so a fresh server has none. The board must
     /// still connect: a 503 here is what the dashboard renders as "stream down" on day one.
     /// </summary>

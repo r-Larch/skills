@@ -138,8 +138,8 @@ teaches every agent the override, and the override then passes through the guard
 ### `force: true`
 
 Allowed on every condition, and **never hidden** — the refusal names it (doc 06 §6). It requires
-`reason`, writes a `forced_transition` event, and that event is **permanently visible** in
-`work_brief` and in `work_audit`.
+`reason`, writes a `forced_transition` event, and `work_audit` lists that event
+**permanently** (its `forced-closure` check). `work_brief` does not show it.
 
 This is deliberate. An escape hatch that is hidden gets worked around; one that leaves a mark gets
 used honestly. `controller` §8's *"do not answer it on their behalf"* has a counterpart here: an agent

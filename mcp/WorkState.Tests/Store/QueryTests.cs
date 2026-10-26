@@ -282,7 +282,7 @@ public sealed class QueryTests(PostgresFixture fixture)
     }
 
     [Fact]
-    public async Task Search_finds_an_item_by_intent_and_a_doc_block_by_body()
+    public async Task Search_finds_an_item_by_intent_and_never_a_doc_block()
     {
         var world = await Seed.CreateWorldAsync(fixture);
         var queries = new WorkStateQueries(fixture.DataSource);
@@ -320,9 +320,7 @@ public sealed class QueryTests(PostgresFixture fixture)
         Assert.Equal("q1", hit.Ref);
 
         var blockHits = await queries.SearchAsync(world.WorkspaceId, "exit code", cancellationToken: Ct);
-        var blockHit = Assert.Single(blockHits);
-        Assert.Equal("doc_block", blockHit.Source);
-        Assert.Equal("conventions#b3", blockHit.Ref);
+        Assert.Empty(blockHits);
     }
 
     private static ItemLink Blocks(Guid workspaceId, Guid from, Guid to) => new()

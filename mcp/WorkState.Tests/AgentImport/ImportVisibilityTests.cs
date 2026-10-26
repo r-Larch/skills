@@ -24,9 +24,12 @@ namespace WorkState.Tests.AgentImport;
 [Collection(StoreCollection.Name)]
 public sealed class ImportVisibilityTests(PostgresFixture fixture)
 {
-    /// <summary>SHA-256 of the serialized tools/list per profile at dc388f4, before work_import existed.</summary>
-    private const string WorkerList = "407eb84983a19e2bfb6c74963986db90a1f2d0b22b26a8936efcbc41224ef157";
-    private const string OrchestratorList = "a5cfa2828bb9701c5a80160c04f5468c175d8f0fde2844fe898295d6bfa03b37";
+    /// <summary>
+    /// SHA-256 of the serialized tools/list per profile without work_import: dc388f4's list, with
+    /// work_search no longer promising doc hits and work_note's <c>to</c> no longer offering a selector.
+    /// </summary>
+    private const string WorkerList = "7d87460e7bc3749c20c0c6532303654b7acb795072e73ae4e8b19bd36b39e394";
+    private const string OrchestratorList = "e08cb3c412e6b1214994e9fe00ad6e43c2db2d035a6f2f3cd623213bc5223bed";
     private const string ControllerList = OrchestratorList;
 
     [Fact]

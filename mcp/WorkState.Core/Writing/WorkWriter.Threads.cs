@@ -1,4 +1,3 @@
-using System.Text.Json;
 using Dapper;
 using Npgsql;
 using WorkState.Core.Domain;
@@ -49,23 +48,25 @@ public sealed partial class WorkWriter
         }
 
         Guid? toItemId = null;
-        string? selector = null;
 
         if (!Blank(to))
         {
             var (target, refusal) = await ResolveAsync(workspaceId, to, cancellationToken);
-            if (target is not null)
+            if (target is null && to!.Contains(':', StringComparison.Ordinal))
             {
-                toItemId = target.Id;
+                return WriteResult.No(Refusal.Blocked(
+                    $"work_note(to:\"{Glyph.Flat(to)}\") — \"{Glyph.Flat(to)}\" is a selector, not a ref.",
+                    "a note is delivered only to one item's brief; a selector would be stored and never delivered",
+                    "work_note(kind:\"…\", body:\"…\", to:\"<a ref>\")",
+                    "work_get(refs:[…]) or work_tree() to find the ref"));
             }
-            else if (to!.Contains(':', StringComparison.Ordinal))
-            {
-                selector = JsonSerializer.Serialize(new { selector = to.Trim() });
-            }
-            else
+
+            if (target is null)
             {
                 return WriteResult.No(refusal!);
             }
+
+            toItemId = target.Id;
         }
 
         Guid? fromItemId = null;
@@ -79,7 +80,7 @@ public sealed partial class WorkWriter
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
 
         await InsertNoteAsync(
-            connection, transaction, workspaceId, actor, noteKind, body!, fromItemId, toItemId, selector, cancellationToken);
+            connection, transaction, workspaceId, actor, noteKind, body!, fromItemId, toItemId, cancellationToken);
 
         await EventAsync(
             connection,
@@ -116,13 +117,12 @@ public sealed partial class WorkWriter
         string body,
         Guid? fromItemId,
         Guid? toItemId,
-        string? selector,
         CancellationToken cancellationToken)
     {
         const string sql =
             """
-            INSERT INTO note (id, workspace_id, from_item_id, kind, body, to_item_id, to_selector, created_by, session_id)
-            VALUES (@id, @workspace, @from, @kind::note_kind, @body, @to, @selector::jsonb, @actor, @session);
+            INSERT INTO note (id, workspace_id, from_item_id, kind, body, to_item_id, created_by, session_id)
+            VALUES (@id, @workspace, @from, @kind::note_kind, @body, @to, @actor, @session);
             """;
 
         var id = Guid.CreateVersion7();
@@ -138,7 +138,6 @@ public sealed partial class WorkWriter
                 kind = Pg.Label(kind),
                 body = body.Trim(),
                 to = toItemId,
-                selector,
                 actor = actor.Name,
             },
             transaction,

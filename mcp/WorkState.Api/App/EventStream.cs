@@ -13,6 +13,14 @@ internal sealed record StreamEvent(long Seq, string Kind, Guid Workspace, Guid? 
 /// <summary>doc 10: an event means "re-read"; the ids say what to re-read. Additive over seq and kind.</summary>
 internal sealed record StreamFrame(long Seq, Guid? RunId, Guid? ItemId, string Kind);
 
+/// <summary><c>WorkState:Stream</c>. The heartbeat keeps an idle SSE connection open through a proxy.</summary>
+public sealed class StreamOptions
+{
+    public const string Section = "WorkState:Stream";
+
+    public TimeSpan Heartbeat { get; set; } = TimeSpan.FromSeconds(20);
+}
+
 /// <summary>
 /// The live board, fed by the <c>pg_notify('workstate', …)</c> trigger that already exists on
 /// <c>event</c> (doc 02 §11). One <c>LISTEN</c> per process on a connection of its own, fanned out
@@ -24,11 +32,10 @@ internal sealed record StreamFrame(long Seq, Guid? RunId, Guid? ItemId, string K
 /// its <c>event.seq</c>, and <c>GET /api/v1/journal?scope={id}&amp;since=</c> returns the gap.
 /// </para>
 /// </summary>
-public sealed class EventStream(NpgsqlDataSource dataSource, ILogger<EventStream> logger)
+public sealed class EventStream(NpgsqlDataSource dataSource, StreamOptions options, ILogger<EventStream> logger)
     : BackgroundService
 {
     private const string Channel = "workstate";
-    private static readonly TimeSpan Heartbeat = TimeSpan.FromSeconds(20);
     private static readonly TimeSpan RetryDelay = TimeSpan.FromSeconds(5);
 
     /// <summary>
@@ -39,6 +46,8 @@ public sealed class EventStream(NpgsqlDataSource dataSource, ILogger<EventStream
     private const int SubscriberBacklog = 256;
 
     private static readonly JsonSerializerOptions FrameJson = new(JsonSerializerDefaults.Web);
+
+    private readonly TimeSpan _heartbeat = options.Heartbeat;
 
     private readonly ConcurrentDictionary<Guid, Subscriber> _subscribers = new();
 
@@ -204,7 +213,7 @@ public sealed class EventStream(NpgsqlDataSource dataSource, ILogger<EventStream
                     ? (await api.PlacementsAsync([id], cancellationToken)).FirstOrDefault()?.RunId
                     : null;
 
-            await PumpAsync(context, channel, AdmitsAsync, RunOfAsync, cancellationToken);
+            await PumpAsync(context, channel, stream._heartbeat, AdmitsAsync, RunOfAsync, cancellationToken);
         }
         catch (OperationCanceledException)
         {
@@ -219,6 +228,7 @@ public sealed class EventStream(NpgsqlDataSource dataSource, ILogger<EventStream
     private static async Task PumpAsync(
         HttpContext context,
         Channel<StreamEvent> channel,
+        TimeSpan heartbeat,
         Func<StreamEvent, Task<bool>> admits,
         Func<Guid?, Task<Guid?>> runOf,
         CancellationToken cancellationToken)
@@ -226,7 +236,7 @@ public sealed class EventStream(NpgsqlDataSource dataSource, ILogger<EventStream
         while (!cancellationToken.IsCancellationRequested)
         {
             using var beat = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            beat.CancelAfter(Heartbeat);
+            beat.CancelAfter(heartbeat);
 
             StreamEvent message;
             try
