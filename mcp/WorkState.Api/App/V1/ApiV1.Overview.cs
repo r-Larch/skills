@@ -67,7 +67,10 @@ public static partial class ApiV1
                 book.Item(project.Id),
                 Rollup(rollups.GetValueOrDefault(project.Id)),
                 runViews,
-                [.. repos[project.Id].Select(r => new RepoView(r.Kind, r.Key))]));
+                [.. repos[project.Id].Select(r => new RepoView(r.Kind, r.Key))],
+                project.ArchivedAt,
+                project.LastActivityAt,
+                project.OpenRuns));
         }
 
         var claims = await book.ClaimsAsync(

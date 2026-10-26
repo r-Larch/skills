@@ -176,13 +176,15 @@ public sealed class WorkWriteTools(
         int? expected_revision = null,
         [Description("A project only: {remote, root} of one more repo it holds.")]
         RepoArg? repo = null,
+        [Description("A project only: true hides it from lists, false restores it.")]
+        bool? archived = null,
         CancellationToken cancellationToken = default)
         => await WriteAsync(
             "work_update",
             @ref,
             id => writer.UpdateAsync(
                 id, caller.Actor, @ref,
-                new UpdateArgs(title, intent, verify_cmd, risk_tags, priority, criteria, expected_revision, repo),
+                new UpdateArgs(title, intent, verify_cmd, risk_tags, priority, criteria, expected_revision, repo, archived),
                 cancellationToken),
             cancellationToken);
 

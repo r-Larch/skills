@@ -1,23 +1,30 @@
-import { For, Index, Show } from 'solid-js'
+import { For, Index, Show, createSignal } from 'solid-js'
 import { A } from '@solidjs/router'
-import type { Claim, ProjectOverview, RunOverview } from '../api.ts'
-import { boards, inbox, overview } from '../store.ts'
+import { setArchived, type Claim, type ProjectOverview, type RunOverview } from '../api.ts'
+import { boards, inbox, overview, refreshOverview } from '../store.ts'
 import { CLOSED, refState, tally } from '../state.ts'
-import { backlogHref, itemHref, runHref } from '../nav.ts'
+import { backlogHref, itemHref, projectHref, runHref } from '../nav.ts'
 import { honestyCells, openTasks } from '../inbox.ts'
-import { UNKNOWN, ago, clock, day, plural, projectTagline, short } from '../format.ts'
+import { byActivity, runIsOpen } from '../projects.ts'
+import { UNKNOWN, ago, clock, day, plural, projectName, projectTagline, short } from '../format.ts'
 import { Dot, Known, Legend, ProjectName, Segs } from '../ui.tsx'
 import { InboxRowView } from './Inbox.tsx'
 
 const INBOX_SHOWN = 5
 
 export default function Overview() {
+  const [showArchived, setShowArchived] = createSignal(false)
+  const live = () => (overview()?.projects ?? []).filter((p) => !p.archivedAt).sort(byActivity)
+  const archived = () => (overview()?.projects ?? []).filter((p) => p.archivedAt).sort(byActivity)
+
   const sub = () => {
     const o = overview()
     if (o === undefined) return 'Loading…'
     const open = openTasks(o.projects)
     const n = o.inboxCount
-    const projects = `${o.projects.length} ${plural(o.projects.length, 'project')}`
+    const projects = `${o.projects.length} ${plural(o.projects.length, 'project')}${
+      archived().length > 0 ? ` (${archived().length} archived)` : ''
+    }`
     return `${open} ${plural(open, 'task')} open across ${projects}. ${
       n > 0 ? `${n} ${plural(n, 'thing')} ${n === 1 ? 'needs' : 'need'} you.` : 'Nothing needs you.'
     }`
@@ -107,9 +114,28 @@ export default function Overview() {
 
         <Known value={overview()} class="panel empty">
           {(o) => (
-            <Index each={o().projects} fallback={<div class="panel empty">No project has been created yet.</div>}>
-              {(project) => <ProjectPanel project={project()} />}
-            </Index>
+            <>
+              <Index
+                each={live()}
+                fallback={
+                  <div class="panel empty">
+                    {o().projects.length === 0 ? 'No project has been created yet.' : 'Every project is archived.'}
+                  </div>
+                }
+              >
+                {(project) => <ProjectPanel project={project()} />}
+              </Index>
+              <Show when={archived().length > 0}>
+                <button type="button" class="archived-link" aria-expanded={showArchived()} onClick={() => setShowArchived(!showArchived())}>
+                  {showArchived()
+                    ? `Hide ${archived().length} archived ${plural(archived().length, 'project')}`
+                    : `${archived().length} archived ${plural(archived().length, 'project')}`}
+                </button>
+                <Show when={showArchived()}>
+                  <Index each={archived()}>{(project) => <ProjectPanel project={project()} />}</Index>
+                </Show>
+              </Show>
+            </>
           )}
         </Known>
 
@@ -139,36 +165,108 @@ function ClaimRow(props: { claim: Claim; asOf: string }) {
   )
 }
 
-function ProjectPanel(props: { project: ProjectOverview }) {
+/** One project's card — the overview's panel, and the whole of the project page. */
+export function ProjectPanel(props: { project: ProjectOverview }) {
   const tagline = () => projectTagline(props.project.item)
-  const runs = () => {
-    const all = props.project.runs
-    return [...all.filter((r) => !CLOSED.has(r.item.status)), ...all.filter((r) => CLOSED.has(r.item.status))]
-  }
-  const live = () => props.project.runs.filter((r) => !CLOSED.has(r.item.status)).length
+  const open = () => props.project.runs.filter(runIsOpen)
+  const closed = () => props.project.runs.filter((r) => !runIsOpen(r))
+  const [showClosed, setShowClosed] = createSignal(false)
 
   return (
-    <div class="panel runs">
+    <div class={`panel runs${props.project.archivedAt ? ' archived' : ''}`}>
       <div class="proj-h">
         <div>
           <h2>
-            <ProjectName project={props.project.item} />
+            <A href={projectHref(props.project.item.id)}>
+              <ProjectName project={props.project.item} />
+            </A>
           </h2>
           <Show when={tagline()}>
             <div class="strip-m">{tagline()}</div>
           </Show>
+          <Show when={props.project.archivedAt}>{(at) => <div class="strip-m">Archived {day(at())}</div>}</Show>
         </div>
         <span class="n">
-          {live()} open, {props.project.runs.length - live()} closed
+          {open().length} open, {closed().length} closed
         </span>
         <A class="backlink" href={backlogHref(props.project.item.id)}>
           Backlog
         </A>
+        <ArchiveControl project={props.project} />
       </div>
-      <Index each={runs()} fallback={<div class="empty">No runs yet.</div>}>
+      <Index each={open()} fallback={<Show when={closed().length === 0}><div class="empty">No runs yet.</div></Show>}>
         {(run) => <RunStrip run={run()} />}
       </Index>
+      <Show when={closed().length > 0}>
+        <button type="button" class="row-more runs-more" aria-expanded={showClosed()} onClick={() => setShowClosed(!showClosed())}>
+          {showClosed()
+            ? `Hide ${closed().length} closed ${plural(closed().length, 'run')}`
+            : `Show ${closed().length} closed ${plural(closed().length, 'run')}`}
+        </button>
+        <Show when={showClosed()}>
+          <Index each={closed()}>{(run) => <RunStrip run={run()} />}</Index>
+        </Show>
+      </Show>
     </div>
+  )
+}
+
+/**
+ * The operator's archive switch. Archiving asks first and says what it does; unarchiving only
+ * brings the project back, so it does not.
+ */
+function ArchiveControl(props: { project: ProjectOverview }) {
+  const [confirming, setConfirming] = createSignal(false)
+  const [busy, setBusy] = createSignal(false)
+  const [error, setError] = createSignal<string>()
+
+  const write = async (archived: boolean) => {
+    setBusy(true)
+    setError(undefined)
+    try {
+      await setArchived(props.project.item.id, archived)
+      setConfirming(false)
+      await refreshOverview()
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : String(failure))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <>
+      <Show
+        when={props.project.archivedAt}
+        fallback={
+          <button type="button" class="proj-act" disabled={busy() || confirming()} onClick={() => setConfirming(true)}>
+            Archive
+          </button>
+        }
+      >
+        <button type="button" class="proj-act" disabled={busy()} onClick={() => void write(false)}>
+          Unarchive
+        </button>
+      </Show>
+      <Show when={confirming()}>
+        <div class="confirm" role="alertdialog" aria-label={`Archive ${projectName(props.project.item)}?`}>
+          <p>
+            Archive <strong>{projectName(props.project.item)}</strong>? It leaves the sidebar's active lists and this
+            overview, behind <em>Archived</em>. Nothing is deleted: agents still open it by its ref and its repo, new work
+            for it unarchives it, and you can unarchive it here at any time.
+          </p>
+          <div class="confirm-b">
+            <button type="button" class="proj-act danger" disabled={busy()} onClick={() => void write(true)}>
+              Archive
+            </button>
+            <button type="button" class="proj-act" disabled={busy()} onClick={() => setConfirming(false)}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      </Show>
+      <Show when={error()}>{(message) => <div class="failure confirm-err">Couldn't change it: {message()}</div>}</Show>
+    </>
   )
 }
 

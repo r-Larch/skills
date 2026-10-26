@@ -4,10 +4,23 @@ Owner: skills-5d. Reviewed by autowork-7c (Foreman), 2026-10-22. Unit `workstate
 **Frozen at v1**: from here, additive only (rule 4).
 
 One JSON contract for two clients: the :5290 dashboard and Foreman (native gpui). Read-only — the
-MCP tools stay the only write path. The pre-v1 routes (`/api/projects`, `/api/watch`,
+MCP tools are the agents' only write path. The pre-v1 routes (`/api/projects`, `/api/watch`,
 `/api/runs/{ref}/tree|brief|journal`) were removed once the new dashboard stopped calling them (unit
-`mature/prev1-removal`). Outside v1, `/api` keeps only `POST|DELETE /api/session` (sign-in) and
-`/api/stream`.
+`mature/prev1-removal`). Outside v1, `/api` keeps `POST|DELETE /api/session` (sign-in),
+`/api/stream`, `/api/agent-sessions` (doc 14, bearer only) and the dashboard's one write:
+
+### `POST /api/projects/{id}/archive` · `POST /api/projects/{id}/unarchive` (outside v1)
+
+Archives or restores a project (doc 02 "Archived projects"). **Cookie only**, like `/api/session`:
+a bearer token — agent or reader — is never evaluated here and gets 401; an agent archives with
+`work_update(archived:)`. **Cross-site guard:** the request must carry the header
+`X-WorkState-Write` (any value), else 403 and nothing is written. A cross-site form post cannot set
+a header, and a cross-origin `fetch` that sets one is preflighted, which this host answers without
+CORS — so the header proves the dashboard's own origin. A header rather than an antiforgery token
+because it needs no token endpoint and no state, and the cookie is `SameSite=Strict` besides.
+Answers `200 { "id", "ref", "archivedAt": "…" | null, "changed": true }`; 404 for an unknown id;
+400 when the id is not a project. Journals `archived` / `unarchived` with the operator's name, role
+`human`.
 
 ## Rules
 
@@ -63,10 +76,13 @@ Everything a human needs on landing, in one call.
   "projects": [{
     "item": ItemRef, "rollup": Rollup,
     "repos": [{ "kind": "remote" | "root", "key": "github.com/r-larch/skills" }],   // doc 02 project_repo; may be []
+    "archivedAt": "…" | null,        // doc 02; archived projects are listed, the client hides them
+    "lastActivityAt": "…" | null,    // newest journal event in the project's subtree; null = none yet
+    "openRuns": 2,                   // runs not done, cancelled or superseded
     "runs": [{ "item": ItemRef, "rollup": Rollup, "branch": "feat/x" | null, "worktree": "P:/…" | null,
                "activeClaims": 1, "lastEventAt": "…", "inboxCount": 2,
                "lastVerification": { "passed": true, "at": "…" } | null }]
-  }],
+  }],                           // newest lastActivityAt first, then ref
   "workingNow": [Claim],        // live and expired-unreleased claims, newest first
   "inboxCount": 3,
   "honesty": { "doneUnverified": 0, "forced": 0, "ungated": 0, "followupsOpen": 4 } }

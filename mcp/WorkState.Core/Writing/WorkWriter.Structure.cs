@@ -38,7 +38,8 @@ public sealed record UpdateArgs(
     int? Priority = null,
     CriterionArg[]? Criteria = null,
     int? ExpectedRevision = null,
-    RepoArg? Repo = null);
+    RepoArg? Repo = null,
+    bool? Archived = null);
 
 public sealed partial class WorkWriter
 {
@@ -184,6 +185,9 @@ public sealed partial class WorkWriter
 
             await CriteriaAsync(connection, transaction, row2.Id, wanted.Criteria ?? [], cancellationToken);
 
+            var restored = await UnarchiveForNewWorkAsync(
+                connection, transaction, workspaceId, row2.Id, reference, actor, cancellationToken);
+
             if (repo.Count > 0)
             {
                 var (_, taken) = await BindReposAsync(
@@ -214,6 +218,8 @@ public sealed partial class WorkWriter
             {
                 written.Add($"          {RepoLine(repo)}");
             }
+
+            written.AddRange(restored.Select(r => $"          project {r} unarchived — new work arrived"));
         }
 
         await transaction.CommitAsync(cancellationToken);
@@ -248,7 +254,9 @@ public sealed partial class WorkWriter
 
         var repo = args.Repo?.Keys() ?? [];
 
-        if (Fields(args).Length == 0 && args.RiskTags is null && args.Criteria is not { Length: > 0 } && repo.Count == 0)
+        var patching = Fields(args).Length > 0 || args.RiskTags is not null || args.Criteria is { Length: > 0 } || repo.Count > 0;
+
+        if (!patching && args.Archived is null)
         {
             return WriteResult.No(Refusal.Blocked(
                 $"work_update({scope.Ref}) — nothing changed: the call sets no field and no criterion.",
@@ -297,47 +305,72 @@ public sealed partial class WorkWriter
             bound = added;
         }
 
-        const string sql =
-            """
-            UPDATE item
-               SET title      = coalesce(@title, title),
-                   intent     = coalesce(@intent, intent),
-                   verify_cmd = coalesce(@verify, verify_cmd),
-                   risk_tags  = coalesce(@risk, risk_tags),
-                   priority   = coalesce(@priority, priority),
-                   revision   = revision + 1
-             WHERE id = @id;
-            """;
-
-        await using (var command = new NpgsqlCommand(sql, connection, transaction))
+        if (args.Archived is not null && item.Kind != "project")
         {
-            Bind(command, "id", item.Id);
-            Bind(command, "title", Blank(args.Title) ? null : Glyph.Flat(args.Title));
-            Bind(command, "intent", Blank(args.Intent) ? null : args.Intent);
-            Bind(command, "verify", Blank(args.VerifyCmd) ? null : args.VerifyCmd);
-            Bind(command, "risk", args.RiskTags);
-            Bind(command, "priority", args.Priority is { } p ? (short)Math.Clamp(p, -9, 9) : null);
-            await command.ExecuteNonQueryAsync(cancellationToken);
+            return WriteResult.No(NotArchivable(item.Ref, item.Kind));
         }
 
-        var touched = await PatchCriteriaAsync(
-            connection, transaction, item.Id, args.Criteria ?? [], cancellationToken);
+        var touched = 0;
+        if (patching)
+        {
+            const string sql =
+                """
+                UPDATE item
+                   SET title      = coalesce(@title, title),
+                       intent     = coalesce(@intent, intent),
+                       verify_cmd = coalesce(@verify, verify_cmd),
+                       risk_tags  = coalesce(@risk, risk_tags),
+                       priority   = coalesce(@priority, priority),
+                       revision   = revision + 1
+                 WHERE id = @id;
+                """;
 
-        await HeartbeatAsync(
-            connection,
-            transaction,
-            item.Id,
-            actor,
-            await TtlAsync(connection, transaction, item.WorkspaceId, cancellationToken),
-            cancellationToken);
+            await using (var command = new NpgsqlCommand(sql, connection, transaction))
+            {
+                Bind(command, "id", item.Id);
+                Bind(command, "title", Blank(args.Title) ? null : Glyph.Flat(args.Title));
+                Bind(command, "intent", Blank(args.Intent) ? null : args.Intent);
+                Bind(command, "verify", Blank(args.VerifyCmd) ? null : args.VerifyCmd);
+                Bind(command, "risk", args.RiskTags);
+                Bind(command, "priority", args.Priority is { } p ? (short)Math.Clamp(p, -9, 9) : null);
+                await command.ExecuteNonQueryAsync(cancellationToken);
+            }
 
-        await EventAsync(
-            connection, transaction, item.WorkspaceId, item.Id, actor, "updated",
-            $"{item.Ref} updated" + (touched > 0 ? $", {touched} criterion(s)" : string.Empty),
-            repo.Count > 0
-                ? (object)new { fields = Fields(args), criteria = touched, repo = bound.Select(k => k.Key).ToArray() }
-                : new { fields = Fields(args), criteria = touched },
-            cancellationToken);
+            touched = await PatchCriteriaAsync(
+                connection, transaction, item.Id, args.Criteria ?? [], cancellationToken);
+
+            await HeartbeatAsync(
+                connection,
+                transaction,
+                item.Id,
+                actor,
+                await TtlAsync(connection, transaction, item.WorkspaceId, cancellationToken),
+                cancellationToken);
+
+            await EventAsync(
+                connection, transaction, item.WorkspaceId, item.Id, actor, "updated",
+                $"{item.Ref} updated" + (touched > 0 ? $", {touched} criterion(s)" : string.Empty),
+                repo.Count > 0
+                    ? (object)new { fields = Fields(args), criteria = touched, repo = bound.Select(k => k.Key).ToArray() }
+                    : new { fields = Fields(args), criteria = touched },
+                cancellationToken);
+        }
+
+        var archiveLine = string.Empty;
+        if (args.Archived is { } archived)
+        {
+            var (_, changed) = await ArchiveRowAsync(
+                connection, transaction, item.WorkspaceId, item.Id, item.Ref, archived, actor, "work_update",
+                cancellationToken);
+
+            archiveLine = (archived, changed) switch
+            {
+                (true, true) => "    archived — hidden from the dashboard's lists; its ref and repo still open it",
+                (true, false) => "    already archived",
+                (false, true) => "    unarchived — back in the dashboard's lists",
+                _ => "    not archived — nothing to restore",
+            };
+        }
 
         await transaction.CommitAsync(cancellationToken);
 
@@ -345,12 +378,17 @@ public sealed partial class WorkWriter
         return WriteResult.Ok(string.Join(
             "\n",
             [
-                $"OK  {item.Ref}  updated (revision {item.Revision + 1})"
-                + (touched > 0 ? $", {touched} criterion(s) written" : string.Empty),
+                patching
+                    ? $"OK  {item.Ref}  updated (revision {item.Revision + 1})"
+                      + (touched > 0 ? $", {touched} criterion(s) written" : string.Empty)
+                    : $"OK  {item.Ref}",
                 .. bound.Count > 0 ? [$"    {RepoLine(bound)} — bound"] : Array.Empty<string>(),
                 .. already.Count > 0 ? [$"    {RepoLine(already)} — already this project's"] : Array.Empty<string>(),
+                .. archiveLine.Length > 0 ? [archiveLine] : Array.Empty<string>(),
                 string.Empty,
-                repo.Count > 0 && Fields(args).Length == 0 && args.Criteria is not { Length: > 0 }
+                !patching
+                    ? $"Next: work_brief(scope:\"{item.Ref}\") still opens it; work_create under it unarchives it."
+                    : repo.Count > 0 && Fields(args).Length == 0 && args.Criteria is not { Length: > 0 }
                     ? $"Next: work_brief(repo:{RepoKeys.Literal(repo)}) — a session in that repo now opens {item.Ref}."
                     : $"Next: work_status(ref:\"{item.Ref}\", to:\"done\") when the criteria are met — "
                       + "the guard will tell you what is still missing.",
