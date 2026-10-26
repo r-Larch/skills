@@ -4,6 +4,23 @@ What changes for someone who has the `rlarch` plugin installed, newest first. Fo
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions are the `version` field in
 `plugins/rlarch/.claude-plugin/plugin.json`, which is what the updater gates on.
 
+## [Unreleased]
+
+### Added
+
+- **`/rlarch:workstate-import`** — brings a repo's existing planning material into WorkState. The
+  agent finds plans, TODO lists, roadmaps, specs, ADRs, docs and agent rules anywhere in the repo,
+  checks each against the current code, keeps only what is still true (open work, binding rules and
+  decisions, open assumptions — never history), proposes a per-file plan, waits for your yes, and
+  writes it with `work_import`. Source files are never touched.
+- **`agent_launch` `workstate.grants`** — `["import"]` mints a session that can see `work_import`
+  (role orchestrator or controller only; the server enforces it).
+- WorkState server (rebuild with `docker compose -f mcp/compose.yml up -d --build` to get it; two
+  additive migrations): the **`work_import`** tool — batches of runs, phases, tasks, followups,
+  notes, assumptions and rules, each with its source and reason, idempotent by source, never `done`
+  and never verified, listed only for an import-granted session. `work_get` and the dashboard show
+  an imported item's source and reason.
+
 ## [2.2.1] - 2026-10-26
 
 ### Fixed

@@ -15,13 +15,14 @@ export const WORKSTATE_TOOLS = 'mcp__workstate'
 export const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max']
 export const ROLES = ['worker', 'orchestrator', 'controller', 'none']
 export const DEFAULT_WORKSTATE_URL = 'http://127.0.0.1:5290'
+export const GRANTS = ['import']
 
 const LAUNCH_KEYS = [
     'name', 'brief', 'repo_root', 'controller', 'permission_mode', 'toolset', 'allowed_tools',
     'disallowed_tools', 'add_dirs', 'model', 'effort', 'settings', 'append_system_prompt',
     'workstate', 'dry_run',
 ]
-const WORKSTATE_KEYS = ['role', 'env_file', 'url', 'ttl_hours']
+const WORKSTATE_KEYS = ['role', 'env_file', 'url', 'ttl_hours', 'grants']
 
 const NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/
 const CONTROLLER_RE = /^\S.*\s\[[0-9a-fA-F]{6}\]$/
@@ -34,6 +35,7 @@ const QUOTE_RE = /['"`]/
  * @property {string|undefined} envFile
  * @property {string} url
  * @property {number|undefined} ttlHours
+ * @property {string[]} grants
  *
  * @typedef {object} LaunchParams
  * @property {string} name
@@ -219,7 +221,7 @@ export function validateLaunch(input) {
  */
 function validateWorkstate(v, repoRoot) {
     if (v === undefined || v === null) v = {}
-    if (!isObject(v)) throw new Refusal('workstate must be an object: {role, env_file, url?, ttl_hours?}')
+    if (!isObject(v)) throw new Refusal('workstate must be an object: {role, env_file, url?, ttl_hours?, grants?}')
     const w = /** @type {Record<string, unknown>} */ (v)
     rejectUnknown(w, WORKSTATE_KEYS, 'workstate')
 
@@ -239,6 +241,18 @@ function validateWorkstate(v, repoRoot) {
         ttlHours = w.ttl_hours
     }
 
+    /** @type {string[]} */
+    let grants = []
+    if (w.grants !== undefined && w.grants !== null) {
+        if (!Array.isArray(w.grants) || w.grants.some((g) => typeof g !== 'string' || !GRANTS.includes(g))) {
+            throw new Refusal(`workstate.grants must be an array of ${GRANTS.map((g) => `"${g}"`).join(', ')}`)
+        }
+        grants = [...new Set(/** @type {string[]} */ (w.grants))]
+    }
+    if (grants.length > 0 && role === 'none') {
+        throw new Refusal('workstate.grants rides on the minted token, and workstate.role "none" mints none: pass role "orchestrator" with grants ["import"]')
+    }
+
     let envFile
     if (w.env_file !== undefined && w.env_file !== null) {
         if (typeof w.env_file !== 'string' || w.env_file.trim() === '') throw new Refusal('workstate.env_file must be a path')
@@ -248,7 +262,7 @@ function validateWorkstate(v, repoRoot) {
         throw new Refusal(`workstate.role is "${role}", so a per-session token must be minted, and that needs workstate.env_file: the PATH of the WorkState clone's mcp/.env (never its contents). Pass workstate.role "none" to launch without WorkState.`)
     }
 
-    return { role, envFile, url, ttlHours }
+    return { role, envFile, url, ttlHours, grants }
 }
 
 /** @param {string} briefPath */
