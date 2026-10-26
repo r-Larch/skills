@@ -104,9 +104,25 @@ public sealed partial class BoardQueries
             SELECT ref FROM item
             WHERE  workspace_id = @workspace AND kind = 'project'
               AND  status NOT IN ('cancelled','superseded')
+              AND  archived_at IS NULL
             ORDER  BY ref;
             """;
 
         return await ListAsync<string>(sql, new { workspace = workspaceId }, cancellationToken);
+    }
+
+    /// <summary>When the project the item sits in (or is) was archived; null while it is not.</summary>
+    public async Task<DateTimeOffset?> ArchivedAtAsync(Guid itemId, CancellationToken cancellationToken = default)
+    {
+        const string sql =
+            """
+            SELECT p.archived_at
+            FROM   item i
+            JOIN   item p ON (p.id = i.id OR p.id = ANY(i.ancestors)) AND p.kind = 'project'
+            WHERE  i.id = @id AND p.archived_at IS NOT NULL
+            LIMIT  1;
+            """;
+
+        return await SingleAsync<DateTimeOffset?>(sql, new { id = itemId }, cancellationToken);
     }
 }

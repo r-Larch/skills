@@ -171,6 +171,13 @@ public sealed partial class BoardReader(WorkStateQueries queries, BoardQueries b
 
         var text = BriefRenderer.Render(model, IsWorkerVariant(variant));
 
+        if (await board.ArchivedAtAsync(item.Id, cancellationToken) is { } archivedAt)
+        {
+            var lines = text.Split('\n');
+            lines[0] += $"  ·  archived {archivedAt:yyyy-MM-dd}";
+            text = string.Join("\n", lines);
+        }
+
         if (IsWorkerVariant(variant))
         {
             text += "\n\n" + await WorkerSectionAsync(item, callable, cancellationToken);

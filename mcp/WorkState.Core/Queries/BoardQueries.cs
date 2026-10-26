@@ -48,7 +48,10 @@ public sealed partial class BoardQueries(NpgsqlDataSource dataSource)
              JOIN   item_kind k ON k.key = i.kind
              LEFT JOIN item_rollup r ON r.id = i.id
              WHERE  i.workspace_id = @workspace AND i.kind IN ('run','project')
-             ORDER BY (i.kind = 'run') DESC,
+             ORDER BY EXISTS (SELECT 1 FROM item ap
+                              WHERE  (ap.id = i.id OR ap.id = ANY(i.ancestors))
+                                AND  ap.archived_at IS NOT NULL),
+                      (i.kind = 'run') DESC,
                       (coalesce(r.open_count,0) + coalesce(r.doing_count,0)
                        + coalesce(r.review_count,0)) DESC,
                       k.rank, i.seq
@@ -59,8 +62,9 @@ public sealed partial class BoardQueries(NpgsqlDataSource dataSource)
     }
 
     /// <summary>
-    /// Every project in the workspace, for the dashboard's switcher (doc 09 §5). Ordered by ref so
-    /// the switcher does not reshuffle itself between polls.
+    /// Every project in the workspace, archived ones included (the caller decides what to hide),
+    /// newest activity first: the newest journal event anywhere in the project's subtree. Ref breaks
+    /// ties so the order is stable between polls.
     /// </summary>
     public async Task<IReadOnlyList<ProjectRow>> ProjectsAsync(
         Guid workspaceId,
@@ -68,18 +72,26 @@ public sealed partial class BoardQueries(NpgsqlDataSource dataSource)
     {
         const string sql =
             """
-            SELECT p.id     AS "Id",
-                   p.ref    AS "Ref",
-                   p.title  AS "Title",
-                   p.status AS "Status",
-                   coalesce(r.runs, 0)::int AS "RunCount"
+            SELECT p.id          AS "Id",
+                   p.ref         AS "Ref",
+                   p.title       AS "Title",
+                   p.status      AS "Status",
+                   coalesce(r.runs, 0)::int AS "RunCount",
+                   p.archived_at AS "ArchivedAt",
+                   a.at          AS "LastActivityAt",
+                   coalesce(r.open_runs, 0)::int AS "OpenRuns"
             FROM   item p
             LEFT   JOIN LATERAL (
-                     SELECT count(*) AS runs
+                     SELECT count(*) AS runs,
+                            count(*) FILTER (WHERE c.status NOT IN ('done','cancelled','superseded')) AS open_runs
                      FROM   item c
                      WHERE  c.kind = 'run' AND c.ancestors @> ARRAY[p.id]::uuid[]) r ON true
+            LEFT   JOIN LATERAL (
+                     SELECT max(e.at) AS at
+                     FROM   event e JOIN item x ON x.id = e.item_id
+                     WHERE  x.id = p.id OR x.ancestors @> ARRAY[p.id]::uuid[]) a ON true
             WHERE  p.workspace_id = @workspace AND p.kind = 'project'
-            ORDER  BY p.ref;
+            ORDER  BY a.at DESC NULLS LAST, p.ref;
             """;
 
         return await ListAsync<ProjectRow>(sql, new { workspace = workspaceId }, cancellationToken);

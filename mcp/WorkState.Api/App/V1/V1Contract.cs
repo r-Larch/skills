@@ -73,7 +73,10 @@ public sealed record ProjectOverviewView(
     ItemRefView Item,
     RollupView Rollup,
     IReadOnlyList<RunOverviewView> Runs,
-    IReadOnlyList<RepoView> Repos);
+    IReadOnlyList<RepoView> Repos,
+    DateTimeOffset? ArchivedAt,
+    DateTimeOffset? LastActivityAt,
+    int OpenRuns);
 
 public sealed record OverviewView(
     DateTimeOffset AsOf,

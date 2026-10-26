@@ -141,6 +141,31 @@ as `projects[].repos`.
 
 `scope` given → unchanged; the repo plays no part.
 
+### Archived projects — `item.archived_at`
+
+With a project per repository the list grows to hundreds, so a project can be **archived**: hidden,
+never deleted, and reversible.
+
+```sql
+ALTER TABLE item ADD COLUMN archived_at timestamptz NULL
+  CONSTRAINT item_archived_only_project CHECK (archived_at IS NULL OR kind = 'project');
+```
+
+- **Who.** An orchestrator or controller: `work_update(ref:"<project>", archived:true|false)`. The
+  operator: the dashboard's Archive / Unarchive button (`POST /api/projects/{id}/archive|unarchive`,
+  doc 10). Either journals an `archived` / `unarchived` event with who did it. Archiving what is
+  already archived changes nothing and journals nothing.
+- **Hidden from** the default lists: the dashboard's sidebar and overview (behind an *Archived (n)*
+  toggle), the onboarding list of projects to bind a repo to, and the busiest-run fallback of a bare
+  `work_brief` (an archived project's runs rank after every live one).
+- **Still resolves.** By ref (`work_brief(scope:"x")`), and by repo (`work_brief(repo:…)` opens it):
+  the brief's header line ends `· archived <date>`. The v1 overview still lists it, with `archivedAt`.
+- **New work un-archives.** `work_create` of any item under an archived project clears `archived_at`
+  in the same transaction and journals `unarchived` naming the item that brought it back.
+
+A project's **last activity** is the newest journal event anywhere in its subtree; the v1 overview
+lists projects newest activity first.
+
 ### Ref scoping — short handles that cannot collide across parallel runs
 
 Agents type `2.3` all day; they will not type `gaia/entity-store/2.3`. But two runs in one project

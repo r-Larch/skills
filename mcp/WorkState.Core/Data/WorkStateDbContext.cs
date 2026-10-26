@@ -271,6 +271,9 @@ public class WorkStateDbContext(DbContextOptions<WorkStateDbContext> options) : 
             t.HasCheckConstraint(
                 "item_closed_at_set",
                 "(status IN ('done','cancelled','superseded')) = (closed_at IS NOT NULL)");
+            t.HasCheckConstraint(
+                "item_archived_only_project",
+                "archived_at IS NULL OR kind = 'project'");
         });
     });
 

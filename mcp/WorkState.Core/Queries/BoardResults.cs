@@ -134,7 +134,15 @@ public sealed record LiveClaimRow(
 public sealed record StaleRow(string Ref, string QualifiedRef, DateTimeOffset StartedAt, Guid Id);
 
 /// <summary>One entry of the dashboard's project switcher (doc 09 §5), with the runs under it.</summary>
-public sealed record ProjectRow(Guid Id, string Ref, string Title, ItemStatus Status, int RunCount);
+public sealed record ProjectRow(
+    Guid Id,
+    string Ref,
+    string Title,
+    ItemStatus Status,
+    int RunCount,
+    DateTimeOffset? ArchivedAt,
+    DateTimeOffset? LastActivityAt,
+    int OpenRuns);
 
 /// <summary>A phase with nothing left to do and no gate recorded against it (doc 07 §2).</summary>
 public sealed record GateRow(string PhaseRef, string QualifiedRef, int TaskCount);

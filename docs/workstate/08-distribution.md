@@ -185,8 +185,9 @@ never reach `/mcp`.
 
 **The read API is the one shared door (doc 10 rule 5).** `GET /api/v1/*` and `/api/stream` are
 read-only, so they take either audience: the dashboard cookie, any agent token, or a **reader token**.
-The pre-v1 cookie-only `/api/*` routes are removed; `/api/session` and `/api/agent-sessions` (doc 14
-§2, bearer only) are the only other `/api` routes.
+The pre-v1 cookie-only `/api/*` routes are removed; `/api/session`, `/api/agent-sessions` (doc 14
+§2, bearer only) and `POST /api/projects/{id}/archive|unarchive` (doc 10, cookie only, with the
+`X-WorkState-Write` header) are the only other `/api` routes.
 
 | Token | Config / env | Reaches |
 |---|---|---|

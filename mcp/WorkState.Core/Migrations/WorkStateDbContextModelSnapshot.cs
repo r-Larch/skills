@@ -697,7 +697,7 @@ namespace WorkState.Core.Migrations
                         .ValueGeneratedOnAddOrUpdate()
                         .HasColumnType("tsvector")
                         .HasColumnName("search")
-                        .HasComputedColumnSql("setweight(to_tsvector('english', coalesce(heading, '')), 'A') ||\nsetweight(to_tsvector('english', body), 'B')", true);
+                        .HasComputedColumnSql("setweight(to_tsvector('english', coalesce(heading, '')), 'A') ||\r\nsetweight(to_tsvector('english', body), 'B')", true);
 
                     b.Property<decimal>("Seq")
                         .HasColumnType("numeric")
@@ -846,6 +846,10 @@ namespace WorkState.Core.Migrations
                         .HasColumnName("ancestors")
                         .HasDefaultValueSql("'{}'::uuid[]");
 
+                    b.Property<DateTimeOffset?>("ArchivedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("archived_at");
+
                     b.Property<Guid?>("BodyDocId")
                         .HasColumnType("uuid")
                         .HasColumnName("body_doc_id");
@@ -930,7 +934,7 @@ namespace WorkState.Core.Migrations
                         .ValueGeneratedOnAddOrUpdate()
                         .HasColumnType("tsvector")
                         .HasColumnName("search")
-                        .HasComputedColumnSql("setweight(to_tsvector('simple', coalesce(ref, '')), 'A') ||\nsetweight(to_tsvector('english', coalesce(title, '')), 'B') ||\nsetweight(to_tsvector('english', coalesce(intent, '')), 'C')", true);
+                        .HasComputedColumnSql("setweight(to_tsvector('simple', coalesce(ref, '')), 'A') ||\r\nsetweight(to_tsvector('english', coalesce(title, '')), 'B') ||\r\nsetweight(to_tsvector('english', coalesce(intent, '')), 'C')", true);
 
                     b.Property<decimal>("Seq")
                         .HasColumnType("numeric")
@@ -1009,6 +1013,8 @@ namespace WorkState.Core.Migrations
 
                     b.ToTable("item", null, t =>
                         {
+                            t.HasCheckConstraint("item_archived_only_project", "archived_at IS NULL OR kind = 'project'");
+
                             t.HasCheckConstraint("item_closed_at_set", "(status IN ('done','cancelled','superseded')) = (closed_at IS NOT NULL)");
 
                             t.HasCheckConstraint("item_resolution_only_when_done", "(status = 'done') = (resolution IS NOT NULL)");
