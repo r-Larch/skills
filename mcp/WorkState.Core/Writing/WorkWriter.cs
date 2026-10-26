@@ -57,7 +57,8 @@ public sealed partial class WorkWriter(NpgsqlDataSource dataSource, BoardQueries
         int Revision,
         bool RequiresVerify,
         bool RequiresCommit,
-        bool RequiresCriteria);
+        bool RequiresCriteria,
+        DateTimeOffset? StartedAt);
 
     private sealed record ClaimHolder(
         Guid ItemId,
@@ -157,9 +158,10 @@ public sealed partial class WorkWriter(NpgsqlDataSource dataSource, BoardQueries
         StatusArgs args,
         CancellationToken cancellationToken)
     {
-        if (!Transitions.Legal(item.Status, move, item.Kind))
+        var started = item.StartedAt is not null;
+        if (!Transitions.Legal(item.Status, move, item.Kind, started))
         {
-            return WriteResult.No(Transitions.Refuse(item.Ref, item.Status, move, item.Kind));
+            return WriteResult.No(Transitions.Refuse(item.Ref, item.Status, move, item.Kind, started));
         }
 
         if (move == Move.Deferred)
@@ -492,7 +494,8 @@ public sealed partial class WorkWriter(NpgsqlDataSource dataSource, BoardQueries
                    i.revision     AS "Revision",
                    k.requires_verify   AS "RequiresVerify",
                    k.requires_commit   AS "RequiresCommit",
-                   k.requires_criteria AS "RequiresCriteria"
+                   k.requires_criteria AS "RequiresCriteria",
+                   i.started_at   AS "StartedAt"
             FROM   item i
             JOIN   item_kind k ON k.key = i.kind
             WHERE  i.id = @id
