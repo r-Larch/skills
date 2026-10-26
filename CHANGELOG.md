@@ -4,6 +4,34 @@ What changes for someone who has the `rlarch` plugin installed, newest first. Fo
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions are the `version` field in
 `plugins/rlarch/.claude-plugin/plugin.json`, which is what the updater gates on.
 
+## [2.4.0] - 2026-10-27
+
+### Added
+
+- **Session self-naming.** Hand-started sessions share one WorkState registration, so their work
+  was signed by role alone. `workstate-setup` now registers a headers helper,
+  `session-header.mjs` (needs `node`), that keys each session by its Claude Code process and sends
+  its name when `claude agents` knows it. `work_session(name)` binds a hand-started session to the
+  name `ListAgents` shows; `/rlarch:controller` and `/rlarch:orchestrate` call it when `work_brief`
+  says the session is unnamed. A minted session keeps its name; two live sessions cannot share
+  one. Existing installs: run the setup script once with `--session-names` (`-SessionNames` in
+  PowerShell), then start a new session. A local-scope `workstate` entry in a repo overrides the
+  user registration there and has no helper; `claude mcp remove workstate -s local` in that repo
+  removes it.
+- WorkState server **0.6.0** (rebuild to get it; one additive migration, `SessionClientKey`).
+
+### Fixed
+
+- **A bare `work_brief()` no longer hands out another project's run.** With several live projects
+  and no repo known, it opened the busiest run of the whole workspace — often another project's.
+  It now opens no run and lists the projects, newest activity first, each as a callable
+  `work_brief(scope:"…")`, with `work_brief(repo:{remote, root})` as the first route. With one
+  project, or none, the brief is unchanged. A minted session whose repo is bound lands its
+  unscoped `work_next`, `work_tree`, `work_threads`, `work_search` and the `work://` resources in
+  its own project; `work_get`'s attention block follows the run of the first ref it was given.
+- **Refs printed by `work_create` and `work_search` call back as printed.** A ref another run also
+  holds (`1`) is printed in its shortest unique form (`run-z/1`), in the rows and in the `Next:` line.
+
 ## [2.3.0] - 2026-10-26
 
 ### Added

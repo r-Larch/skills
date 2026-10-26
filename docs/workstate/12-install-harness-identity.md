@@ -269,6 +269,16 @@ So today a nested agent is **anonymous and holds the controller role** — the g
 
 ### 7.3 Recommendation — a WorkState credential helper (option G)
 
+> **Changed 2026-10-26 — a headers helper names sessions; the token stays a static header.**
+> `workstate-setup` copies `assets/session-header.mjs` next to the `.env` and registers with
+> `claude mcp add-json` (`headers.Authorization` from the `.env`, `headersHelper: node <home>/session-header.mjs`).
+> The helper carries no credential: it prints `X-WorkState-Client` (host/pid/start time of the nearest
+> `claude` ancestor in the process table — measured: the harness runs it as node ← cmd ← the session's
+> claude.exe) and, when `claude agents --json` lists that pid with a name, `X-WorkState-Agent`. A
+> hand-started session then names itself with `work_session(name)` (doc 11). `CLAUDE_PID` and
+> `CLAUDE_JOB_DIR` were measured to be inherited from other sessions and are never read. The
+> credential-helper design below (token out of `~/.claude.json`) remains open.
+
 One small script in the plugin, `plugins/rlarch/skills/workstate-setup/assets/workstate-headers`
 (`.sh` + `.ps1`, like every other launcher pair), invoked **only by the harness**:
 

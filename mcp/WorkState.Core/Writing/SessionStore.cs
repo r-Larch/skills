@@ -18,7 +18,8 @@ public sealed record SessionFacts(
     string? Cwd = null,
     string? ExternalRole = null,
     string? ClientName = null,
-    string? ClientVersion = null)
+    string? ClientVersion = null,
+    string? ClientKey = null)
 {
     public static string? Clean(string? value)
         => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
@@ -79,6 +80,11 @@ public sealed partial class SessionStore(NpgsqlDataSource dataSource)
         if (!string.Equals(row.LaunchedBy, launchedBy, StringComparison.Ordinal))
         {
             return new SessionResolution(null, Collision(name, row.LaunchedBy, launchedBy));
+        }
+
+        if (SessionFacts.Clean(facts.ClientKey) is { } key)
+        {
+            await BindKeyAsync(connection, transaction, workspaceId, row.Id, key, cancellationToken);
         }
 
         await TouchAsync(connection, transaction, row.Id, role, facts, cancellationToken);

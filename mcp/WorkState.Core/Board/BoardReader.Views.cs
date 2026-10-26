@@ -329,13 +329,20 @@ public sealed partial class BoardReader
 
         var lines = new List<string> { $"SEARCH \"{Glyph.Flat(query)}\" — {hits.Count} hits", string.Empty };
 
-        lines.AddRange(hits.Select(hit =>
-            $"{Glyph.Pad(Glyph.Flat(hit.Ref), 18)}  "
+        // doc 13: a printed ref is one the caller can pass back, so a ref other items share is qualified.
+        var printed = new List<string>(hits.Count);
+        foreach (var hit in hits)
+        {
+            printed.Add(await board.PrintableRefAsync(workspaceId, hit.Id, hit.Ref, cancellationToken));
+        }
+
+        lines.AddRange(hits.Select((hit, i) =>
+            $"{Glyph.Pad(Glyph.Flat(printed[i]), 18)}  "
             + $"{Glyph.Pad(Glyph.Row(hit.Title, 30), 30)}  "
             + Glyph.Row(hit.Snippet, 40)));
 
         lines.Add(string.Empty);
-        lines.Add($"Next: work_get(refs:[\"{hits[0].Ref}\"]) on a hit.");
+        lines.Add($"Next: work_get(refs:[\"{printed[0]}\"]) on a hit.");
         return string.Join("\n", lines);
     }
 

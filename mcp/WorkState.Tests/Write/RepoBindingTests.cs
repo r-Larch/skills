@@ -152,7 +152,7 @@ public sealed class RepoBindingTests(PostgresFixture fixture)
         await using var client = await server.ConnectAsync(ReadServer.OrchestratorToken, Ct);
 
         var bare = await ReadServer.CallAsync(client, "work_brief", null, Ct);
-        Assert.Contains("run-a", bare.Split('\n')[0], StringComparison.Ordinal);
+        Assert.Equal("RUN —  ·  repo not given, and this workspace holds 2 projects", bare.Split('\n')[0]);
 
         var byRemote = await ReadServer.CallAsync(client, "work_brief", Repo(remote: "https://github.com/r-Larch/Other"), Ct);
         Assert.StartsWith("PROJECT other  ·  The other repo", byRemote.Split('\n')[0], StringComparison.Ordinal);

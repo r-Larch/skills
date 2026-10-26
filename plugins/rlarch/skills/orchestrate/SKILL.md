@@ -17,6 +17,7 @@ Invoking this skill is the user's explicit authorization to spawn subagents. You
 
 - **No `work_*` tools in your list** → tell the user in one line: *"orchestrate needs the WorkState MCP server and this session cannot see it — run `/rlarch:workstate-setup`."* Then stop. Do not fall back to markdown files; there is no second mode.
 - **`work_brief` exists but `work_constrain` does not** → the server is older than this skill. Say so in one line, point at `/rlarch:workstate-setup`, and stop.
+- **It says `session  unnamed — work_session(…)`** → sign your work first: `work_session(name:)` with the name `ListAgents` gives in its first line, *"This session is <name> [ref]"* (the name, not the ref).
 - **It answers** → read it. It is the goal, where the run stands, the literal next action, the rules that bind, and the open assumptions. If it names a run in flight that is this undertaking ("continue orchestrating phase 4"), **resume the loop from its NEXT line**: Phase 0 and its approval gate do not re-fire, and the per-phase gate is the discipline from then on. On an empty server it answers with onboarding; that is Phase 0.
 
 **Never invent a ref.** Refs come from the server: from `work_brief`, `work_next`, `work_tree`, `work_search`, or the result of the `work_create` that made them.

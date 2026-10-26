@@ -35,7 +35,9 @@ the `.env` appears in its output.
 ## 1. Which of the four states is this machine in? Say which, before running anything
 
 **First question: can you call `work_brief` right now?** If `work_brief` **and** `work_constrain` are
-in your tool list, this is the **already working** state. Say so, change nothing, and stop.
+in your tool list, this is the **already working** state. Say so, change nothing, and stop — unless
+`work_brief` says *"session unnamed — /rlarch:workstate-setup installs the session helper"*: then
+run the script with `--session-names` (§3) and nothing else.
 
 `work_brief` there but **no `work_constrain`** is a fifth state: **registered and running, but older
 than the skills.** Run the script with `--update` (§3); registration is left as it is.
@@ -109,8 +111,14 @@ or in PowerShell:
 | `--image-version <tag>` | `-ImageVersion <tag>` | pin the image instead of `latest` |
 | `--update` | `-Update` | pull the image again (home) or rebuild it (clone) |
 | `--force` | `-Force` | replace an existing registration of the same name |
+| `--session-names` | `-SessionNames` | re-register an existing install with the session helper, keeping its token's role |
 | `--dry-run` | `-DryRun` | do everything but write the registration; show it with the token masked |
 | `--backup <file>` / `--restore <file>` | `-Backup` / `-Restore` | §4, and nothing else |
+
+The registration also runs `session-header.mjs` (copied next to the `.env`; needs `node`) on each
+connect: it keys the session by its Claude Code process, so `work_session(name)` can name a
+hand-started session that shares this registration. A new install gets it; an existing one needs
+`--session-names` once, then a new session.
 
 The roles nest — a controller token also satisfies orchestrator and worker. Register a worker only
 for a session that just executes tasks handed to it. Sessions launched by `nested-claude`'s

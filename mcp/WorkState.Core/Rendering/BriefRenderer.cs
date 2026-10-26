@@ -3,6 +3,8 @@ using WorkState.Core.Domain;
 
 namespace WorkState.Core.Rendering;
 
+public sealed record ProjectChoice(string Ref, string Title, int OpenRuns, DateTimeOffset? LastActivityAt);
+
 public sealed record BindingLine(string Ref, string Text, bool RedLine, string? Route = null);
 
 public sealed record AssumptionLine(
@@ -232,7 +234,7 @@ public static class BriefRenderer
            """;
 
     /// <summary>How many existing projects the unbound-repo onboarding names before it routes to a search.</summary>
-    private const int UnboundProjectCap = 8;
+    internal const int UnboundProjectCap = 8;
 
     /// <summary>
     /// <c>work_brief(repo:…)</c> for a repository no project holds. The routes carry the caller's own
@@ -273,6 +275,52 @@ public static class BriefRenderer
         lines.Add(string.Empty);
         lines.Add(onboarding[onboarding.IndexOf("WHAT GOES IN", StringComparison.Ordinal)..]);
         return string.Join("\n", lines);
+    }
+
+    /// <summary>
+    /// <c>work_brief()</c> with no scope and no repo, in a workspace of several live projects. The
+    /// busiest run of the whole workspace would be another project's as often as the caller's, so no
+    /// run is opened: the caller names its repo, or picks a project from a list it can call as printed.
+    /// </summary>
+    public static string Unchosen(IReadOnlyList<ProjectChoice> projects)
+    {
+        var shown = projects.Take(UnboundProjectCap).ToList();
+        var calls = shown.Select(p => $"work_brief(scope:\"{p.Ref}\")").ToList();
+        var width = calls.Max(c => c.Length);
+        var lines = new List<string>
+        {
+            $"RUN —  ·  repo not given, and this workspace holds {projects.Count} projects",
+            string.Empty,
+        };
+
+        lines.AddRange(Wrap(
+            "WHERE  ",
+            "No run was opened: nothing in this call says which project is yours, and the busiest run "
+            + "of the whole workspace would be a guess.",
+            7));
+        lines.Add("NEXT   work_brief(repo:{remote, root}) — remote: git remote get-url origin, root: the main checkout's root");
+        lines.Add("OR     work_brief(scope:\"<project>\") for the one you are working in, newest activity first:");
+
+        for (var i = 0; i < shown.Count; i++)
+        {
+            var p = shown[i];
+            var runs = p.OpenRuns == 1 ? "1 open run" : $"{p.OpenRuns} open runs";
+            var active = p.LastActivityAt is { } at ? $", active {Glyph.Ago(Since(at))}" : string.Empty;
+            lines.Add($"         {Glyph.Pad(calls[i], width)}  {Glyph.Flat(p.Title)}  ·  {runs}{active}");
+        }
+
+        if (projects.Count > shown.Count)
+        {
+            lines.Add($"         +{projects.Count - shown.Count} more — work_search(q:\"…\")");
+        }
+
+        return string.Join("\n", lines);
+    }
+
+    private static TimeSpan Since(DateTimeOffset at)
+    {
+        var span = DateTimeOffset.UtcNow - at;
+        return span < TimeSpan.Zero ? TimeSpan.Zero : span;
     }
 
     /// <summary>

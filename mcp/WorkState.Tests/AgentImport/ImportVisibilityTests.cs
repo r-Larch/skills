@@ -26,10 +26,14 @@ public sealed class ImportVisibilityTests(PostgresFixture fixture)
 {
     /// <summary>
     /// SHA-256 of the serialized tools/list per profile without work_import: dc388f4's list, with
-    /// work_search no longer promising doc hits and work_note's <c>to</c> no longer offering a selector.
+    /// work_search no longer promising doc hits and work_note's <c>to</c> no longer offering a selector;
+    /// the orchestrator list re-pinned when seven orchestrator-only descriptions were trimmed to make
+    /// room for work_session (hidden here, listed only with X-WorkState-Client); both re-pinned when
+    /// work_brief's scope stopped promising the busiest run, which several projects now answer with a
+    /// list (bare-brief).
     /// </summary>
-    private const string WorkerList = "7d87460e7bc3749c20c0c6532303654b7acb795072e73ae4e8b19bd36b39e394";
-    private const string OrchestratorList = "e08cb3c412e6b1214994e9fe00ad6e43c2db2d035a6f2f3cd623213bc5223bed";
+    private const string WorkerList = "02f5e6c1afbe2db33957fbabd624cecbe48236d9cce1fb34af69c1e6daf913f6";
+    private const string OrchestratorList = "1ce6db3d122522432ff500d0180b037d55075470149f99ca44f2e743fa4ece80";
     private const string ControllerList = OrchestratorList;
 
     [Fact]

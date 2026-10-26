@@ -115,6 +115,9 @@ the rewritten skills state the minimum they need, so the failure is a sentence r
 `0.5.0` (rlarch 2.3.0) carries one project per repository (repo binding), the project brief, archive,
 the prompt catalogue and `work_import`.
 
+`0.6.0` (rlarch 2.4.0) carries session self-naming (the client key, `work_session`) and the bare
+`work_brief()` project chooser.
+
 ---
 
 ## 3. Should the skills use it? — Yes, and as a **hard** dependency

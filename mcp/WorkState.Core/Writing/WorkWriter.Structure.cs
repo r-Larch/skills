@@ -94,7 +94,7 @@ public sealed partial class WorkWriter
 
         var ladder = await LadderAsync(connection, transaction, cancellationToken);
         var written = new List<string>();
-        var firstRef = string.Empty;
+        var created = new List<(int Line, Guid Id, string Ref, string Tail)>();
 
         foreach (var wanted in items)
         {
@@ -215,13 +215,9 @@ public sealed partial class WorkWriter
                     : new { kind, parent = parent?.Ref, title = wanted.Title },
                 cancellationToken);
 
-            if (firstRef.Length == 0)
-            {
-                firstRef = reference;
-            }
-
-            written.Add($"{Glyph.Pad(reference, 8)}  {Glyph.Pad(Glyph.Kind(kind), 6)}  "
-                      + Glyph.Row(wanted.Title, 60));
+            var tail = $"{Glyph.Pad(Glyph.Kind(kind), 6)}  " + Glyph.Row(wanted.Title, 60);
+            created.Add((written.Count, row2.Id, reference, tail));
+            written.Add($"{Glyph.Pad(reference, 8)}  {tail}");
 
             if (repo.Count > 0)
             {
@@ -232,6 +228,16 @@ public sealed partial class WorkWriter
         }
 
         await transaction.CommitAsync(cancellationToken);
+
+        // doc 13: printed refs must call back. Uniqueness is only checkable once the batch is
+        // visible to another connection, so the rows are re-rendered after the commit.
+        var firstRef = string.Empty;
+        foreach (var (line, id, reference, tail) in created)
+        {
+            var printed = await board.PrintableRefAsync(workspaceId, id, reference, cancellationToken);
+            written[line] = $"{Glyph.Pad(printed, 8)}  {tail}";
+            firstRef = firstRef.Length == 0 ? printed : firstRef;
+        }
 
         return WriteResult.Ok(string.Join(
             "\n",

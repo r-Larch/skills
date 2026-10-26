@@ -37,7 +37,7 @@ public sealed class WorkReadTools(
         work_status(ref, "in_progress").
         """)]
     public async Task<CallToolResult> BriefAsync(
-        [Description("A run or item ref, e.g. \"entity-store\" or \"2.3\". Omit for the busiest run.")]
+        [Description("A run or item ref, e.g. \"entity-store\" or \"2.3\". Omit for your repo's project; with several projects and no repo, a list to choose from.")]
         string? scope = null,
         [Description("\"resume\" (default) for the session payload, or \"worker\" to add the task's own criteria, verification and report format.")]
         string? @for = null,
@@ -49,7 +49,9 @@ public sealed class WorkReadTools(
             ? await reader.ResolveRepoAsync(workspace.Slug, repo?.Keys() ?? [], caller.Actor.SessionId, cancellationToken)
             : null;
 
-        var resolved = byRepo ?? await reader.ResolveAsync(workspace.Slug, scope, cancellationToken);
+        var resolved = byRepo ?? (string.IsNullOrWhiteSpace(scope)
+            ? await reader.ResolveUnscopedBriefAsync(workspace.Slug, cancellationToken)
+            : await reader.ResolveAsync(workspace.Slug, scope, cancellationToken));
         if (resolved is not ScopeResult.Found found)
         {
             return Text(ScopeExplain.Text(resolved, "work_brief", scope));
@@ -59,7 +61,12 @@ public sealed class WorkReadTools(
         // BriefSessionAsync, because GET /api/v1/items/{id}/brief must perform the identical writes in
         // the identical order or the two surfaces return different bytes for the same scope.
         var brief = await reader.BriefSessionAsync(
-            found, @for ?? "resume", housekeeping, cancellationToken, signed: caller.Actor.SessionId is not null);
+            found,
+            @for ?? "resume",
+            housekeeping,
+            cancellationToken,
+            signed: caller.Actor.SessionId is not null,
+            keyed: caller.ClientKey is not null);
 
         return Text(string.IsNullOrWhiteSpace(scope) && byRepo is null ? WithoutRepo(brief) : brief);
     }
@@ -104,7 +111,7 @@ public sealed class WorkReadTools(
     [Authorize(Policy = WorkStatePolicies.Orchestrator)]
     [McpServerTool(Name = "work_tree", Title = "Orient: the shape", ReadOnly = true)]
     [Description("""
-        The shape of a scope: an indented tree, two spaces per level, with a done/total rollup on
+        The shape of a scope: an indented tree with a done/total rollup on
         every container and blocking edges marked on the rows they hold up.
         Reach for it to see where a ref sits or how much of a phase is left — not to decide what to
         do next, which is work_next's job.
@@ -144,14 +151,15 @@ public sealed class WorkReadTools(
         string? include = null,
         CancellationToken cancellationToken = default)
     {
-        var resolved = await reader.ResolveAsync(workspace.Slug, null, cancellationToken);
+        var resolved = await reader.ResolveDefaultAsync(workspace.Slug, null, caller.Actor.SessionId, cancellationToken);
         if (resolved is not ScopeResult.Found found)
         {
             return Text(ScopeExplain.Text(resolved, "work_get", null));
         }
 
         var body = await reader.GetAsync(found, refs ?? [], Split(include), cancellationToken);
-        return Text(Attention.Append(body, await reader.AttentionAsync(found, cancellationToken)));
+        var attended = await reader.AttentionScopeAsync(found, refs?.FirstOrDefault(), cancellationToken);
+        return Text(Attention.Append(body, await reader.AttentionAsync(attended, cancellationToken)));
     }
 
     [Authorize(Policy = WorkStatePolicies.Worker)]
@@ -170,7 +178,7 @@ public sealed class WorkReadTools(
         int limit = 10,
         CancellationToken cancellationToken = default)
     {
-        var resolved = await reader.ResolveAsync(workspace.Slug, null, cancellationToken);
+        var resolved = await reader.ResolveDefaultAsync(workspace.Slug, null, caller.Actor.SessionId, cancellationToken);
         if (resolved is not ScopeResult.Found found)
         {
             return Text(ScopeExplain.Text(resolved, "work_search", null));
@@ -242,7 +250,7 @@ public sealed class WorkReadTools(
         int limit = 20,
         CancellationToken cancellationToken = default)
     {
-        var resolved = await reader.ResolveAsync(workspace.Slug, scope, cancellationToken);
+        var resolved = await reader.ResolveDefaultAsync(workspace.Slug, scope, caller.Actor.SessionId, cancellationToken);
         if (resolved is not ScopeResult.Found found)
         {
             return Text(ScopeExplain.Text(resolved, "work_history", scope));
@@ -265,7 +273,7 @@ public sealed class WorkReadTools(
         CancellationToken cancellationToken,
         bool sweep = false)
     {
-        var resolved = await reader.ResolveAsync(workspace.Slug, scope, cancellationToken);
+        var resolved = await reader.ResolveDefaultAsync(workspace.Slug, scope, caller.Actor.SessionId, cancellationToken);
         if (resolved is not ScopeResult.Found found)
         {
             return Text(ScopeExplain.Text(resolved, call, scope));
