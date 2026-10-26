@@ -1,6 +1,7 @@
 using WorkState.Core.Domain;
 using WorkState.Core.Queries;
 using WorkState.Core.Rendering;
+using WorkState.Core.Writing;
 
 namespace WorkState.Core.Board;
 
@@ -190,23 +191,27 @@ public sealed partial class BoardReader
                 Evidence: EvidenceOf(fact),
                 Flags: FlagsFor(item.Id, item.Status, fact, blocked))));
 
+            // "Full detail": intent, criteria and evidence wrap like the worker brief and never clip.
+            // Boards keep one clipped row per item; this is the call a board row routes to.
             if (item.Intent is { Length: > 0 })
             {
-                lines.Add($"  intent    {Glyph.Clip(item.Intent, 86)}");
+                lines.AddRange(BriefRenderer.Wrap("  intent    ", item.Intent, 12));
             }
 
             foreach (var criterion in criteria[item.Id])
             {
-                lines.Add($"  {(criterion.Checked ? "✓" : "✗")} c{criterion.Seq}     "
-                        + Glyph.Clip(criterion.Text, 80));
+                var label = $"  {(criterion.Checked ? "✓" : "✗")} c{criterion.Seq}     ";
+                lines.AddRange(BriefRenderer.Wrap(label, criterion.Text, label.Length));
             }
 
             foreach (var verification in verifications[item.Id].Take(2))
             {
-                lines.Add($"  evidence  {(verification.Passed ? "✓" : "✗")} "
-                        + $"{Glyph.Clip(verification.ResultLine, 44)} "
-                        + $"by {verification.RunBy.ToString().ToLowerInvariant()}, "
-                        + $"{Glyph.Age(Since(verification.At))} ago");
+                lines.AddRange(BriefRenderer.Wrap(
+                    "  evidence  ",
+                    $"{(verification.Passed ? "✓" : "✗")} {verification.ResultLine} "
+                    + $"by {verification.RunBy.ToString().ToLowerInvariant()}, "
+                    + $"{Glyph.Age(Since(verification.At))} ago",
+                    12));
             }
 
             foreach (var link in links.Where(l => l.FromId == item.Id || l.ToId == item.Id))
@@ -227,8 +232,12 @@ public sealed partial class BoardReader
         var next = await CallableAsync(resolved[0], head, cancellationToken);
 
         lines.Add(string.Empty);
-        lines.Add($"Next: work_status(ref:\"{next}\", to:\"in_progress\") to start it, "
-                + $"or work_brief(scope:\"{next}\", for:\"worker\") to hand it over.");
+        lines.Add(Transitions.IsTerminal(resolved[0].Status)
+            ? $"Next: work_next() for what is ready — {next} is already {Transitions.Name(resolved[0].Status)}; "
+              + $"work_create(items:[{{kind:\"followup\", parent:\"{next}\", title:\"…\", verify_cmd:\"…\", criteria:[…]}}]) "
+              + "to carry more work forward."
+            : $"Next: work_status(ref:\"{next}\", to:\"in_progress\") to start it, "
+              + $"or work_brief(scope:\"{next}\", for:\"worker\") to hand it over.");
 
         return string.Join("\n", lines);
     }
@@ -301,10 +310,13 @@ public sealed partial class BoardReader
             // Only the worker brief of its addressee consumes a note (Housekeeping.ConsumeNotesAsync),
             // so a note with no addressee is a record that never closes — not a thread.
             var notes = await board.UnconsumedNotesAsync(scope.WorkspaceId, scope.Item.Id, cancellationToken);
-            lines.AddRange(notes.Where(n => n.ToItemId is not null).Take(20).Select(n =>
-                $"{Glyph.Pad(n.ToRef!, 6)}  {Glyph.Pad("note", 6)}  "
-                + $"{Glyph.Pad(Glyph.Clip(n.Body, 46), 46)}  "
-                + $"— work_brief(scope:\"{n.ToQualifiedRef ?? n.ToRef}\", for:\"worker\") consumes it"));
+            foreach (var n in notes.Where(n => n.ToItemId is not null).Take(20))
+            {
+                lines.Add($"{Glyph.Pad(n.ToRef!, 6)}  {Glyph.Pad("note", 6)}  "
+                        + $"{Glyph.Pad(Glyph.Clip(n.Body, 46), 46)}  "
+                        + $"— work_brief(scope:\"{await AddresseeRefAsync(scope.WorkspaceId, n, cancellationToken)}\", "
+                        + "for:\"worker\") consumes it");
+            }
         }
 
         if (wanted.Contains("deps"))

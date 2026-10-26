@@ -55,12 +55,19 @@ open ──▶ ready ──▶ in_progress ──▶ review ──▶ done
 | `in_progress` | `blocked` | requires `reason`. Records a `blocked` event. |
 | `in_progress` | `review` | free. |
 | `review`/`in_progress` | `done` | **the five conditions, §3.** |
+| `ready`, once started | `done` | **the five conditions, §3**, unchanged. Only for an item with `started_at` set — one whose lease lapsed and the sweep returned to `ready` (§5). A never-started `ready` item is still refused: `done is not reachable from ready`. |
 | `review`/`in_progress` | `in_progress` | rework. Records the attempt count; **a fresh worker, not the old one** — that is orchestration doctrine, not a schema rule. |
 | any non-terminal | `cancelled` | requires `reason`. `destructiveHint: true`. |
 | any | `superseded` | **not directly.** `work_link(supersedes)` sets it in the same transaction (U1 trigger), and the same transaction moves the target's unconsumed notes to the replacing item (F-08). |
 | any non-terminal | `deferred` | **a move, §4.** |
 
 **Releasing the claim** happens automatically on leaving `in_progress` by any route.
+
+> **Changed 2026-10-26 (lease-ready).** An unnamed controller's 30-minute lease lapsed while a nested
+> agent worked for hours; the sweep moved the item to `ready`, and `done` was then refused *"not
+> reachable from ready"* until a ceremonial `work_status(in_progress)`. A lapsed lease is a timer, not
+> a return to the queue, so a started item now closes from `ready` — every §3 condition still applies,
+> and the evidence it reads is all of the item's verifications, not those of the current claim.
 
 > **Changed 2026-10-22 (ws/8).** The `in_progress` row locked the run: every unit fell back to the
 > run's key, so two units of one run in separate git worktrees could not both be in progress — the

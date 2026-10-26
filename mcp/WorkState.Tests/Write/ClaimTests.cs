@@ -128,6 +128,74 @@ public sealed class ClaimTests(PostgresFixture fixture)
         Assert.Equal(ItemStatus.InProgress, await world.StatusAsync("1.1"));
     }
 
+    /// <summary>
+    /// lease-ready. An unnamed controller's 30-minute lease lapses while a nested agent works for
+    /// hours; the sweep returns the item to ready, and done was then refused as "not reachable from
+    /// ready". A started item closes from ready under the same five conditions.
+    /// </summary>
+    [Fact]
+    public async Task A_started_item_whose_lease_lapsed_closes_from_ready_and_releases_only_its_own_claim()
+    {
+        var world = await WriteSeed.CreateAsync(fixture);
+        await WriteSeed.SecondRunAsync(world);
+        await WriteSeed.CriterionAsync(world, world.TaskId, 1, "it works", ticked: true);
+        await WriteSeed.VerificationAsync(world, world.TaskId, VerifyRunner.Orchestrator);
+
+        await Start(world, "1.1", WriteSeed.Orchestrator);
+        Assert.False((await Start(world, "9.1", WriteSeed.Other)).Refused);
+        await WriteSeed.ExpireClaimAsync(world, world.TaskId);
+        await WriteSeed.Keeper(fixture).SweepAsync(world.WorkspaceId, Ct);
+        Assert.Equal(ItemStatus.Ready, await world.StatusAsync("1.1"));
+
+        var closed = await world.Writer.StatusAsync(
+            world.WorkspaceId, "1.1", "done", WriteSeed.Orchestrator, new StatusArgs(), Ct);
+
+        Assert.False(closed.Refused, closed.Text);
+        Assert.StartsWith("OK  1.1  ready → done", closed.Text, StringComparison.Ordinal);
+        Assert.Equal(ItemStatus.Done, await world.StatusAsync("1.1"));
+        Assert.Equal("status", (await WriteSeed.EventKindsAsync(world, world.TaskId))[^1]);
+
+        await using var db = fixture.NewContext();
+        var other = await db.Items.SingleAsync(i => i.WorkspaceId == world.WorkspaceId && i.Ref == "9.1", Ct);
+        Assert.Equal(1, await db.Claims.CountAsync(c => c.ItemId == other.Id && c.ReleasedAt == null, Ct));
+        Assert.Equal(ItemStatus.InProgress, other.Status);
+    }
+
+    [Fact]
+    public async Task Done_from_ready_is_refused_for_a_never_started_item_even_when_every_condition_holds()
+    {
+        var world = await WriteSeed.CreateAsync(fixture);
+        var queued = await WriteSeed.ChildAsync(world, world.PhaseId, "1.2", status: ItemStatus.Ready);
+        await WriteSeed.CriterionAsync(world, queued, 1, "it works", ticked: true);
+        await WriteSeed.VerificationAsync(world, queued, VerifyRunner.Orchestrator, command: null);
+
+        var refused = await world.Writer.StatusAsync(
+            world.WorkspaceId, "1.2", "done", WriteSeed.Orchestrator, new StatusArgs(), Ct);
+
+        Assert.True(refused.Refused, refused.Text);
+        RefusalShape.SelfCorrecting(refused.Text);
+        Assert.Contains("done is not reachable from ready", refused.Text, StringComparison.Ordinal);
+        Assert.Equal(ItemStatus.Ready, await world.StatusAsync("1.2"));
+    }
+
+    [Fact]
+    public async Task Done_from_ready_after_a_lapse_still_runs_the_guard()
+    {
+        var world = await WriteSeed.CreateAsync(fixture);
+        await WriteSeed.CriterionAsync(world, world.TaskId, 1, "it works", ticked: false);
+        await WriteSeed.VerificationAsync(world, world.TaskId, VerifyRunner.Orchestrator);
+        await WriteSeed.StatusAsync(world, world.TaskId, ItemStatus.Ready);
+
+        var refused = await world.Writer.StatusAsync(
+            world.WorkspaceId, "1.1", "done", WriteSeed.Orchestrator, new StatusArgs(), Ct);
+
+        Assert.True(refused.Refused, refused.Text);
+        RefusalShape.SelfCorrecting(refused.Text);
+        Assert.Contains("criterion c1", refused.Text, StringComparison.Ordinal);
+        Assert.DoesNotContain("not reachable", refused.Text, StringComparison.Ordinal);
+        Assert.Equal(ItemStatus.Ready, await world.StatusAsync("1.1"));
+    }
+
     [Fact]
     public async Task A_live_claim_survives_a_sweep()
     {
