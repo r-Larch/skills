@@ -8,6 +8,7 @@ import { ago, cap, clock, day } from '../format.ts'
 import { CheckIcon } from '../icons.tsx'
 import { Dot, Pill, ProjectName } from '../ui.tsx'
 import { EventLine } from './Activity.tsx'
+import { PromptActions } from './Prompts.tsx'
 
 export type Tab = 'overview' | 'evidence' | 'notes' | 'activity' | 'brief'
 
@@ -91,6 +92,10 @@ export default function Detail(props: Props) {
             )}
           </For>
         </div>
+        {/* A run's and a project's own actions sit in their page headers. */}
+        <Show when={p().item.kind !== 'run' && p().item.kind !== 'project'}>
+          <PromptActions scope={p().item.id} />
+        </Show>
       </div>
 
       <nav class="tabs" aria-label="Item sections">

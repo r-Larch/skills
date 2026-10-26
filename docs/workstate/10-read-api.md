@@ -173,6 +173,18 @@ Sessions (doc 11), most recently seen first. `active=true` limits to the last 30
 ### `GET /api/v1/resolve?ref=backlog`
 `{ "asOf": "…", "seq": 1234, "matches": [ItemRef] }` — zero, one or many; the client decides.
 
+### `GET /api/v1/prompts?scope={id}`
+The prompt actions that apply to one project, run or item (doc 13 "The prompt catalogue"), in the
+catalogue's fixed order; an action that does not apply is absent. Each `text` is the whole prompt a
+fresh session is started with — never shortened. `count` is `null` for an action without one.
+Read-only like every v1 route: it neither sweeps lapsed claims nor consumes notes (unlike `/brief`).
+400 without `scope`, 404 for an unknown id.
+```jsonc
+{ "asOf": "…", "seq": 1234, "scope": ItemRef,
+  "prompts": [{ "key": "housekeeping", "label": "Housekeeping", "count": 7,
+                "text": "Housekeeping for WorkState project …" }] }
+```
+
 ### `GET /api/stream`
 SSE, unchanged transport. An event means "re-read"; its data is
 `{ "seq": 1235, "runId": "uuid" | null, "itemId": "uuid" | null, "kind": "transition" }`.

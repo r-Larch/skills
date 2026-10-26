@@ -9,6 +9,7 @@ import { boardHref, runHref } from '../nav.ts'
 import { short } from '../format.ts'
 import { Dot, Known, ProjectName, Segs } from '../ui.tsx'
 import Detail, { asTab, type Tab } from './Detail.tsx'
+import { PromptActions } from './Prompts.tsx'
 
 const query = (filter: Filter, tab: Tab) => {
   const q = new URLSearchParams()
@@ -134,6 +135,7 @@ function RunHeader(props: { board: Board }) {
         </div>
         <h1>{short(props.board.run.title)}</h1>
         <div class="sub">{sub()}</div>
+        <PromptActions scope={props.board.run.id} />
       </div>
       <Segs leaves={t().leaves} style={{ width: 'min(420px, 40vw)' }} />
     </div>

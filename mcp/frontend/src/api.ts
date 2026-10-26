@@ -209,6 +209,11 @@ export type Backlog = {
   groups: { origin: ItemRef | null; items: ItemRef[] }[]
 }
 
+/** One prompt action (doc 13): the whole text a fresh session is started with. */
+export type Prompt = { key: string; label: string; count: number | null; text: string }
+
+export type Prompts = { asOf: string; seq: number; scope: ItemRef; prompts: Prompt[] }
+
 /**
  * Whether the cookie is good. Flipped by any 401, which is the only signal the API gives: the
  * session cookie is httponly, so the document cannot read it and asking is the only way to know.
@@ -262,6 +267,8 @@ export const inbox = () => json<Inbox>('/api/v1/inbox')
 export const journal = (limit: number) => json<JournalPage>(`/api/v1/journal?limit=${limit}`)
 
 export const backlog = (project: string) => json<Backlog>(`/api/v1/backlog?project=${id(project)}`)
+
+export const prompts = (scope: string) => json<Prompts>(`/api/v1/prompts?scope=${id(scope)}`)
 
 /**
  * The dashboard's one write (doc 10). The header is the cross-site guard: a form on another site
