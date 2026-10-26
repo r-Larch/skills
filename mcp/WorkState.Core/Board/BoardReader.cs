@@ -294,7 +294,9 @@ public sealed partial class BoardReader(WorkStateQueries queries, BoardQueries b
         foreach (var addressed in addressees)
         {
             var first = addressed.First();
-            var named = shared.Contains(addressed.Key) ? first.ToQualifiedRef ?? first.ToRef! : first.ToRef!;
+            var named = shared.Contains(addressed.Key)
+                ? await AddresseeRefAsync(scope.WorkspaceId, first, cancellationToken)
+                : first.ToRef!;
 
             lines.Add(new AttentionLine(
                 AttentionRank.UnconsumedNote,
@@ -325,6 +327,23 @@ public sealed partial class BoardReader(WorkStateQueries queries, BoardQueries b
     {
         var facts = await board.FactsAsync([item.Id], cancellationToken);
         return await CallableAsync(item, facts.FirstOrDefault(), cancellationToken);
+    }
+
+    /// <summary>
+    /// The scope to print for a note's addressee. A run numbers its own refs, so the note query's
+    /// run-qualified ref of a run is its bare ref — ambiguous once anything else holds it. That case
+    /// falls back to the form <see cref="BoardQueries.UniqueRefAsync"/> checked to resolve alone.
+    /// </summary>
+    private async Task<string> AddresseeRefAsync(Guid workspaceId, NoteRow note, CancellationToken cancellationToken)
+    {
+        var named = note.ToQualifiedRef ?? note.ToRef!;
+        var matches = await board.ResolveAsync(workspaceId, named, cancellationToken);
+        if (matches.Count <= 1 || matches.FirstOrDefault(m => m.Id == note.ToItemId) is not { } addressee)
+        {
+            return named;
+        }
+
+        return await board.UniqueRefAsync(workspaceId, addressee, cancellationToken) ?? named;
     }
 
     private async Task<string> WorkerSectionAsync(

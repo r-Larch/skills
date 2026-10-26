@@ -123,6 +123,16 @@ public sealed partial class WorkWriter
             lines.Add($"Next: work_report(ref:\"{item.Ref}\", status:\"done\", …) and hand back; "
                     + "closing is the orchestrator's call.");
         }
+        else if (Transitions.IsTerminal(item.Status))
+        {
+            lines.Add(string.Empty);
+            lines.Add($"Next: nothing to move — {item.Ref} is already {Transitions.Name(item.Status)}; "
+                    + "this evidence is kept with its record."
+                    + (passed
+                        ? string.Empty
+                        : $" work_create(items:[{{kind:\"followup\", parent:\"{item.Ref}\", title:\"…\", verify_cmd:\"…\", criteria:[…]}}]) "
+                          + "if the red result needs work."));
+        }
         else
         {
             lines.Add(string.Empty);

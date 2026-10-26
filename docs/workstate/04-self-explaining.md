@@ -66,7 +66,7 @@ the only way to see that is to write them all down together.
 |---|---|
 | `work_brief` | whatever its own `NEXT` line says — usually `work_next`, or `work_status(in_progress)` on a run already under way |
 | `work_next` | `work_get(refs:[ref])` for the detail, then `work_status(ref, "in_progress")` |
-| `work_get` | `work_status(in_progress)` to start it · `work_verify` if it is already built · `work_brief(ref, for:"worker")` to hand it to someone |
+| `work_get` | `work_status(in_progress)` to start it · `work_verify` if it is already built · `work_brief(ref, for:"worker")` to hand it to someone. On a `done`/`cancelled`/`superseded` item: `work_next`, or `work_create` a `followup` under it — never a move |
 | `work_tree` | `work_next` to act, or `work_threads` for what is unclosed |
 | `work_search` | `work_get(refs:[ref])` on a hit |
 | `work_threads` | the call named on each line — `work_assume`, `work_status`, `work_note` |
@@ -81,7 +81,7 @@ the only way to see that is to write them all down together.
 | `work_status(deferred)` | `work_next` — and note the new item it created |
 | `work_patch` | `work_get(refs:[ref], include:"body")` to confirm |
 | `work_report` | `work_verify` — a report is a claim, not evidence |
-| `work_verify` | `work_status(ref, "done")` |
+| `work_verify` | `work_status(ref, "done")` · on an item already closed: nothing to move, the evidence is kept with its record |
 | `work_note` | nothing; it is a side-effect, and saying so stops an agent hunting for a follow-up |
 | `work_assume` | nothing, unless resolving it unblocks an item |
 | `work_finding` | `work_status(ref, "in_progress")` on the target, or `work_status(finding, "deferred", target:…)` |
