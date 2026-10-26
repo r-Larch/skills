@@ -52,8 +52,8 @@ Every skill runs on Windows, macOS and Linux; what differs is what has to be ins
 | `dotnet-reflect` | **.NET 10 SDK** | file-based C# scripts, same command everywhere |
 | `dotnet-source` | **.NET 10 SDK** | Windows: `ds.ps1` needs **pwsh 7+**; macOS/Linux: `bash ./ds.sh` |
 | `ts-source` | **Node 18+** | Windows: `tss.ps1` (pwsh 7+ or Windows PowerShell); macOS/Linux: `bash ./tss.sh` |
-| `nested-claude` | Claude Code CLI; Python 3 for the optional watchdog | Windows: PowerShell launchers; macOS/Linux: bash launchers |
-| `controller` | **WorkState**; `nested-claude`'s launchers | Windows (PowerShell) or macOS/Linux (bash) |
+| `nested-claude` | Claude Code CLI; **Node 18+** for the `agents` tool (`agent_launch`/`agent_stop`/`agent_list`); Python 3 for the optional watchdog | the tool on every OS; fallback launchers: PowerShell on Windows, bash on macOS/Linux |
+| `controller` | **WorkState**; **Node 18+** for the `agents` tool (or `nested-claude`'s launchers) | any OS with the tool; fallback: Windows (PowerShell) or macOS/Linux (bash) |
 | `orchestrate` | **WorkState** | — |
 | `code-comments` | nothing | — |
 | `workstate-setup` | **Docker** (multi-arch images — Apple Silicon is fine) | Docker Desktop, or on Linux the Docker engine; macOS also Colima/OrbStack |
@@ -416,11 +416,12 @@ registered, or nothing at all — and does only the missing part: finds or asks 
 the local-only `mcp/.env` the stack needs, starts it, runs the one `claude mcp add`, and then proves
 from `tools/list` how many tools actually came back. **It never clones anything without asking.**
 
-The plugin deliberately ships **no `.mcp.json`**. A shipped one is attempted by every session in
-every project, so for everyone who installed `rlarch` to get `dotnet-reflect` it would be a failed
-MCP connection, forever — and it would buy nothing, because MCP servers are resolved at session
-start either way. If you prefer a config file to the `claude mcp add`, the exact shape is committed
-at [`mcp/plugin.mcp.json`](mcp/plugin.mcp.json); copy it where you want it yourself.
+The plugin's `.mcp.json` deliberately holds **no WorkState entry** — only the local `agents` stdio
+server of `nested-claude`, which needs nothing but Node. A shipped WorkState entry is attempted by
+every session in every project, so for everyone who installed `rlarch` to get `dotnet-reflect` it
+would be a failed MCP connection, forever — and it would buy nothing, because MCP servers are
+resolved at session start either way. If you prefer a config file to the `claude mcp add`, the exact
+shape is committed at [`mcp/plugin.mcp.json`](mcp/plugin.mcp.json); copy it where you want it yourself.
 
 The server's own design notes are in [`docs/workstate/`](docs/workstate/).
 
@@ -471,6 +472,7 @@ plugin and is not installed with it.
 docs/dotnet-source-design.md             # internal design notes for the dotnet-source tool
 plugins/rlarch/                          # the plugin
   .claude-plugin/plugin.json
+  .mcp.json                              # the `agents` stdio server only (no WorkState entry)
   skills/dotnet-reflect/
     SKILL.md                             # instructions Claude follows
     scripts/{common,reflect}.cs          # shared helpers (#:include'd)
@@ -500,6 +502,8 @@ plugins/rlarch/                          # the plugin
     assets/{Start,Stop}-NestedAgent.ps1  # Windows launchers
     assets/{start,stop}-nested-agent.sh  # their macOS/Linux bash twins
     assets/watch-nested-agent.py         # the watchdog (stdlib Python 3)
+    server/agents.mjs                    # the `agents` stdio MCP server (Node 18+, no dependencies)
+    server/test/                         # node --test "plugins/rlarch/skills/nested-claude/server/**/*.test.mjs"
   skills/code-comments/
     SKILL.md
   skills/workstate-setup/

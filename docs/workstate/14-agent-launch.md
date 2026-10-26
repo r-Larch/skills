@@ -81,7 +81,7 @@ Tools appear as `mcp__plugin_rlarch_agents__<tool>`. No npm dependencies; plain 
 | `repo_root` | path | required | must be a git working tree (refused otherwise); the session's cwd |
 | `controller` | string | required | `"<name> [<6-hex ref>]"` (refused without the ref) — goes into the protocol header |
 | `permission_mode` | `acceptEdits\|auto\|bypassPermissions\|manual\|dontAsk\|plan` | `auto` | `--permission-mode` |
-| `toolset` | `none\|readonly\|fix` | `fix` | the allow-list profiles of `Start-NestedAgent.ps1` |
+| `toolset` | `none\|readonly\|fix` | `fix` | the allow-list profiles of `Start-NestedAgent.ps1`, plus `mcp__workstate` when `workstate.role` is not `none` (else the first `work_*` call parks the agent under `acceptEdits`) |
 | `allowed_tools` | string[] | `[]` | merged into `--allowedTools` |
 | `disallowed_tools` | string[] | `[]` | `--disallowedTools` |
 | `add_dirs` | path[] | `[]` | `--add-dir` |
