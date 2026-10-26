@@ -656,11 +656,15 @@ The launcher prepends the protocol; your file supplies the work. A good brief:
 
 ### The rule underneath all of these
 
-**Every rule you add to a brief is a potential park, because a rule that demands a capability the
-agent does not have is a trap you set yourself.**
+**Every sentence in a brief is a potential park, because anything that demands a capability the
+agent does not have is a trap you set yourself.** Prohibitions are the obvious case. The expensive one
+is the ordinary instruction — *copy these files*, *commit with `-F <file>`*, *remove the probe*, *the
+corpora are under `<path>`* — because nobody audits a sentence that is not a rule. Before launching,
+ask of each imperative: which tool executes it, is that tool granted for every path it touches, and
+did I resolve that path just now or am I describing where I think it is? When the answer is no,
+prefer removing the need — do it yourself and say it is done — over granting the route.
 
-That is not a reason to write fewer rules. It is a reason to write each one as a *route* rather than a
-*prohibition*:
+Then write each remaining rule as a *route* rather than a *prohibition*:
 
 | Prohibition that parked an agent | The rule that works |
 |---|---|
@@ -673,6 +677,11 @@ That is not a reason to write fewer rules. It is a reason to write each one as a
 Each of those was added to prevent a real problem and caused the next one. After eleven parks in one
 round and zero in the next, the difference was not the harness — it was that every rule finally
 carried its sanctioned route.
+
+**Recovery beats prevention, because prevention is never complete.** A parked agent's work is still
+on disk. Write the continuation brief to say so: name the files already there, say what remains, and
+say explicitly not to start over — in one run eight parks cost eight relaunches and no unit restarted
+from zero.
 
 Keep it in a file: it is what the agent reads, what `-KeepBrief` preserves, and what you diff against
 when the result surprises you.
