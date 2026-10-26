@@ -1,9 +1,9 @@
 # 13 — The dashboard
 
 Replaces [09](09-dashboard-design.md). Built from the prototype the owner approved (WorkState item
-`mature/ui`), on the [v1 read API](10-read-api.md) and nothing else. Read-only: the MCP tools stay
-the only write path. Code: `mcp/frontend` (SolidJS, `@solidjs/router`, Vite, Tailwind 4; no other
-dependency).
+`mature/ui`), on the [v1 read API](10-read-api.md) and one write: archiving a project
+(`POST /api/projects/{id}/archive|unarchive`, doc 10). Everything else agents write, through the MCP
+tools. Code: `mcp/frontend` (SolidJS, `@solidjs/router`, Vite, Tailwind 4; no other dependency).
 
 The dashboard does not call the pre-v1 routes (`/api/projects`, `/api/watch`,
 `/api/runs/{ref}/tree|brief|journal`), and they are gone from the server (unit
@@ -11,12 +11,27 @@ The dashboard does not call the pre-v1 routes (`/api/projects`, `/api/watch`,
 
 ## Information architecture
 
-A sidebar (Overview, Needs you with its count, Activity; then every project and its runs, each
-with a done/total count and a thin progress bar) and one page beside it. Every page is a URL.
+A sidebar (Overview, Needs you with its count, Activity; then the projects) and one page beside it.
+Every page is a URL.
+
+**The project list** (`src/Shell.tsx`, rules in `src/projects.ts`):
+
+- A search box above it filters by name, full title and ref, client-side, ignoring case. While it
+  holds text, archived matches show too.
+- Projects are sorted by **last activity** (the newest journal event in the project's subtree, v1
+  `lastActivityAt`), newest first, and grouped: **Active** — an open run, or activity within 14 days
+  of `asOf`; **Quiet** — the rest; **Archived (n)** — collapsed behind a toggle, closed by default,
+  its state per viewer in `localStorage` (`workstate.archived-open`, guarded for storage that
+  throws).
+- Each project name links to its project page (highlighted while it is open). Under it, its **open
+  runs** only, each with a done/total count and a thin progress bar. A run is open unless its status
+  is done, cancelled or superseded, or it has tasks and every one is finished (`runIsOpen`); an open
+  run with no tasks yet stays. The rest are one muted row, *n closed*, linking to the project page.
 
 | URL | Page | Reads |
 |---|---|---|
-| `/` | **Overview** — Needs you (top 5, then a link to the rest), Working now, four honesty counts, then one panel per project: a serif header band, open runs first, closed runs dimmed below, each run a segmented bar with **one segment per leaf**, coloured by state; the legend once below | `overview`, `inbox`, every run's `board` |
+| `/` | **Overview** — Needs you (top 5, then a link to the rest), Working now, four honesty counts, then one panel per project not archived, by last activity: a serif header band (the name links to the project page), open runs, then *Show n closed runs* (collapsed by default; closed by `runIsOpen`), each run a segmented bar with **one segment per leaf**, coloured by state; below them *n archived projects*, which shows the archived panels; the legend once below | `overview`, `inbox`, the board of every run of a project not archived |
+| `/projects/{id}` | **Project** — that project's overview panel, archived or not, with its Archive / Unarchive button | `overview` |
 | `/inbox` | **Needs you** — everything waiting on a person, newest first, each row with the MCP call that resolves it | `inbox` |
 | `/activity` | **Activity** — the last 300 journal events across the workspace, grouped by day | `journal?limit=300` |
 | `/runs/{run}` | **Run** — plan list (filters All / Open / Needs attention; phases as group headers; full titles; ref; claim holder; criteria x/y) beside the detail panel for the run | `runs/{run}/board`, `items/{run}` |
@@ -38,6 +53,15 @@ claim holder, tree, priority, severity, resolution, closed/started), then tabs:
 - **Brief** — the verbatim `work_brief`, as text. Never the main pane.
 
 A claim holder is shown by session name when the claim has one, else by the actor label.
+
+**Archiving** (doc 02 "Archived projects"). Every project panel carries **Archive** (or, once
+archived, **Unarchive** and *Archived &lt;date&gt;*). Archive first asks, inline, saying what it does: the
+project leaves the active lists and the overview for *Archived*; nothing is deleted; agents still
+open it by ref and repo; new work for it unarchives it; it can be unarchived here at any time.
+Unarchive does not ask. The write is `POST /api/projects/{id}/archive|unarchive` with the
+`X-WorkState-Write` header; a failure is shown under the header band. The honesty counts and the
+open-task total still include archived projects — they are the server's sums, and archiving hides a
+project, it does not settle it.
 
 A **project is named** by its title's head — the text before the first ` — `, or the whole title —
 in the sidebar, the overview panel, and every crumb (run, backlog, detail). Where that name differs

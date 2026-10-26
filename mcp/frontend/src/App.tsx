@@ -10,6 +10,7 @@ import Backlog from './views/Backlog.tsx'
 import Inbox from './views/Inbox.tsx'
 import Item from './views/Item.tsx'
 import Overview from './views/Overview.tsx'
+import Project from './views/Project.tsx'
 import Run from './views/Run.tsx'
 
 const NotFound = () => (
@@ -37,6 +38,7 @@ export default function App() {
         <Route path="/activity" component={Activity} />
         <Route path="/runs/:run/:item?" component={Run} />
         <Route path="/items/:item" component={Item} />
+        <Route path="/projects/:project" component={Project} />
         <Route path="/projects/:project/backlog" component={Backlog} />
         <Route path="*" component={NotFound} />
       </Router>

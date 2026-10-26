@@ -67,7 +67,14 @@ export type RunOverview = {
   lastVerification: { passed: boolean; at: string } | null
 }
 
-export type ProjectOverview = { item: ItemRef; rollup: Rollup; runs: RunOverview[] }
+export type ProjectOverview = {
+  item: ItemRef
+  rollup: Rollup
+  runs: RunOverview[]
+  archivedAt: string | null
+  lastActivityAt: string | null
+  openRuns: number
+}
 
 export type Overview = {
   asOf: string
@@ -254,6 +261,29 @@ export const inbox = () => json<Inbox>('/api/v1/inbox')
 export const journal = (limit: number) => json<JournalPage>(`/api/v1/journal?limit=${limit}`)
 
 export const backlog = (project: string) => json<Backlog>(`/api/v1/backlog?project=${id(project)}`)
+
+/**
+ * The dashboard's one write (doc 10). The header is the cross-site guard: a form on another site
+ * cannot send it, and the server refuses the write without it.
+ */
+export async function setArchived(project: string, archived: boolean): Promise<void> {
+  const path = `/api/projects/${id(project)}/${archived ? 'archive' : 'unarchive'}`
+  const response = await fetch(path, {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: { 'X-WorkState-Write': '1' },
+  })
+
+  if (response.status === 401) {
+    setSignedIn(false)
+    throw new Unauthorized()
+  }
+
+  if (!response.ok) {
+    const body = (await response.json().catch(() => null)) as { error?: string } | null
+    throw new Error(body?.error ?? `${path} → ${response.status}`)
+  }
+}
 
 export async function signIn(username: string, password: string): Promise<boolean> {
   const response = await fetch('/api/session', {
