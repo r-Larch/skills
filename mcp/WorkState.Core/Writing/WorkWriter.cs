@@ -253,8 +253,8 @@ public sealed partial class WorkWriter(NpgsqlDataSource dataSource, BoardQueries
         if (forced is { Length: > 0 })
         {
             lines.Add($"    FORCED over {forced.Length} unmet condition(s) — recorded as a "
-                    + "forced_transition, visible in");
-            lines.Add("            work_brief and work_audit until someone closes it honestly:");
+                    + "forced_transition, which");
+            lines.Add("            work_audit lists permanently. Unmet:");
             lines.AddRange(forced.Select(f => $"              · {Glyph.Flat(f)}"));
         }
 
@@ -341,8 +341,8 @@ public sealed partial class WorkWriter(NpgsqlDataSource dataSource, BoardQueries
         return string.IsNullOrWhiteSpace(args.Reason)
             ? Refusal.Blocked(
                 $"work_status({item.Ref} → done, force:true) without a reason.",
-                $"force writes a forced_transition over {unmet.Count} unmet condition(s) and it stays "
-                + "visible in work_brief and work_audit — the reason is what will be read there",
+                $"force writes a forced_transition over {unmet.Count} unmet condition(s) and work_audit "
+                + "lists it permanently — the reason is what will be read there",
                 $"work_status(ref:\"{item.Ref}\", to:\"done\", force:true, reason:\"…\")")
             : null;
     }

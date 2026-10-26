@@ -61,6 +61,8 @@ What changes for someone who has the `rlarch` plugin installed, newest first. Fo
     runs; a project page; **prompt actions** — buttons that copy a ready prompt for a fresh session
     (Continue, Status report, Housekeeping, Triage backlog, Finalize, Resume, Audit, Work on this,
     Investigate block), served by `GET /api/v1/prompts`.
+- `nested-claude` §9: audit every imperative in a brief, not only its prohibitions, and write a
+  continuation brief that builds on the work already on disk.
 
 ### Fixed
 

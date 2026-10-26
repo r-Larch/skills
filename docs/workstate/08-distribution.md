@@ -112,6 +112,9 @@ server when you rebuild it. A skill that assumes `work_status` exists breaks aga
 `McpServerOptions.ServerInfo.Version` is already set (`0.4.0` as of rlarch 2.2.0). **Bump it deliberately**, and have
 the rewritten skills state the minimum they need, so the failure is a sentence rather than a mystery.
 
+`0.5.0` (rlarch 2.3.0) carries one project per repository (repo binding), the project brief, archive,
+the prompt catalogue and `work_import`.
+
 ---
 
 ## 3. Should the skills use it? — Yes, and as a **hard** dependency

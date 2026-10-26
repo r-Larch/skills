@@ -638,7 +638,7 @@ CREATE TABLE note (
   body          text NOT NULL,
 
   to_item_id    uuid REFERENCES item ON DELETE CASCADE,   -- deliver to this item's brief
-  to_selector   jsonb,          -- or a rule: {"under":"<item>","kind":"task","risk":["schema"]}
+  to_selector   jsonb,          -- unused: no brief delivers by rule, so work_note refuses a selector
 
   corrects_note_id  uuid REFERENCES note,     -- a correction supersedes, it does not append
   corrects_block_id uuid REFERENCES doc_block,
@@ -652,6 +652,11 @@ CREATE INDEX note_pending_idx ON note (workspace_id, to_item_id) WHERE consumed_
 CREATE INDEX note_selector_idx ON note USING gin (to_selector jsonb_path_ops)
        WHERE consumed_at IS NULL;
 ```
+
+> **Changed 2026-10-26 (note-selector).** `work_note(to:"phase:3")` used to store `to_selector`
+> and answer "renders into work_brief", but no brief ever read the column. `work_note` now refuses
+> a `to` that is not a ref resolving to one item and routes to `work_get` / `work_tree` to find it.
+> Rows already holding a selector stay as they are.
 
 `corrects_note_id` is what removes the 129 `CORRECTION` appends: a correction **links to and
 supersedes** the thing it corrects, so a reader who finds the original also finds the retraction.

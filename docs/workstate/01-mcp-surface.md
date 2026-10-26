@@ -130,7 +130,7 @@ Names are `work_*`-prefixed so they survive aggregation across servers.
 | **`work_next`** | `scope`, `limit`, `kind?` | The ready frontier: items whose blocking dependencies are all `done`, in `seq` order, with their `verify_cmd` and risk flags. | "read PLAN.md and work out what's next" |
 | **`work_tree`** | `scope`, `depth`, `status in[]`, `include_counts` | Indented tree with per-node rollups (`open/doing/blocked/review/done`). | `PLAN.md` § Phases, and the checkbox list that never gets checked |
 | **`work_get`** | `refs[]` (batch), `include` = `body\|criteria\|deps\|attempts\|findings\|notes` | Full item(s). Body returned as `resource_link` unless `include: body` is asked for. | reading a section of the ledger |
-| **`work_search`** | `q`, `scope?`, `in` = `items\|blocks\|events\|notes\|reports`, `limit` | FTS + trigram hits with `ref` + snippet. | `Grep` over the run directory — which is what agents do today |
+| **`work_search`** | `q`, `limit` | FTS hits over item titles and intents, each with `ref` + snippet. Doc blocks are not searched (the doc layer is retired; no resource serves `work://doc`). | `Grep` over the run directory — which is what agents do today |
 | **`work_threads`** | `scope`, `include` = `assumptions\|findings\|followups\|notes\|stale\|deps` | **Everything unclosed that is not a task.** The single query the user asked for. A note is a thread only while it is addressed to an item and unconsumed; a note with no `to:` is a record (doc 06 §4) and is not listed. | `grep -c '⚠'` |
 | **`work_audit`** | `scope`, `checks[]` | Mechanical integrity report (§5). | the cheap 60% of a 60–150k-token plan audit |
 | **`work_history`** | `ref?`, `since_seq?`, `limit` | Append-only event stream, cursor-paged. | ledger § Exceptions, and "what happened while I was compacted" |
@@ -164,7 +164,7 @@ Names are `work_*`-prefixed so they survive aggregation across servers.
 |---|---|
 | **`work_report`** | Submits the worker report *as its existing schema*: `status`, `files[]`, `verify`, `red_check`, `deviations`, `assumptions[]`, `risks[]`, `not_done`. Creates the attempt + report, and **auto-creates `assumption` rows from `assumptions[]`** — so the field the skill calls *"the highest-value line in the format"* stops being prose. |
 | **`work_verify`** | Records `command`, **`result_line`** (the actual `12 passed` line, not an exit code), `passed`, `counts`, `run_by` (`worker\|orchestrator`), optional `red_check {reverted_what, failed_count}`, `samples[]` for measurements (the skill requires ≥3 with median and range). |
-| **`work_note`** | `kind` = `carry_forward \| do_not_rederive \| correction \| incident \| environment \| decision`; optional **`to`** = a future item ref or a selector (`phase:3`, `kind:task under 4`). Unconsumed notes addressed to an item are injected into its brief and marked consumed. |
+| **`work_note`** | `kind` = `carry_forward \| do_not_rederive \| correction \| incident \| environment \| decision`; optional **`to`** = a future item ref (a selector such as `phase:3` is refused — nothing delivers one). Unconsumed notes addressed to an item are injected into its brief and marked consumed. |
 | **`work_assume`** | Create or resolve. Required on create: `statement`, `evidence_level`, `reversal_cost`, `revisit_when`. Resolve: `confirmed \| disproven \| obsolete` + evidence. Past `revisit_when` → it appears in `attention` until resolved. An assumption ref is numbered within its run, so it is addressed like an item ref: `entity-store/A1` resolves inside that run only; a bare `A1` open in two runs is refused naming both qualified forms, never resolves both. |
 | **`work_constrain`** | Create or retire a `constraint_rule` — the writer the BINDING block never had, without which the block is import-only and a project started in the store has an empty one forever. Create: `kind` (`red_line\|stack_fact\|command\|domain_rule\|generated_code`), `text`, `route`, `scope` (an item ref; omitted, it binds the workspace), `covers_risk[]`, `severity`, `from`. A `red_line` with no `route` is refused — doc 02 §8. Retire: `ref` + `reason`, which sets `active = false` and leaves the row, because the record is the point. |
 | **`work_finding`** | Batch. From a review, gate or audit. Each becomes an item of kind `finding` with `severity` (`blocker\|minor`), a `target` item, and a `source` (`review\|gate\|plan_audit\|self`). A `blocker` linked to a phase **blocks that phase's `done` transition**. |
@@ -280,7 +280,7 @@ REFUSED: 2.4 → done. 3 conditions unmet.
 ```
 
 Each rule is individually overridable with `force: true` + `reason`, which writes a
-`forced_transition` event that is **permanently visible in `work_brief` and `work_audit`**. Escape
+`forced_transition` event that **`work_audit` lists permanently**. Escape
 hatches that are silent get used; escape hatches that leave a mark do not.
 
 `in_progress` requires a claim (`agent`, TTL, heartbeat). A second claim on the same item, or on a
@@ -404,7 +404,6 @@ URI scheme `work://`. Read-only projections, `cacheScope: "private"`, short `ttl
 | `work://workspace/{slug}/conventions` | the binding constraints, rendered |
 | `work://item/{ref}` | one item, rendered |
 | `work://item/{ref}/brief` | the fully rendered worker brief (see §9) |
-| `work://doc/{id}` | a document with block ids inline |
 | `work://workspace/{slug}/handoff` | the "competent stranger could continue from this alone" document |
 | `work://attention` | the busiest run's attention block, uncapped — every line, ranked, each with its call |
 | `work://attention/{scope}` | the same for one scope; the URI a capped attention block prints (doc 06 §5) |

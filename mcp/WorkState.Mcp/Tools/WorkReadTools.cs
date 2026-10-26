@@ -155,10 +155,10 @@ public sealed class WorkReadTools(
     }
 
     [Authorize(Policy = WorkStatePolicies.Worker)]
-    [McpServerTool(Name = "work_search", Title = "Find: full text over items and documents", ReadOnly = true)]
+    [McpServerTool(Name = "work_search", Title = "Find: full text over items", ReadOnly = true)]
     [Description("""
-        Full-text and trigram search across item titles, intents and document blocks, returning a
-        ref and a snippet for each hit.
+        Full-text search across item titles and intents, returning a ref and a snippet for each
+        hit.
         Reach for it when you know a phrase but not a ref — it is what replaces grepping a run
         directory, and it is how you avoid inventing a ref.
         Next: work_get(refs:["<ref>"]) on a hit.

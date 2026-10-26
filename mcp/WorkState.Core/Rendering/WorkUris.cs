@@ -28,7 +28,6 @@ public static class WorkUris
     public const string ItemTemplate = "work://item/{+ref}";
 
     public const string ItemBriefTemplate = "work://item/{+ref}/brief";
-    public const string DocTemplate = "work://doc/{slug}";
 
     public const string BriefSuffix = "/brief";
 
@@ -42,8 +41,6 @@ public static class WorkUris
     public static string Item(string reference) => $"work://item/{Escape(reference)}";
 
     public static string ItemBrief(string reference) => $"work://item/{Escape(reference)}{BriefSuffix}";
-
-    public static string Doc(string slug) => $"work://doc/{Uri.EscapeDataString(slug)}";
 
     /// <summary>
     /// A qualified ref is two path segments, not one escaped string: <c>entity-store%2F3.1</c> is

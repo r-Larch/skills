@@ -331,15 +331,11 @@ public sealed partial class BoardReader
 
         lines.AddRange(hits.Select(hit =>
             $"{Glyph.Pad(Glyph.Flat(hit.Ref), 18)}  "
-            + $"{Glyph.Pad(hit.Source == "item" ? "item" : "doc", 5)}  "
             + $"{Glyph.Pad(Glyph.Row(hit.Title, 30), 30)}  "
             + Glyph.Row(hit.Snippet, 40)));
 
         lines.Add(string.Empty);
-        lines.Add(hits[0].Source == "item"
-            ? $"Next: work_get(refs:[\"{hits[0].Ref}\"]) on a hit."
-            : $"Next: read {WorkUris.Doc(hits[0].Ref.Split('#')[0])} for a doc hit's whole text, "
-              + "work_get(refs:[…]) for an item hit.");
+        lines.Add($"Next: work_get(refs:[\"{hits[0].Ref}\"]) on a hit.");
         return string.Join("\n", lines);
     }
 
