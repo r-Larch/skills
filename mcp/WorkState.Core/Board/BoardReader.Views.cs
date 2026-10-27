@@ -141,7 +141,8 @@ public sealed partial class BoardReader
         ScopeResult.Found home,
         IReadOnlyList<string> references,
         IReadOnlyCollection<string> include,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        string? webBase = null)
     {
         var workspaceId = home.WorkspaceId;
         var resolved = new List<ScopeRef>();
@@ -304,6 +305,11 @@ public sealed partial class BoardReader
             // URI for both projections rather than leaving the model to compose the second one.
             lines.Add($"  uri       {WorkUris.Item(callable)}");
             lines.Add($"  brief     {WorkUris.ItemBrief(callable)} — read it with ReadMcpResourceTool");
+
+            if (webBase is not null && await board.FullRefAsync(item.Id, cancellationToken) is { Length: > 0 } fullRef)
+            {
+                lines.Add($"  web       {WebLinks.Link(webBase, fullRef)}");
+            }
         }
 
         lines.AddRange(assumptions.SelectMany(AssumptionDetail));
