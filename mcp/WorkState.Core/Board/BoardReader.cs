@@ -633,7 +633,7 @@ public sealed partial class BoardReader(WorkStateQueries queries, BoardQueries b
         string asked,
         CancellationToken cancellationToken)
     {
-        var hits = await queries.SearchAsync(workspaceId, asked, 3, cancellationToken);
+        var hits = await queries.SearchAsync(workspaceId, asked, 3, null, itemsOnly: true, cancellationToken);
         var printed = new List<string>(hits.Count);
         foreach (var hit in hits)
         {

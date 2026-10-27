@@ -77,7 +77,7 @@ Times are the median of 5 runs (`duration` from auto_explain, i.e. execution inc
 | SubtreeAsync (work_tree, every work_brief) | run / project | 26.4 / 44.7 | 0 / 14.6 | 7.6 / 15.3 | **rewrite** + jit |
 | ApiQueries.BoardAsync (`/api/v1/board`) | run / project | **67.3 / 77.1** | 34.4 / 34.8 | 16.6 / 31.5 | **rewrite** + jit |
 | OpenThreadsAsync (work_threads) | run / workspace | 3.2 / 3.4 | 0 | 3.4 / 3.4 | **fine** |
-| SearchAsync | 2 / 3 words | 0.74 / 0.50 | 0 | 0.55 / 0.37 | **fine** |
+| SearchAsync | 2 / 3 words | 0.74 / 0.50 | 0 | 0.55 / 0.37 | **fine** (items only; see §3.1 for the union) |
 | attention: ExpiredClaims | run / project | 0.60 / 1.06 | 0 | 0.57 / 0.84 | **fine** |
 | attention: BlockerFindings | run / project | 0.14 / 0.28 | 0 | 0.11 / 0.23 | **fine** |
 | attention: UngatedPhases | run / project | 0.58 / 1.00 | 0 | 0.60 / 0.90 | **fine** |
@@ -92,8 +92,40 @@ Times are the median of 5 runs (`duration` from auto_explain, i.e. execution inc
 | journal `?before=` deep (seq/10) + run | run | 0.29 | 0 | 0.32 | **fine** |
 
 Buffers are all shared hits (`read=0`): the seed fits in shared_buffers, so these are warm-cache
-numbers. Search uses the single item tsvector (`item_search_idx`). Doc blocks are not searched, so
-there is no union to measure (WorkStateQueries.SearchAsync).
+numbers. The rows above were measured with search over the item tsvector only (`item_search_idx`).
+Doc blocks are still not searched. §3.1 measures the search that also covers assumptions, rules
+and notes.
+
+### 3.1 work_search over items, assumptions, rules and notes (search-scope)
+
+Measured 2026-10-27 by aw-m34 (backlog/search-scope), branch `ws/search-scope` off `feat/workstate`
+@ 9fb9afc, same seed and method. `WorkStateQueries.SearchAsync` is now a `UNION ALL` of four
+branches (item, assumption, active constraint_rule, note), ranked by one `ts_rank`. With a scope,
+each branch keeps only rows inside the subtree. `ts_headline` runs after the `LIMIT`.
+
+| query | scope | first union ms | after ms | verdict |
+|---|---|---:|---:|---|
+| SearchAsync `flaky migration` | workspace | 21.6 | 2.16 | **index** + **rewrite** |
+| SearchAsync `frontier rollup planner` | workspace | 18.8 | 1.46 | **index** + **rewrite** |
+| SearchAsync `flaky migration` | run (`autowork/m1`) | 4.6 | 1.24 | **index** + **rewrite** |
+| SearchAsync `flaky migration` | project (`autowork`) | 8.3 | 1.89 | **index** + **rewrite** |
+| SearchAsync items only (refusal "nearby" suggestions) | workspace | 2.4 | 0.35 | **rewrite** |
+
+- **Seq scan on `note` with per-row `to_tsvector`.** The first union built every note's vector on
+  each search: `Seq Scan on note` (900 rows) under a Join Filter, 16.8 of the 21.6 ms. `note` is the
+  thread table that grows with the run, so this is the "hot, large table" case in §1. **Index:**
+  migration `NoteSearchIndex`, `note_search_idx ON note USING gin (to_tsvector('english', body))`.
+  It is an expression index, so it lives in raw SQL in the migration, not in the EF model, and
+  `Down` drops it. The note branch matches on exactly that expression and adds the weight only for
+  ranking. After: `Bitmap Index Scan using note_search_idx`, 23 rows. `NoteSearchIndexMigrationTests`
+  covers Up/Down/Up over live rows and the planner's use of the index.
+- **`ts_headline` for every match.** Over a single table, Postgres postpones the expensive target
+  list until after Sort/Limit. Inside a union it does not, so the item branch headlined all 137
+  matches (2.6 ms). **Rewrite:** the union returns the text, and the outer query headlines only the
+  `LIMIT` rows.
+- **Left in place:** `Seq Scan on assumption` (156 rows) and `on constraint_rule` (60 rows), each
+  vectorised per query, together about 0.8 ms. Both tables are small and grow by hand, one row per
+  `work_assume` / `work_constrain`. An index is not warranted yet.
 
 ### Top plan nodes, before → after
 
