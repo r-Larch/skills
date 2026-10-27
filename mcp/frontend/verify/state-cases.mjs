@@ -8,6 +8,7 @@
 import { CLOSED, LEAF, countTitle, counted, independent, progress, state, tally } from '../src/state.ts'
 import { DEFAULT_FILTER, FILTERS, asFilter, cancelledLines, plan, planQuery, withoutCancelled } from '../src/plan.ts'
 import { boardHref, copyValue, itemHref, pathCrumbs, routeReads } from '../src/nav.ts'
+import { consentForm, consentStep, consentView, hiddenFields, isConnectPath, returnTarget, scopeLines, signInHref, signInStart, signInStep } from '../src/connect.ts'
 import { HANDLE, LIST_MIN, PANEL_MIN, PANEL_SHARE, WIDTH_KEY, clampWidth, docks, panelWidth, rememberWidth, rememberedWidth } from '../src/split.ts'
 
 let failures = 0
@@ -217,6 +218,55 @@ check('a reset forgets it', kept.map.has(WIDTH_KEY), false)
 let threw = false
 try { rememberWidth(400, () => throwing) } catch { threw = true }
 check('storing into throwing storage does not throw', threw, false)
+
+console.log('\n── the consent page: loading, client shown, approve, deny, error ────────────')
+const search = '?response_type=code&client_id=c1&redirect_uri=http%3A%2F%2F127.0.0.1%3A7777%2Fcallback&scope=openid+mcp+offline_access&state=s&resource=r1&resource=r2'
+const info = { clientName: 'Claude Code', clientHost: null, redirectHost: '127.0.0.1', loopbackOnly: true }
+const loading = { k: 'loading' }
+const shown = consentStep(loading, { t: 'loaded', info })
+const pick = (v) => ({ client: v.client, canAnswer: v.canAnswer, approve: v.approveLabel, deny: v.denyLabel, error: v.error })
+check('loading: no client, no answer yet', pick(consentView(loading)), { client: null, canAnswer: false, approve: 'Approve', deny: 'Deny', error: null })
+check('client shown: name, may answer', pick(consentView(shown)), { client: 'Claude Code', canAnswer: true, approve: 'Approve', deny: 'Deny', error: null })
+check('client shown: where the answer goes', [consentView(shown).destination, consentView(shown).declaredBy, consentView(shown).loopbackOnly], ['127.0.0.1', null, true])
+check('an unregistered callback names no host', consentView(consentStep(loading, { t: 'loaded', info: { ...info, redirectHost: null } })).destination, null)
+const approving = consentStep(shown, { t: 'answer', answer: 'granted' })
+check('approve: one answer, labelled in flight', pick(consentView(approving)), { client: 'Claude Code', canAnswer: false, approve: 'Approving…', deny: 'Deny', error: null })
+check('approve: a second press changes nothing', consentStep(approving, { t: 'answer', answer: 'denied' }), approving)
+check('approve: posts every parameter back, then consent=granted', consentForm(search, 'granted'), [
+  ['response_type', 'code'], ['client_id', 'c1'], ['redirect_uri', 'http://127.0.0.1:7777/callback'], ['scope', 'openid mcp offline_access'],
+  ['state', 's'], ['resource', 'r1'], ['resource', 'r2'], ['consent', 'granted'],
+])
+const denying = consentStep(shown, { t: 'answer', answer: 'denied' })
+check('deny: labelled in flight', pick(consentView(denying)), { client: 'Claude Code', canAnswer: false, approve: 'Approve', deny: 'Denying…', error: null })
+check('deny: posts consent=denied', consentForm(search, 'denied').at(-1), ['consent', 'denied'])
+check('an answer before the client is shown is ignored', consentStep(loading, { t: 'answer', answer: 'granted' }), loading)
+check('error: 404 names the cause', consentView(consentStep(loading, { t: 'failed', status: 404 })).error, 'No client by that id is registered here. Start the connection again from your MCP client.')
+check('error: no answer at all', consentView(consentStep(loading, { t: 'failed', status: 0 })).error, 'WorkState did not answer. Check that it is running, then reload this page.')
+check('error: cannot answer', consentView(consentStep(loading, { t: 'failed', status: 500 })).canAnswer, false)
+check('a late failure does not replace a shown client', consentStep(shown, { t: 'failed', status: 500 }), shown)
+check('a stale consent field is never forwarded twice', hiddenFields('?client_id=c1&consent=granted'), [['client_id', 'c1']])
+check('what it gets: openid is not a line', scopeLines(search).map((l) => l.scope), ['mcp', 'offline_access'])
+check('what it gets: mcp is controller access', scopeLines(search)[0].label, 'Full access to your WorkState as controller')
+check('an unknown scope is shown by name', scopeLines('?scope=mystery').map((l) => [l.scope, l.label]), [['mystery', 'mystery']])
+check('a lapsed session goes back through sign-in', signInHref('?client_id=c1&state=s'), '/connect/signin?returnUrl=%2Fconnect%2Fauthorize%3Fclient_id%3Dc1%26state%3Ds')
+
+console.log('\n── the sign-in page: where it may continue to ───────────────────────────────')
+check('authorize with a query', returnTarget('/connect/authorize?client_id=x'), '/connect/authorize?client_id=x')
+check('bare authorize', returnTarget('/connect/authorize'), '/connect/authorize')
+check('another origin', returnTarget('https://evil.example/connect/authorize?x'), null)
+check('protocol-relative', returnTarget('//evil.example/connect/authorize'), null)
+check('backslash trick', returnTarget('/\evil.example/connect/authorize'), null)
+check('a lookalike path', returnTarget('/connect/authorizeX'), null)
+check('a dashboard path', returnTarget('/api/v1/overview'), null)
+check('none at all', returnTarget(null), null)
+check('an invalid target never shows the form', signInStart('?returnUrl=https%3A%2F%2Fevil.example'), { k: 'invalid' })
+const checking = signInStart('?returnUrl=%2Fconnect%2Fauthorize%3Fclient_id%3Dx')
+check('a valid target checks for a session first', checking, { k: 'checking', target: '/connect/authorize?client_id=x' })
+check('a session already there continues at once', signInStep(checking, { t: 'session', present: true }), { k: 'continuing', target: '/connect/authorize?client_id=x' })
+const form = signInStep(checking, { t: 'session', present: false })
+check('no session shows the form', form.k, 'form')
+check('signing in continues', signInStep(form, { t: 'signed-in' }), { k: 'continuing', target: '/connect/authorize?client_id=x' })
+check('the connect pages', ['/connect/signin', '/connect/consent', '/connect/authorize', '/'].map(isConnectPath), [true, true, false, false])
 
 console.log(failures === 0 ? '\nAll checks passed.' : `\n${failures} check(s) failed.`)
 if (failures > 0) process.exitCode = 1

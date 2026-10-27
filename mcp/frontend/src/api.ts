@@ -1,4 +1,5 @@
 import { createSignal } from 'solid-js'
+import type { AppInfo } from './connect.ts'
 
 /** doc 10 — the frozen v1 shapes, as `WorkState.Api/App/V1/V1Contract.cs` serialises them. */
 export type ItemRef = {
@@ -297,7 +298,10 @@ export async function setArchived(project: string, archived: boolean): Promise<v
   }
 }
 
-export async function signIn(username: string, password: string): Promise<boolean> {
+/** `throttled` is the sign-in rate limit (429); `rejected` never says which field was wrong. */
+export type SignInResult = 'ok' | 'rejected' | 'throttled'
+
+export async function signIn(username: string, password: string): Promise<SignInResult> {
   const response = await fetch('/api/session', {
     method: 'POST',
     credentials: 'same-origin',
@@ -307,8 +311,31 @@ export async function signIn(username: string, password: string): Promise<boolea
 
   if (response.status === 204) {
     setSignedIn(true)
-    return true
+    return 'ok'
   }
 
-  return false
+  return response.status === 429 ? 'throttled' : 'rejected'
+}
+
+/** Whether the dashboard cookie is there, without touching the store. */
+export async function hasSession(): Promise<boolean> {
+  const response = await fetch('/api/session', { credentials: 'same-origin' })
+  return response.status === 204
+}
+
+/** The consent page's client; a status of 0 is no answer at all. */
+export async function appInfo(search: string): Promise<{ status: number; info: AppInfo | null }> {
+  const params = new URLSearchParams(search)
+  const query = new URLSearchParams()
+  for (const key of ['client_id', 'redirect_uri']) {
+    const value = params.get(key)
+    if (value !== null) query.set(key, value)
+  }
+
+  try {
+    const response = await fetch(`/connect/app-info?${query}`, { credentials: 'same-origin' })
+    return { status: response.status, info: response.ok ? ((await response.json()) as AppInfo) : null }
+  } catch {
+    return { status: 0, info: null }
+  }
 }

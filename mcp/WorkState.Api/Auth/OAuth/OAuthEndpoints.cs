@@ -3,6 +3,7 @@ using System.Security.Claims;
 using System.Text.Json.Serialization;
 using Microsoft.AspNetCore;
 using Microsoft.AspNetCore.Authentication;
+using Microsoft.Extensions.Primitives;
 using Microsoft.IdentityModel.Tokens;
 using OpenIddict.Abstractions;
 using OpenIddict.Server.AspNetCore;
@@ -25,36 +26,18 @@ public static class OAuthEndpoints
     {
         app.MapMethods(OAuthServer.AuthorizePath, [HttpMethods.Get, HttpMethods.Post], AuthorizeAsync).AllowAnonymous();
         app.MapPost(OAuthServer.TokenPath, ExchangeAsync).AllowAnonymous();
-        app.MapPost(OAuthServer.RegisterPath, RegisterAsync).AllowAnonymous();
+        app.MapPost(OAuthServer.RegisterPath, RegisterAsync).AllowAnonymous().RequireRateLimiting(RateLimits.Registration);
     }
 
-    private static async Task<IResult> AuthorizeAsync(HttpContext http, DashboardOptions dashboard)
+    private static async Task<IResult> AuthorizeAsync(
+        HttpContext http,
+        DashboardOptions dashboard,
+        IOpenIddictApplicationManager applications,
+        IOpenIddictAuthorizationManager authorizations)
     {
         var request = http.GetOpenIddictServerRequest()
                       ?? throw new InvalidOperationException("The OpenIddict request is missing.");
 
-        if (await AskOperatorAsync(http, dashboard) is { } interaction)
-        {
-            return interaction;
-        }
-
-        var resources = request.GetResources() is { IsDefaultOrEmpty: false } requested
-            ? requested
-            : [OAuthServer.Resource(OAuthServer.Origin(http))];
-
-        return Results.SignIn(
-            Principal(dashboard.Username!, request.GetScopes(), resources),
-            authenticationScheme: OpenIddictServerAspNetCoreDefaults.AuthenticationScheme);
-    }
-
-    /// <summary>
-    /// <b>The seam shared-v1/signin replaces.</b> Null when the operator has agreed to this request;
-    /// otherwise the response that asks them. Until there is a sign-in page and a consent page, agreeing
-    /// means already holding a dashboard session, and consent is implicit — there is one user and they
-    /// are the one starting the connection.
-    /// </summary>
-    private static async Task<IResult?> AskOperatorAsync(HttpContext http, DashboardOptions dashboard)
-    {
         if (!dashboard.Configured)
         {
             return Results.Forbid(
@@ -63,10 +46,101 @@ public static class OAuthEndpoints
         }
 
         var session = await http.AuthenticateAsync(DashboardAuth.SchemeName);
+        if (!session.Succeeded || !session.Principal.IsInRole(DashboardAuth.Role))
+        {
+            return request.HasPromptValue(PromptValues.None)
+                ? Results.Forbid(
+                    OAuthError(Errors.LoginRequired, "The operator is not signed in."),
+                    [OpenIddictServerAspNetCoreDefaults.AuthenticationScheme])
+                : Results.LocalRedirect($"{ConnectPages.SignInPath}?{ConnectPages.ReturnUrl}={Uri.EscapeDataString(await AuthorizeUrlAsync(http.Request))}");
+        }
 
-        return session.Succeeded && session.Principal.IsInRole(DashboardAuth.Role)
-            ? null
-            : Results.Challenge(authenticationSchemes: [DashboardAuth.SchemeName]);
+        var application = await applications.FindByClientIdAsync(request.ClientId ?? string.Empty, http.RequestAborted)
+                          ?? throw new InvalidOperationException("OpenIddict admitted a client it cannot find.");
+        var applicationId = await applications.GetIdAsync(application, http.RequestAborted);
+        var subject = dashboard.Username!;
+
+        // The consent page's answer, ahead of any remembered approval so that Deny always means deny. SameSite
+        // keeps it the operator's: a POST from another site carries no session cookie and went to sign-in above.
+        var answer = http.Request.HasFormContentType
+                     && (await http.Request.ReadFormAsync(http.RequestAborted)).TryGetValue(ConnectPages.ConsentField, out var field)
+            ? field.ToString()
+            : null;
+
+        if (answer is not null && answer != ConnectPages.Granted)
+        {
+            return Results.Forbid(
+                OAuthError(Errors.AccessDenied, "The operator declined the request."),
+                [OpenIddictServerAspNetCoreDefaults.AuthenticationScheme]);
+        }
+
+        if (answer is not null || !request.HasPromptValue(PromptValues.Consent))
+        {
+            await foreach (var remembered in authorizations.FindAsync(
+                               subject,
+                               applicationId!,
+                               Statuses.Valid,
+                               AuthorizationTypes.Permanent,
+                               request.GetScopes(),
+                               http.RequestAborted))
+            {
+                return Issue(http, request, subject, await authorizations.GetIdAsync(remembered, http.RequestAborted));
+            }
+        }
+
+        if (answer is not null)
+        {
+            var descriptor = new OpenIddictAuthorizationDescriptor
+            {
+                ApplicationId = applicationId,
+                Subject = subject,
+                Type = AuthorizationTypes.Permanent,
+                Status = Statuses.Valid,
+                CreationDate = DateTimeOffset.UtcNow,
+            };
+            descriptor.Scopes.UnionWith(request.GetScopes());
+
+            var authorization = await authorizations.CreateAsync(descriptor, http.RequestAborted);
+            return Issue(http, request, subject, await authorizations.GetIdAsync(authorization, http.RequestAborted));
+        }
+
+        return request.HasPromptValue(PromptValues.None)
+            ? Results.Forbid(
+                OAuthError(Errors.ConsentRequired, "This client has not been approved."),
+                [OpenIddictServerAspNetCoreDefaults.AuthenticationScheme])
+            : Results.LocalRedirect(ConnectPages.ConsentPath + (await AuthorizeUrlAsync(http.Request))[OAuthServer.AuthorizePath.Length..]);
+    }
+
+    /// <summary>
+    /// Approved: the operator's principal, tied to the permanent authorization that remembers the approval,
+    /// so revoking that authorization ends every token issued under it.
+    /// </summary>
+    private static IResult Issue(HttpContext http, OpenIddictRequest request, string subject, string? authorizationId)
+    {
+        var resources = request.GetResources() is { IsDefaultOrEmpty: false } requested
+            ? requested
+            : [OAuthServer.Resource(OAuthServer.Origin(http))];
+
+        var principal = Principal(subject, request.GetScopes(), resources);
+        principal.SetAuthorizationId(authorizationId);
+
+        return Results.SignIn(principal, authenticationScheme: OpenIddictServerAspNetCoreDefaults.AuthenticationScheme);
+    }
+
+    /// <summary>
+    /// This request as a same-origin <c>/connect/authorize</c> URL, whether it came as a query or as the
+    /// consent page's form, without the consent answer: where the sign-in page sends the operator back to,
+    /// and the query the consent page is opened with.
+    /// </summary>
+    private static async Task<string> AuthorizeUrlAsync(HttpRequest request)
+    {
+        IEnumerable<KeyValuePair<string, StringValues>> fields = request.HasFormContentType
+            ? (await request.ReadFormAsync(request.HttpContext.RequestAborted))
+                .Where(field => field.Key != ConnectPages.ConsentField)
+            : request.Query;
+
+        return OAuthServer.AuthorizePath + QueryString.Create(
+            fields.SelectMany(field => field.Value.Select(value => KeyValuePair.Create(field.Key, value))));
     }
 
     private static async Task<IResult> ExchangeAsync(HttpContext http, DashboardOptions dashboard)
