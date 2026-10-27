@@ -24,12 +24,27 @@ public static class ClientIdMetadata
     public const string HttpClientName = "client-id-metadata";
 
     private static readonly TimeSpan FetchTimeout = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan MinimumCacheLifetime = TimeSpan.FromMinutes(5);
+    private static readonly TimeSpan DefaultCacheLifetime = TimeSpan.FromHours(1);
+    private static readonly TimeSpan MaximumCacheLifetime = TimeSpan.FromHours(24);
+
+    /// <summary>How long a URL that gave nothing usable is left alone.</summary>
+    public static readonly TimeSpan RefusalLifetime = TimeSpan.FromMinutes(5);
+
+    /// <summary>
+    /// Process-wide, shared by every fetch through <see cref="HttpClientName"/>: a burst of requests naming
+    /// fresh URLs cannot fan out without bound.
+    /// </summary>
+    internal static readonly SemaphoreSlim Fetches = new(8);
+    internal static readonly TimeSpan FetchSlotWait = TimeSpan.FromSeconds(2);
+
     private static readonly string[] Paths = [OAuthServer.AuthorizePath, OAuthServer.TokenPath, OAuthServer.RevokePath];
 
     public static void Add(IServiceCollection services)
     {
         services.AddMemoryCache();
         services.AddScoped<ClientIdMetadataResolver>();
+        services.AddSingleton<ClientIconResolver>();
         services.AddHttpClient(HttpClientName, client =>
             {
                 client.Timeout = FetchTimeout;
@@ -112,6 +127,34 @@ public static class ClientIdMetadata
         };
     }
 
+    internal static async Task<byte[]> ReadCappedAsync(HttpResponseMessage response, int maxBytes, CancellationToken cancellationToken)
+    {
+        await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
+        var buffer = new byte[maxBytes + 1];
+        var read = 0;
+        int last;
+        while (read < buffer.Length && (last = await stream.ReadAsync(buffer.AsMemory(read), cancellationToken)) > 0)
+        {
+            read += last;
+        }
+
+        if (read > maxBytes)
+        {
+            throw new InvalidDataException($"The response is larger than {maxBytes} bytes.");
+        }
+
+        Array.Resize(ref buffer, read);
+        return buffer;
+    }
+
+    internal static TimeSpan Lifetime(HttpResponseMessage response)
+    {
+        var declared = response.Headers.CacheControl?.MaxAge ?? DefaultCacheLifetime;
+        return declared < MinimumCacheLifetime ? MinimumCacheLifetime
+            : declared > MaximumCacheLifetime ? MaximumCacheLifetime
+            : declared;
+    }
+
     private static async ValueTask<Stream> ConnectToPublicAddressAsync(
         SocketsHttpConnectionContext context,
         CancellationToken cancellationToken)
@@ -158,7 +201,9 @@ public static class ClientIdMetadata
 public sealed record ClientIdMetadataDocument(
     [property: JsonPropertyName("client_id")] string? ClientId,
     [property: JsonPropertyName("client_name")] string? ClientName,
-    [property: JsonPropertyName("redirect_uris")] string[]? RedirectUris);
+    [property: JsonPropertyName("redirect_uris")] string[]? RedirectUris,
+    [property: JsonPropertyName("logo_uri")] string? LogoUri = null,
+    [property: JsonPropertyName("client_uri")] string? ClientUri = null);
 
 /// <summary>Fetches, checks and caches one document, and writes the application row it describes.</summary>
 public sealed class ClientIdMetadataResolver(
@@ -168,14 +213,6 @@ public sealed class ClientIdMetadataResolver(
     ILogger<ClientIdMetadataResolver> logger)
 {
     private const int MaxDocumentBytes = 64 * 1024;
-    private static readonly TimeSpan MinimumCacheLifetime = TimeSpan.FromMinutes(5);
-    private static readonly TimeSpan DefaultCacheLifetime = TimeSpan.FromHours(1);
-    private static readonly TimeSpan MaximumCacheLifetime = TimeSpan.FromHours(24);
-    private static readonly TimeSpan RefusalLifetime = TimeSpan.FromMinutes(5);
-
-    /// <summary>Process-wide: a burst of authorize requests naming fresh URLs cannot fan out without bound.</summary>
-    private static readonly SemaphoreSlim Fetches = new(8);
-    private static readonly TimeSpan FetchSlotWait = TimeSpan.FromSeconds(2);
 
     private sealed record Outcome(ClientIdMetadataDocument? Document);
 
@@ -208,7 +245,7 @@ public sealed class ClientIdMetadataResolver(
             return cached?.Document;
         }
 
-        if (!await Fetches.WaitAsync(FetchSlotWait, cancellationToken))
+        if (!await ClientIdMetadata.Fetches.WaitAsync(ClientIdMetadata.FetchSlotWait, cancellationToken))
         {
             logger.LogWarning("Client ID metadata document {Url} not fetched: too many fetches in flight.", url);
             return null;
@@ -220,37 +257,17 @@ public sealed class ClientIdMetadataResolver(
                 .GetAsync(url, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
 
             var document = response.IsSuccessStatusCode
-                ? Parse(await ReadCappedAsync(response, cancellationToken), url)
+                ? Parse(await ClientIdMetadata.ReadCappedAsync(response, MaxDocumentBytes, cancellationToken), url)
                 : null;
 
-            var lifetime = document is null ? RefusalLifetime : Lifetime(response);
+            var lifetime = document is null ? ClientIdMetadata.RefusalLifetime : ClientIdMetadata.Lifetime(response);
             cache.Set(key, new Outcome(document), lifetime);
             return document;
         }
         finally
         {
-            Fetches.Release();
+            ClientIdMetadata.Fetches.Release();
         }
-    }
-
-    private static async Task<byte[]> ReadCappedAsync(HttpResponseMessage response, CancellationToken cancellationToken)
-    {
-        await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
-        var buffer = new byte[MaxDocumentBytes + 1];
-        var read = 0;
-        int last;
-        while (read < buffer.Length && (last = await stream.ReadAsync(buffer.AsMemory(read), cancellationToken)) > 0)
-        {
-            read += last;
-        }
-
-        if (read > MaxDocumentBytes)
-        {
-            throw new InvalidDataException($"The document is larger than {MaxDocumentBytes} bytes.");
-        }
-
-        Array.Resize(ref buffer, read);
-        return buffer;
     }
 
     private ClientIdMetadataDocument? Parse(byte[] body, Uri url)
@@ -278,14 +295,6 @@ public sealed class ClientIdMetadataResolver(
         return document;
     }
 
-    private static TimeSpan Lifetime(HttpResponseMessage response)
-    {
-        var declared = response.Headers.CacheControl?.MaxAge ?? DefaultCacheLifetime;
-        return declared < MinimumCacheLifetime ? MinimumCacheLifetime
-            : declared > MaximumCacheLifetime ? MaximumCacheLifetime
-            : declared;
-    }
-
     private static Uri[] Callbacks(ClientIdMetadataDocument document)
         => (document.RedirectUris ?? [])
             .Select(value => OAuthEndpoints.IsAcceptableRedirect(value, out var uri) ? uri : null)
@@ -295,6 +304,7 @@ public sealed class ClientIdMetadataResolver(
     private async Task StoreAsync(Uri url, ClientIdMetadataDocument document, string? redirectUri, CancellationToken cancellationToken)
     {
         var descriptor = OAuthEndpoints.PublicClient(url.OriginalString, document.ClientName!);
+        ClientIcons.Describe(descriptor, document.LogoUri, document.ClientUri);
         foreach (var callback in WithRequestedLoopback(Callbacks(document), redirectUri))
         {
             descriptor.RedirectUris.Add(callback);
@@ -322,7 +332,8 @@ public sealed class ClientIdMetadataResolver(
             && stored.ClientType == descriptor.ClientType
             && stored.RedirectUris.SetEquals(descriptor.RedirectUris)
             && stored.Permissions.SetEquals(descriptor.Permissions)
-            && stored.Requirements.SetEquals(descriptor.Requirements))
+            && stored.Requirements.SetEquals(descriptor.Requirements)
+            && ClientIcons.SameSources(stored, descriptor))
         {
             return;
         }

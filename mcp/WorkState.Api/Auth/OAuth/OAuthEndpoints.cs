@@ -234,6 +234,7 @@ public static class OAuthEndpoints
 
         var clientId = Guid.NewGuid().ToString("N");
         var descriptor = PublicClient(clientId, string.IsNullOrWhiteSpace(body?.ClientName) ? "MCP client" : body.ClientName);
+        ClientIcons.Describe(descriptor, body?.LogoUri, body?.ClientUri);
         foreach (var callback in callbacks)
         {
             descriptor.RedirectUris.Add(callback);
@@ -249,7 +250,9 @@ public static class OAuthEndpoints
                 [.. requested],
                 ClientAuthenticationMethods.None,
                 [GrantTypes.AuthorizationCode, GrantTypes.RefreshToken],
-                [ResponseTypes.Code]),
+                [ResponseTypes.Code],
+                ClientIcons.Declared(descriptor, ClientIcons.LogoUri),
+                ClientIcons.Declared(descriptor, ClientIcons.ClientUri)),
             statusCode: StatusCodes.Status201Created);
     }
 
@@ -300,7 +303,9 @@ public static class OAuthEndpoints
 
     public sealed record RegistrationRequest(
         [property: JsonPropertyName("client_name")] string? ClientName,
-        [property: JsonPropertyName("redirect_uris")] List<string>? RedirectUris);
+        [property: JsonPropertyName("redirect_uris")] List<string>? RedirectUris,
+        [property: JsonPropertyName("logo_uri")] string? LogoUri = null,
+        [property: JsonPropertyName("client_uri")] string? ClientUri = null);
 
     private sealed record RegistrationResponse(
         [property: JsonPropertyName("client_id")] string ClientId,
@@ -309,7 +314,9 @@ public static class OAuthEndpoints
         [property: JsonPropertyName("redirect_uris")] string[] RedirectUris,
         [property: JsonPropertyName("token_endpoint_auth_method")] string TokenEndpointAuthMethod,
         [property: JsonPropertyName("grant_types")] string[] GrantTypes,
-        [property: JsonPropertyName("response_types")] string[] ResponseTypes);
+        [property: JsonPropertyName("response_types")] string[] ResponseTypes,
+        [property: JsonPropertyName("logo_uri"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? LogoUri,
+        [property: JsonPropertyName("client_uri"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? ClientUri);
 
     private sealed record RegistrationErrorResponse(
         [property: JsonPropertyName("error")] string Error,

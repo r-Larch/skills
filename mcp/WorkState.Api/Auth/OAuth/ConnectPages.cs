@@ -13,7 +13,8 @@ namespace WorkState.Api.Auth.OAuth;
 /// <para>
 /// Both forbid framing. The consent page's <c>form-action</c> names the client's registered callbacks as
 /// well as <c>'self'</c>: a browser checks the redirect a form submission ends in against that directive,
-/// and the approval's answer is a redirect to the client.
+/// and the approval's answer is a redirect to the client. Its <c>img-src</c> is this origin: the client's
+/// icon comes from <see cref="AppIconPath"/>, never from the client's host or a favicon service.
 /// </para>
 /// </summary>
 public static class ConnectPages
@@ -21,6 +22,7 @@ public static class ConnectPages
     public const string SignInPath = "/connect/signin";
     public const string ConsentPath = "/connect/consent";
     public const string AppInfoPath = "/connect/app-info";
+    public const string AppIconPath = "/connect/app-icon";
 
     public const string ReturnUrl = "returnUrl";
     public const string ConsentField = "consent";
@@ -31,6 +33,10 @@ public static class ConnectPages
         app.MapGet(SignInPath, SignInAsync).AllowAnonymous().ExcludeFromDescription();
         app.MapGet(ConsentPath, ConsentAsync).AllowAnonymous().ExcludeFromDescription();
         app.MapGet(AppInfoPath, AppInfoAsync).RequireAuthorization(DashboardAuth.Policy).ExcludeFromDescription();
+        app.MapGet(AppIconPath, AppIconAsync)
+            .RequireAuthorization(DashboardAuth.Policy)
+            .RequireRateLimiting(RateLimits.AppIcon)
+            .ExcludeFromDescription();
     }
 
     /// <summary>
@@ -73,7 +79,7 @@ public static class ConnectPages
             .Distinct(StringComparer.Ordinal);
 
         context.Response.Headers.ContentSecurityPolicy =
-            $"form-action {string.Join(' ', origins.Prepend("'self'"))}; frame-ancestors 'none'";
+            $"form-action {string.Join(' ', origins.Prepend("'self'"))}; frame-ancestors 'none'; img-src 'self' data:";
         await SpaFallback.ServeAsync(context);
     }
 
@@ -99,6 +105,33 @@ public static class ConnectPages
             ClientIdMetadata.IsMetadataDocument(clientId, out var document) ? document.Host : null,
             RegisteredHost(callbacks, context.Request.Query[Parameters.RedirectUri].FirstOrDefault()),
             callbacks.Length > 0 && callbacks.All(callback => Uri.TryCreate(callback, UriKind.Absolute, out var uri) && uri.IsLoopback)));
+    }
+
+    /// <summary>
+    /// A 404 when the client has no row — so this is no fetch proxy for any id a page names — or when nothing
+    /// it declared resolves, and the page shows its initials instead.
+    /// </summary>
+    private static async Task<IResult> AppIconAsync(
+        HttpContext context,
+        IOpenIddictApplicationManager applications,
+        ClientIconResolver icons)
+    {
+        var clientId = context.Request.Query[Parameters.ClientId].FirstOrDefault();
+        if (string.IsNullOrEmpty(clientId))
+        {
+            return Results.BadRequest();
+        }
+
+        if (await applications.FindByClientIdAsync(clientId, context.RequestAborted) is not { } application
+            || await icons.ResolveAsync(applications, application, context.RequestAborted) is not { } icon)
+        {
+            return Results.NotFound();
+        }
+
+        context.Response.Headers.XContentTypeOptions = "nosniff";
+        context.Response.Headers.CacheControl = "private, max-age=3600";
+        context.Response.Headers.ContentSecurityPolicy = "default-src 'none'; sandbox";
+        return Results.Bytes(icon.Body, icon.ContentType);
     }
 
     /// <summary>

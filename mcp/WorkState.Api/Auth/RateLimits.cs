@@ -6,7 +6,8 @@ namespace WorkState.Api.Auth;
 
 /// <summary>
 /// The two anonymous writes: signing in, which guesses at the operator's password, and registering an OAuth
-/// client, which writes an application row nothing prunes. Per client address, in memory — one process, one
+/// client, which writes an application row nothing prunes; and the consent page's client icon, which makes
+/// this server fetch from the client's host. Per client address, in memory — one process, one
 /// operator — and keyed on the address <see cref="TrustedProxies"/> has already resolved, so a named proxy
 /// does not put every caller in one partition.
 /// </summary>
@@ -14,6 +15,7 @@ public static class RateLimits
 {
     public const string SignIn = "sign-in";
     public const string Registration = "registration";
+    public const string AppIcon = "app-icon";
 
     public static readonly FixedWindowRateLimiterOptions SignInWindow = new()
     {
@@ -26,6 +28,13 @@ public static class RateLimits
     {
         PermitLimit = 10,
         Window = TimeSpan.FromHours(1),
+        QueueLimit = 0,
+    };
+
+    public static readonly FixedWindowRateLimiterOptions AppIconWindow = new()
+    {
+        PermitLimit = 30,
+        Window = TimeSpan.FromMinutes(1),
         QueueLimit = 0,
     };
 
@@ -46,6 +55,7 @@ public static class RateLimits
 
             options.AddPolicy(SignIn, context => RateLimitPartition.GetFixedWindowLimiter(Client(context), _ => SignInWindow));
             options.AddPolicy(Registration, context => RateLimitPartition.GetFixedWindowLimiter(Client(context), _ => RegistrationWindow));
+            options.AddPolicy(AppIcon, context => RateLimitPartition.GetFixedWindowLimiter(Client(context), _ => AppIconWindow));
         });
 
     private static string Client(HttpContext context)
