@@ -163,28 +163,31 @@ public sealed class WorkReadTools(
     }
 
     [Authorize(Policy = WorkStatePolicies.Worker)]
-    [McpServerTool(Name = "work_search", Title = "Find: full text over items", ReadOnly = true)]
+    [McpServerTool(Name = "work_search", Title = "Find: full text", ReadOnly = true)]
     [Description("""
-        Full-text search across item titles and intents, returning a ref and a snippet for each
-        hit.
-        Reach for it when you know a phrase but not a ref — it is what replaces grepping a run
-        directory, and it is how you avoid inventing a ref.
-        Next: work_get(refs:["<ref>"]) on a hit.
+        Full text over items, assumptions, rules and notes: a ref and a snippet per hit.
+        Reach for it when you know a phrase but not a ref: it replaces grepping a run directory,
+        and saves inventing a ref.
+        Next: work_get on an item hit; other hits print their call.
         """)]
     public async Task<CallToolResult> SearchAsync(
         [Description("What to look for. Ordinary words; phrases in quotes work.")]
         string q,
         [Description("How many hits. Default 10.")]
         int limit = 10,
+        [Description("Only hits under this ref. Omit for the whole workspace.")]
+        string? scope = null,
         CancellationToken cancellationToken = default)
     {
-        var resolved = await reader.ResolveDefaultAsync(workspace.Slug, null, caller.Actor.SessionId, cancellationToken);
+        var scoped = !string.IsNullOrWhiteSpace(scope);
+        var resolved = await reader.ResolveDefaultAsync(workspace.Slug, scoped ? scope : null, caller.Actor.SessionId, cancellationToken);
         if (resolved is not ScopeResult.Found found)
         {
-            return Text(ScopeExplain.Text(resolved, "work_search", null));
+            return Text(ScopeExplain.Text(resolved, "work_search", scoped ? scope : null));
         }
 
-        var body = await reader.SearchAsync(found.WorkspaceId, q ?? string.Empty, Clamp(limit, 1, 50), cancellationToken);
+        var body = await reader.SearchAsync(
+            found.WorkspaceId, q ?? string.Empty, Clamp(limit, 1, 50), scoped ? found : null, cancellationToken);
         return Text(Attention.Append(body, await reader.AttentionAsync(found, cancellationToken)));
     }
 
@@ -237,8 +240,7 @@ public sealed class WorkReadTools(
     [Description("""
         The append-only event stream, newest first and cursor-paged by seq: transitions,
         verifications, forced closures, imports.
-        Reach for it after a compaction, or when picking up a run someone else was driving — it is
-        the answer to "what changed since I last looked".
+        Reach for it after a compaction, or when picking up a run someone else was driving.
         Next: work_get(refs:["<ref>"]) on anything surprising.
         """)]
     public async Task<CallToolResult> HistoryAsync(

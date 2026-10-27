@@ -55,4 +55,17 @@ public sealed record SubtreeNode(
 /// <summary>Everything unclosed that is not a task — the work_threads backbone.</summary>
 public sealed record OpenThread(string Type, string Ref, string Text, Guid? Scope);
 
-public sealed record SearchHit(string Source, Guid Id, string Ref, string Title, string Snippet, float Rank);
+/// <summary>
+/// <c>Source</c> is item, assumption, constraint or note. <c>Tag</c> is the assumption's state, the
+/// rule's kind or the note's kind; <c>ScopeId</c>/<c>ScopeRef</c> the item the row belongs to.
+/// </summary>
+public sealed record SearchHit(
+    string Source,
+    Guid Id,
+    string Ref,
+    string Title,
+    string Snippet,
+    float Rank,
+    string? Tag,
+    Guid? ScopeId,
+    string? ScopeRef);

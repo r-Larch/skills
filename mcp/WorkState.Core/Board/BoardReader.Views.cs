@@ -314,35 +314,74 @@ public sealed partial class BoardReader
         return string.Join("\n", lines);
     }
 
-    public async Task<string> SearchAsync(
+    public Task<string> SearchAsync(
         Guid workspaceId,
         string query,
         int limit,
         CancellationToken cancellationToken = default)
+        => SearchAsync(workspaceId, query, limit, null, cancellationToken);
+
+    /// <summary>
+    /// An item row is unchanged from the items-only search. Any other hit has no detail view of its
+    /// own under <c>work_get</c> except an assumption, so its row names its kind and is followed by the
+    /// call that prints it whole: a scoped rule's worker brief (every rule in scope, uncapped, and
+    /// reading it consumes nothing), the conventions for a workspace rule, the history of a note's item.
+    /// </summary>
+    public async Task<string> SearchAsync(
+        Guid workspaceId,
+        string query,
+        int limit,
+        ScopeResult.Found? scope,
+        CancellationToken cancellationToken = default)
     {
-        var hits = await queries.SearchAsync(workspaceId, query, limit, cancellationToken);
+        var hits = await queries.SearchAsync(workspaceId, query, limit, scope?.Item.Id, false, cancellationToken);
+        var under = scope is null ? string.Empty : $" under {await CallableAsync(scope.Item, cancellationToken)}";
         if (hits.Count == 0)
         {
-            return $"SEARCH \"{Glyph.Flat(query)}\" — no hits.\n"
-                 + "      Try fewer words, or work_tree() to see what is here.";
+            return $"SEARCH \"{Glyph.Flat(query)}\"{under} — no hits.\n"
+                 + (scope is null
+                     ? "      Try fewer words, or work_tree() to see what is here."
+                     : "      Try fewer words, drop the scope, or work_tree() to see what is here.");
         }
 
-        var lines = new List<string> { $"SEARCH \"{Glyph.Flat(query)}\" — {hits.Count} hits", string.Empty };
+        var lines = new List<string> { $"SEARCH \"{Glyph.Flat(query)}\"{under} — {hits.Count} hits", string.Empty };
+        string? first = null;
 
-        // doc 13: a printed ref is one the caller can pass back, so a ref other items share is qualified.
-        var printed = new List<string>(hits.Count);
         foreach (var hit in hits)
         {
-            printed.Add(await board.PrintableRefAsync(workspaceId, hit.Id, hit.Ref, cancellationToken));
+            // doc 13: a printed ref is one the caller can pass back, so a ref other items share is qualified.
+            if (hit.Source == "item")
+            {
+                var printed = await board.PrintableRefAsync(workspaceId, hit.Id, hit.Ref, cancellationToken);
+                first ??= $"work_get(refs:[\"{printed}\"])";
+                lines.Add($"{Glyph.Pad(Glyph.Flat(printed), 18)}  "
+                          + $"{Glyph.Pad(Glyph.Row(hit.Title, 30), 30)}  "
+                          + Glyph.Row(hit.Snippet, 40));
+                continue;
+            }
+
+            var owner = hit.ScopeId is { } ownerId
+                ? await board.PrintableRefAsync(workspaceId, ownerId, hit.ScopeRef ?? string.Empty, cancellationToken)
+                : null;
+
+            var (handle, route) = hit.Source switch
+            {
+                "assumption" => (hit.Ref, $"work_get(refs:[\"{hit.Ref}\"])"),
+                "constraint" => (hit.Ref, owner is null
+                    ? $"read {WorkUris.Conventions}"
+                    : $"read {WorkUris.ItemBrief(owner)}"),
+                _ => (owner ?? "—", owner is null ? "work_history()" : $"work_history(scope:\"{owner}\")"),
+            };
+
+            first ??= route;
+            lines.Add($"{Glyph.Pad(Glyph.Flat(handle), 18)}  "
+                      + $"{Glyph.Pad($"{hit.Source} · {hit.Tag}", 30)}  "
+                      + Glyph.Row(hit.Snippet, 40));
+            lines.Add($"{new string(' ', 20)}→ {route}");
         }
 
-        lines.AddRange(hits.Select((hit, i) =>
-            $"{Glyph.Pad(Glyph.Flat(printed[i]), 18)}  "
-            + $"{Glyph.Pad(Glyph.Row(hit.Title, 30), 30)}  "
-            + Glyph.Row(hit.Snippet, 40)));
-
         lines.Add(string.Empty);
-        lines.Add($"Next: work_get(refs:[\"{printed[0]}\"]) on a hit.");
+        lines.Add($"Next: {first} on a hit.");
         return string.Join("\n", lines);
     }
 

@@ -13,6 +13,14 @@ What changes for someone who has the `rlarch` plugin installed, newest first. Fo
   cross its boundary), and the calls that record the verdict: `work_verify` + `work_status(done)` to
   pass, `work_finding(source:"gate", severity:"blocker")` to fail. Read-only. The attention line
   *"all N tasks done, gate not run"* now routes to it instead of to a plain resume brief.
+- **`work_search` finds assumptions, rules and notes, and takes an optional `scope`.** Until now it
+  searched item titles and intents only, so a rule (`C12`), an assumption (`A1`) or a note could be
+  found only by someone who already knew where it was. Each new hit names its kind and prints the
+  call that opens it: `work_get` for an assumption (qualified, `run-a/A1`), the item's worker brief
+  or the conventions for a rule, `work_history` on the note's item. `scope:"<run, project or item>"`
+  keeps only hits inside that subtree. Workspace-wide rules and assumptions are left out of a scoped
+  search, since they belong to no item. A search without `scope` prints its item rows exactly as
+  before. A new index (`note_search_idx`) keeps note matching off a sequential scan.
 
 ### Fixed
 

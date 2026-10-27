@@ -187,32 +187,121 @@ public sealed class WorkStateQueries(NpgsqlDataSource dataSource)
             cancellationToken);
     }
 
-    /// <summary>Full text over items. Doc blocks are not searched: no resource serves them.</summary>
-    public async Task<IReadOnlyList<SearchHit>> SearchAsync(
+    public Task<IReadOnlyList<SearchHit>> SearchAsync(
         Guid workspaceId,
         string query,
         int limit = 20,
         CancellationToken cancellationToken = default)
+        => SearchAsync(workspaceId, query, limit, null, false, cancellationToken);
+
+    /// <summary>
+    /// Full text over items, assumptions, active constraints and notes. Doc blocks are not searched:
+    /// no resource serves them. The non-item vectors are weighted the way <c>item.search</c> is
+    /// stored — ref at A, the text at B, a rule's route at C — so one <c>ts_rank</c> orders the whole
+    /// union. A note matches on <c>note_search_idx</c>'s expression (NoteSearchIndex migration) and is
+    /// weighted only to rank; assumptions and rules are small enough to vectorise per query.
+    /// <c>ts_headline</c> runs after the limit: inside a union Postgres no longer postpones it, and
+    /// computing it for every match cost more than the search.
+    /// <para>
+    /// With a scope, a row counts only when it lives inside the subtree: an item by its ancestors, an
+    /// assumption or constraint by its scope item, a note by the item it is addressed to, else the item
+    /// it came from. Workspace-wide rows (no scope item) are left out of a scoped search.
+    /// </para>
+    /// </summary>
+    public async Task<IReadOnlyList<SearchHit>> SearchAsync(
+        Guid workspaceId,
+        string query,
+        int limit,
+        Guid? scopeItemId,
+        bool itemsOnly,
+        CancellationToken cancellationToken = default)
     {
-        const string sql =
+        const string inScope =
             """
-            WITH q AS (SELECT websearch_to_tsquery('english', @query) AS tsq)
-            SELECT 'item'   AS "Source",
-                   i.id     AS "Id",
-                   i.ref    AS "Ref",
-                   i.title  AS "Title",
-                   ts_headline('english', coalesce(i.intent, i.title), q.tsq,
-                               'MaxFragments=1,MaxWords=18,MinWords=5') AS "Snippet",
-                   ts_rank(i.search, q.tsq) AS "Rank"
-            FROM   item i, q
-            WHERE  i.workspace_id = @workspace AND i.search @@ q.tsq
-            ORDER BY "Rank" DESC, "Ref"
-            LIMIT @limit;
+            (@scope IS NULL OR {0} = @scope
+                    OR EXISTS (SELECT 1 FROM item w
+                               WHERE w.id = {0} AND w.ancestors @> ARRAY[@scope]::uuid[]))
             """;
+
+        var sql =
+            $"""
+             WITH q AS (SELECT websearch_to_tsquery('english', @query) AS tsq)
+             SELECT h."Source", h."Id", h."Ref", h."Title",
+                    ts_headline('english', h.text, q.tsq, 'MaxFragments=1,MaxWords=18,MinWords=5') AS "Snippet",
+                    h."Rank", h."Tag", h."ScopeId", h."ScopeRef"
+             FROM (
+               SELECT 'item'   AS "Source",
+                      i.id     AS "Id",
+                      i.ref    AS "Ref",
+                      i.title  AS "Title",
+                      coalesce(i.intent, i.title) AS text,
+                      ts_rank(i.search, q.tsq) AS "Rank",
+                      NULL::text AS "Tag",
+                      NULL::uuid AS "ScopeId",
+                      NULL::text AS "ScopeRef"
+               FROM   item i, q
+               WHERE  i.workspace_id = @workspace AND i.search @@ q.tsq
+                 AND  (@scope IS NULL OR i.id = @scope OR i.ancestors @> ARRAY[@scope]::uuid[])
+               UNION ALL
+               SELECT 'assumption',
+                      a.id,
+                      CASE WHEN s.ref IS NULL THEN a.ref ELSE s.ref || '/' || a.ref END,
+                      a.statement,
+                      a.statement,
+                      ts_rank(v.search, q.tsq),
+                      a.state::text,
+                      a.scope_item_id,
+                      sc.ref
+               FROM   assumption a
+               CROSS  JOIN q
+               CROSS  JOIN LATERAL (SELECT setweight(to_tsvector('simple', a.ref), 'A')
+                                           || setweight(to_tsvector('english', a.statement), 'B') AS search) v
+               LEFT   JOIN item s  ON s.id  = a.ref_scope_id
+               LEFT   JOIN item sc ON sc.id = a.scope_item_id
+               WHERE  NOT @itemsOnly AND a.workspace_id = @workspace AND v.search @@ q.tsq
+                 AND  {string.Format(inScope, "a.scope_item_id")}
+               UNION ALL
+               SELECT 'constraint',
+                      c.id,
+                      c.ref,
+                      c.text,
+                      c.text || coalesce(' — ' || c.route, ''),
+                      ts_rank(v.search, q.tsq),
+                      c.kind::text,
+                      c.scope_item_id,
+                      sc.ref
+               FROM   constraint_rule c
+               CROSS  JOIN q
+               CROSS  JOIN LATERAL (SELECT setweight(to_tsvector('simple', c.ref), 'A')
+                                           || setweight(to_tsvector('english', c.text), 'B')
+                                           || setweight(to_tsvector('english', coalesce(c.route, '')), 'C') AS search) v
+               LEFT   JOIN item sc ON sc.id = c.scope_item_id
+               WHERE  NOT @itemsOnly AND c.workspace_id = @workspace AND c.active AND v.search @@ q.tsq
+                 AND  {string.Format(inScope, "c.scope_item_id")}
+               UNION ALL
+               SELECT 'note',
+                      n.id,
+                      n.kind::text,
+                      n.body,
+                      n.body,
+                      ts_rank(setweight(to_tsvector('english', n.body), 'B'), q.tsq),
+                      n.kind::text,
+                      coalesce(n.to_item_id, n.from_item_id),
+                      sc.ref
+               FROM   note n
+               CROSS  JOIN q
+               LEFT   JOIN item sc ON sc.id = coalesce(n.to_item_id, n.from_item_id)
+               WHERE  NOT @itemsOnly AND n.workspace_id = @workspace AND to_tsvector('english', n.body) @@ q.tsq
+                 AND  {string.Format(inScope, "coalesce(n.to_item_id, n.from_item_id)")}
+               ORDER BY "Rank" DESC, "Ref"
+               LIMIT @limit
+             ) h, q
+             ORDER BY h."Rank" DESC, h."Ref";
+             """;
 
         return await QueryAsync<SearchHit>(
             sql,
-            new { workspace = workspaceId, query, limit },
+            new { workspace = workspaceId, query, limit, scope = scopeItemId, itemsOnly },
             cancellationToken);
     }
 
