@@ -4,8 +4,9 @@ namespace WorkState.Mcp;
 
 /// <summary>
 /// The scheme and host a <c>web</c> line names: the configured public URL when there is one, else the
-/// host this request came in on. <c>X-Forwarded-*</c> is not read — nothing in this pipeline trusts a
-/// proxy, so behind one the public URL is set rather than taken from a header any client can send.
+/// scheme and host of this request. Behind a proxy listed in <c>WORKSTATE_TRUSTED_PROXIES</c> those are
+/// the forwarded ones, because <c>ApiHost</c> runs <c>UseForwardedHeaders</c> first; from any other
+/// address <c>X-Forwarded-*</c> is ignored, and with none listed it is never read at all.
 /// </summary>
 public sealed class WebBase(IHttpContextAccessor accessor, string? publicUrl)
 {

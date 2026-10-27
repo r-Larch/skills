@@ -43,7 +43,7 @@ internal static class SpaFallback
     {
         app.UseStaticFiles();
 
-        app.MapFallback(async (HttpContext context, IWebHostEnvironment environment) =>
+        app.MapFallback(async (HttpContext context) =>
         {
             // A fallback that answers everything answers /api/typo and /mcp/typo too, with a 200 and
             // a page of HTML — which is how a client discovers a route it got wrong only by parsing
@@ -55,18 +55,25 @@ internal static class SpaFallback
                 return;
             }
 
-            context.Response.ContentType = "text/html; charset=utf-8";
-
-            var index = environment.WebRootFileProvider.GetFileInfo("index.html");
-
-            if (index.Exists)
-            {
-                await context.Response.SendFileAsync(index, context.RequestAborted);
-                return;
-            }
-
-            await context.Response.WriteAsync(Placeholder, context.RequestAborted);
+            await ServeAsync(context);
         }).AllowAnonymous();
+    }
+
+    /// <summary>The SPA's shell, for a route that judged the request itself before handing it over.</summary>
+    public static async Task ServeAsync(HttpContext context)
+    {
+        context.Response.ContentType = "text/html; charset=utf-8";
+
+        var index = context.RequestServices.GetRequiredService<IWebHostEnvironment>()
+            .WebRootFileProvider.GetFileInfo("index.html");
+
+        if (index.Exists)
+        {
+            await context.Response.SendFileAsync(index, context.RequestAborted);
+            return;
+        }
+
+        await context.Response.WriteAsync(Placeholder, context.RequestAborted);
     }
 
     private static bool Claimed(PathString path)

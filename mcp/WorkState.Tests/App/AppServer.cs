@@ -45,7 +45,9 @@ internal sealed class AppServer : IAsyncDisposable
         bool dashboardConfigured = true,
         string? readerToken = null,
         string? heartbeat = null,
-        string? publicUrl = null)
+        string? publicUrl = null,
+        string? trustedProxies = null,
+        Action<WebApplicationBuilder>? configure = null)
     {
         var app = ApiHost.Build([], builder =>
         {
@@ -62,7 +64,9 @@ internal sealed class AppServer : IAsyncDisposable
                 ["WorkState:Dashboard:Password"] = dashboardConfigured ? Password : null,
                 ["WorkState:Stream:Heartbeat"] = heartbeat,
                 ["WORKSTATE_PUBLIC_URL"] = publicUrl,
+                ["WORKSTATE_TRUSTED_PROXIES"] = trustedProxies,
             });
+            configure?.Invoke(builder);
         });
 
         await app.StartAsync(cancellationToken);

@@ -8,6 +8,7 @@ using Npgsql;
 using WorkState.Api.App;
 using WorkState.Api.App.V1;
 using WorkState.Api.Auth;
+using WorkState.Api.Auth.OAuth;
 using WorkState.Core.Board;
 using WorkState.Core.Data;
 using WorkState.Core.Queries;
@@ -54,15 +55,22 @@ public static class ApiHost
                 options.ControllerToken = builder.Configuration["WorkState:Auth:ControllerToken"];
                 options.ReaderToken = builder.Configuration["WorkState:Auth:ReaderToken"];
             })
-            .AddCookie(DashboardAuth.SchemeName, options => DashboardAuth.Configure(options, dashboard));
+            .AddCookie(DashboardAuth.SchemeName, options => DashboardAuth.Configure(options, dashboard, PublicUrl(builder.Configuration)))
+
+            // Registered with or without a store, because WorkStatePolicies.Any names it; without one there
+            // is no OAuth server and it admits no one and challenges as the static scheme does.
+            .AddScheme<AuthenticationSchemeOptions, OAuthTokenHandler>(OAuthTokenHandler.SchemeName, null);
 
         // doc 01 §6. AddAuthorizationFilters() honours [Authorize] on a tool, and a tool the token
         // cannot satisfy is hidden from tools/list rather than refused on call (PROBE Q6) — so
         // these three policies are the entire role mechanism.
         builder.Services.AddAuthorizationBuilder()
-            // Every agent token carries the worker role; a reader token carries none of the three.
+            // Every agent token carries the worker role; a reader token carries none of the three. The one
+            // policy that also names the OAuth scheme: it is the endpoint's, and the tool policies below are
+            // judged against the principal this one admitted (AddAuthorizationFilters reads the user, not
+            // the schemes).
             .AddPolicy(WorkStatePolicies.Any, policy => policy
-                .AddAuthenticationSchemes(StaticTokenHandler.SchemeName)
+                .AddAuthenticationSchemes(StaticTokenHandler.SchemeName, OAuthTokenHandler.SchemeName)
                 .RequireAuthenticatedUser()
                 .RequireRole(WorkStatePolicies.Worker))
             .AddPolicy(WorkStatePolicies.Worker, policy => policy
@@ -103,6 +111,8 @@ public static class ApiHost
                 .RequireAuthenticatedUser()
                 .RequireRole(DashboardAuth.Role, WorkStatePolicies.Worker, WorkStatePolicies.Reader));
 
+        RateLimits.Add(builder.Services);
+
         AddWorkState(builder);
 
         builder.Services
@@ -112,7 +122,7 @@ public static class ApiHost
                 {
                     Name = "workstate",
                     Title = "WorkState",
-                    Version = "0.7.1",
+                    Version = "0.8.0",
                 };
                 options.ServerInstructions = WorkStateServerInstructions.Text;
             })
@@ -129,17 +139,43 @@ public static class ApiHost
             .WithToolsFromAssembly(typeof(WorkReadTools).Assembly)
             .WithResourcesFromAssembly(typeof(WorkResources).Assembly);
 
+        var forwarded = TrustedProxies.Options(TrustedProxies.Read(builder.Configuration));
+
         var app = builder.Build();
 
         app.Services.GetService<SchemaOwner>()?.Apply();
 
+        // First, so authentication, the cookie's Secure flag and every WebBase link see the scheme and
+        // host the proxy was reached on — and only when that proxy is one the operator named.
+        if (forwarded is not null)
+        {
+            app.UseForwardedHeaders(forwarded);
+        }
+
         app.UseApiVersionHeader();
+
+        // Ahead of the metadata fetch and the store, so a refused request costs neither.
+        app.UseRateLimiter();
+
+        // Ahead of authentication, which is where OpenIddict looks the client up.
+        var oauth = app.Services.GetService<OAuthKeyRing>() is not null;
+        if (oauth)
+        {
+            app.UseClientIdMetadata();
+        }
+
         app.UseAuthentication();
         app.UseAuthorization();
 
         app.MapGet("/health", () => Results.Ok(new { status = "ok" })).AllowAnonymous();
 
-        app.MapMcp("/mcp").RequireAuthorization(WorkStatePolicies.Any);
+        app.MapMcp(OAuthServer.McpPath).RequireAuthorization(WorkStatePolicies.Any);
+
+        if (oauth)
+        {
+            app.MapOAuth();
+            app.MapConnectPages();
+        }
 
         app.MapAppApi();
 
@@ -209,9 +245,14 @@ public static class ApiHost
         builder.Services.AddSingleton<CallerIdentity>();
         builder.Services.AddSingleton(sp => new WebBase(
             sp.GetRequiredService<IHttpContextAccessor>(),
-            builder.Configuration[WebBase.Key] ?? builder.Configuration[WebBase.EnvironmentKey]));
+            PublicUrl(builder.Configuration)));
         builder.Services.AddSingleton(sp => new SessionStore(sp.GetRequiredService<NpgsqlDataSource>()));
+
+        OAuthServer.Add(builder.Services, connectionString, PublicUrl(builder.Configuration));
     }
+
+    private static string? PublicUrl(IConfiguration configuration)
+        => configuration[WebBase.Key] ?? configuration[WebBase.EnvironmentKey];
 
     /// <summary>
     /// The dashboard cookie's signing keys, into Postgres rather than the container filesystem — see
