@@ -125,6 +125,11 @@ over assumptions, rules and notes with `scope`, the raised `tools/list` budgets,
 `0.7.1` (rlarch 2.5.1) carries readable dashboard links (`/r/<project/run/ref>`, the `web` line in
 `work_brief` and `work_get`, optional `WORKSTATE_PUBLIC_URL`) and the dashboard's split run page.
 
+`0.8.0` (rlarch 2.7.0) carries OAuth 2.1 sign-in for `/mcp` (OpenIddict; client-ID metadata
+documents and dynamic registration; PKCE S256; keys held in Postgres), the `/connect/signin` and
+`/connect/consent` pages with the client's icon, `WORKSTATE_TRUSTED_PROXIES`, and one additive
+migration (`OAuthServer`). Static and minted `wss_` tokens are unchanged.
+
 ---
 
 ## 3. Should the skills use it? — Yes, and as a **hard** dependency

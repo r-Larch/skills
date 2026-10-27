@@ -32,6 +32,8 @@ What changes for someone who has the `rlarch` plugin installed, newest first. Fo
   `--force` or `--session-names`, unless `--auth` or `--role` says otherwise. Sessions started by
   `agent_launch` keep using tokens through `workstate.env_file`, since they cannot sign in in a
   browser.
+- WorkState server **0.8.0**: OAuth sign-in, the sign-in and consent pages, trusted proxies.
+  Rebuild or `--update` to get it; one additive migration (`OAuthServer`). Back up first.
 
 ## [2.6.0] - 2026-10-27
 
