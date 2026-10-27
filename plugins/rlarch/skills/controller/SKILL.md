@@ -91,6 +91,13 @@ eligible units, the blocked ones with what each needs, and your proposed order. 
 again unless an escalation trigger fires (§8). Asking per unit burns the human's attention on
 decisions they already delegated.
 
+**A queue planned by `/rlarch:workstate` arrives already approved** when the human's message says so
+(*"approved, execute as /rlarch:controller"*). Take that run as your queue, record the approval with
+`work_note(kind: "decision", from: "<queue ref>", body: "plan approved by <human>: execute as
+controller")`, and do not re-plan it or ask again. Classification and ordering still apply. Raise
+anything you would change as a `work_finding` against the unit, then ask only if an escalation
+trigger fires.
+
 ### Splitting a unit
 
 A unit is not all-or-nothing. When it mixes a contained fix with a design change — "handle the error"

@@ -44,6 +44,7 @@ skills.
 | `code-comments` | your code | a **subtractive comment pass** — the default verdict is DELETE; only a constraint the code can't state itself survives |
 | [`workstate-setup`](#workstate) | Docker (no clone) + `claude mcp add` | getting the **WorkState** server running and registered, so the `work_*` tools are callable |
 | `workstate-import` | your repo's plans and docs + `work_import` | bringing a repo's **existing planning material** into WorkState — keeps only what is true of the current code, asks before writing, records source and reason |
+| `workstate` | WorkState | **planning** before anyone builds — plan a feature into a run, propose what to build next, triage the backlog; then hand off with *"approved, execute as /rlarch:controller"* |
 
 ### Prerequisites and platforms
 
@@ -57,6 +58,7 @@ Every skill runs on Windows, macOS and Linux; what differs is what has to be ins
 | `nested-claude` | Claude Code CLI; **Node 18+** for the `agents` tool (`agent_launch`/`agent_stop`/`agent_list`); Python 3 for the optional watchdog | the tool on every OS; fallback launchers: PowerShell on Windows, bash on macOS/Linux |
 | `controller` | **WorkState**; **Node 18+** for the `agents` tool (or `nested-claude`'s launchers) | any OS with the tool; fallback: Windows (PowerShell) or macOS/Linux (bash) |
 | `orchestrate` | **WorkState** | — |
+| `workstate` | **WorkState** | — |
 | `code-comments` | nothing | — |
 | `workstate-setup` | **Docker** (multi-arch images — Apple Silicon is fine) | Docker Desktop, or on Linux the Docker engine; macOS also Colima/OrbStack |
 
@@ -72,7 +74,7 @@ gives each item to a nested session, which usually runs `orchestrate` on it.
 
 Skills that ship in a plugin are namespaced: typed as slash commands they are `/rlarch:dotnet-reflect`,
 `/rlarch:dotnet-source`, `/rlarch:ts-source`, `/rlarch:orchestrate`, `/rlarch:controller`,
-`/rlarch:nested-claude`, `/rlarch:code-comments`, `/rlarch:workstate-setup`. **You rarely need to
+`/rlarch:nested-claude`, `/rlarch:code-comments`, `/rlarch:workstate-setup`, `/rlarch:workstate`. **You rarely need to
 type them.** Automatic invocation is unaffected by the prefix — describe the task and Claude loads
 the skill from its description. The namespace cannot be turned off; see the upgrade guide if you want
 the trade-offs.
@@ -534,6 +536,8 @@ plugins/rlarch/                          # the plugin
     assets/compose.yml                   # pull-only compose: ghcr.io/r-larch/workstate-api
   skills/workstate-import/
     SKILL.md                             # discover, judge against the code, ask, work_import
+  skills/workstate/
+    SKILL.md                             # plan / propose / triage / status; stops at the approval gate
 mcp/                                     # the WorkState server — NOT part of the plugin payload
   WorkState.slnx + WorkState.{Api,Core,Mcp,Tests}/
   compose.yml / compose.dev.yml / Dockerfile / .env.example   # compose.yml builds from source

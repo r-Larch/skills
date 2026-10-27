@@ -100,6 +100,12 @@ You cannot budget without prices. Rough order of magnitude:
 
 6. **Gate: present the plan and get approval before the first writing agent runs.** Show `work_tree(scope: "<run ref>")` — phases, tasks, and the verification command each will be judged by — and the open assumptions. Then stop and wait. This is the only mandatory user gate; after it, run to completion unless an escalation trigger fires.
 
+   **A run planned by `/rlarch:workstate`** is already in the store and, once the human says
+   *"approved, execute as /rlarch:orchestrate"*, already approved. Skip steps 4 and 5, record the
+   approval with `work_note(kind: "decision", from: "<run ref>", body: "plan approved by <human>:
+   execute as orchestrate")`, run the plan audit below on it, and start Phase 1. Ask again only if
+   the audit finds a defect that changes the plan.
+
    **If the plan is not yours** — a spec someone else wrote, a handoff document, a plan from an earlier session — run a **plan audit** before this gate, not after. See *The plan audit*. You are about to ask for approval on a document whose defects you have no way to have seen.
 
 **Recon is just-in-time.** Run it at the start of the phase that needs it — **never more than one phase ahead**, because intel gathered against code that doesn't exist yet is stale by the time you reach it. Up to 4 read-only `Explore` agents in parallel, one disjoint question each, ≤15-line answers with file paths.
