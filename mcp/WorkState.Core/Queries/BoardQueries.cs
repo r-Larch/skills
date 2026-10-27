@@ -15,8 +15,6 @@ public sealed partial class BoardQueries(NpgsqlDataSource dataSource)
     /// <summary>Self or anything beneath it. The subtree predicate every query below repeats.</summary>
     private const string InScope = "(i.id = @scope OR i.ancestors @> ARRAY[@scope]::uuid[])";
 
-    static BoardQueries() => SqlMapper.AddTypeHandler(new TimestampHandler());
-
     public async Task<Guid?> WorkspaceAsync(string? slug, CancellationToken cancellationToken = default)
     {
         const string sql =
