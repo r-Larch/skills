@@ -51,7 +51,12 @@ public static class AppEndpoints
                 DashboardAuth.Principal(request.Username!));
 
             return Results.NoContent();
-        }).AllowAnonymous();
+        }).AllowAnonymous().RequireRateLimiting(RateLimits.SignIn);
+
+        // Whether the cookie is there, for a page that must know before it asks: the consent flow's sign-in
+        // page continues at once when it is, which is also what carries a SameSite=Strict cookie past a
+        // cross-site arrival (see Connect.tsx).
+        api.MapGet("/session", () => Results.NoContent()).RequireAuthorization(DashboardAuth.Policy);
 
         api.MapDelete("/session", async (HttpContext context) =>
         {

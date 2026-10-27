@@ -111,6 +111,8 @@ public static class ApiHost
                 .RequireAuthenticatedUser()
                 .RequireRole(DashboardAuth.Role, WorkStatePolicies.Worker, WorkStatePolicies.Reader));
 
+        RateLimits.Add(builder.Services);
+
         AddWorkState(builder);
 
         builder.Services
@@ -152,6 +154,9 @@ public static class ApiHost
 
         app.UseApiVersionHeader();
 
+        // Ahead of the metadata fetch and the store, so a refused request costs neither.
+        app.UseRateLimiter();
+
         // Ahead of authentication, which is where OpenIddict looks the client up.
         var oauth = app.Services.GetService<OAuthKeyRing>() is not null;
         if (oauth)
@@ -169,6 +174,7 @@ public static class ApiHost
         if (oauth)
         {
             app.MapOAuth();
+            app.MapConnectPages();
         }
 
         app.MapAppApi();

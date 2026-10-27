@@ -245,8 +245,23 @@ public sealed class OAuthTests(PostgresFixture fixture)
         var anonymous = server.NewClient();
         var clientId = await RegisterAsync(anonymous);
 
-        var response = await anonymous.GetAsync(AuthorizeUrl(clientId, Pkce.Create(), $"{server.BaseAddress}/mcp"), Ct);
-        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        var authorize = AuthorizeUrl(clientId, Pkce.Create(), $"{server.BaseAddress}/mcp");
+        var response = await anonymous.GetAsync(authorize, Ct);
+        Assert.Equal(HttpStatusCode.Redirect, response.StatusCode);
+        Assert.Equal(authorize, SignInReturnUrl(response));
+
+        // The API beside it still answers a missing cookie with the bare 401, never a redirect.
+        var api = await anonymous.GetAsync("/api/v1/overview", Ct);
+        Assert.Equal(HttpStatusCode.Unauthorized, api.StatusCode);
+        Assert.Null(api.Headers.Location);
+    }
+
+    /// <summary>The same-origin authorize URL a 302 to the sign-in page carries, decoded once.</summary>
+    internal static string SignInReturnUrl(HttpResponseMessage response)
+    {
+        var location = response.Headers.Location!.OriginalString;
+        Assert.StartsWith("/connect/signin?", location, StringComparison.Ordinal);
+        return QueryHelpers.ParseQuery(location["/connect/signin".Length..])["returnUrl"].ToString();
     }
 
     [Theory]
@@ -316,6 +331,14 @@ public sealed class OAuthTests(PostgresFixture fixture)
         var response = await browser.GetAsync(AuthorizeUrl(clientId, pkce, resource, redirectUri), Ct);
         Assert.Equal(HttpStatusCode.Redirect, response.StatusCode);
 
+        // A first authorize for this client asks; answer as the consent page does. SignInConsentTests proves
+        // the ask happens, so this cannot hide a skipped consent.
+        if (response.Headers.Location!.OriginalString.StartsWith("/connect/consent?", StringComparison.Ordinal))
+        {
+            response = await AnswerConsentAsync(browser, response.Headers.Location!, "granted");
+            Assert.Equal(HttpStatusCode.Redirect, response.StatusCode);
+        }
+
         var location = response.Headers.Location!;
         Assert.StartsWith(redirectUri, location.GetLeftPart(UriPartial.Path), StringComparison.Ordinal);
 
@@ -323,6 +346,20 @@ public sealed class OAuthTests(PostgresFixture fixture)
         Assert.False(query.ContainsKey("error"), $"authorize failed: {location}");
         Assert.Equal("state-1", query["state"].ToString());
         return query["code"].ToString();
+    }
+
+    /// <summary>
+    /// What <c>frontend/src/Connect.tsx</c> submits: every parameter of the consent page's own query as a form
+    /// field, plus the button pressed.
+    /// </summary>
+    internal static Task<HttpResponseMessage> AnswerConsentAsync(HttpClient browser, Uri consent, string answer)
+    {
+        var query = consent.OriginalString[consent.OriginalString.IndexOf('?', StringComparison.Ordinal)..];
+        var fields = QueryHelpers.ParseQuery(query)
+            .SelectMany(field => field.Value.Select(value => KeyValuePair.Create(field.Key, value ?? string.Empty)))
+            .Append(KeyValuePair.Create("consent", answer));
+
+        return browser.PostAsync("/connect/authorize", new FormUrlEncodedContent(fields), Ct);
     }
 
     internal static async Task<TokenSet> ExchangeAsync(
