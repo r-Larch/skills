@@ -24,7 +24,8 @@ public sealed class WorkReadTools(
     BoardReader reader,
     WorkspaceOptions workspace,
     Housekeeping housekeeping,
-    CallerIdentity caller)
+    CallerIdentity caller,
+    WebBase web)
 {
     [Authorize(Policy = WorkStatePolicies.Worker)]
     [McpServerTool(Name = "work_brief", Title = "Orient: the recovery payload", ReadOnly = true)]
@@ -73,7 +74,8 @@ public sealed class WorkReadTools(
             housekeeping,
             cancellationToken,
             signed: caller.Actor.SessionId is not null,
-            keyed: caller.ClientKey is not null);
+            keyed: caller.ClientKey is not null,
+            webBase: web.Current);
 
         return Text(string.IsNullOrWhiteSpace(scope) && byRepo is null ? WithoutRepo(brief) : brief);
     }
@@ -163,7 +165,7 @@ public sealed class WorkReadTools(
             return Text(ScopeExplain.Text(resolved, "work_get", null));
         }
 
-        var body = await reader.GetAsync(found, refs ?? [], Split(include), cancellationToken);
+        var body = await reader.GetAsync(found, refs ?? [], Split(include), cancellationToken, web.Current);
         var attended = await reader.AttentionScopeAsync(found, refs?.FirstOrDefault(), cancellationToken);
         return Text(Attention.Append(body, await reader.AttentionAsync(attended, cancellationToken)));
     }

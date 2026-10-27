@@ -143,6 +143,8 @@ public static class ApiHost
 
         app.MapAppApi();
 
+        app.MapRefLinks();
+
         app.MapSpaFallback();
 
         return app;
@@ -205,6 +207,9 @@ public static class ApiHost
             sp.GetRequiredService<BoardQueries>(),
             sp.GetRequiredService<Housekeeping>()));
         builder.Services.AddSingleton<CallerIdentity>();
+        builder.Services.AddSingleton(sp => new WebBase(
+            sp.GetRequiredService<IHttpContextAccessor>(),
+            builder.Configuration[WebBase.Key] ?? builder.Configuration[WebBase.EnvironmentKey]));
         builder.Services.AddSingleton(sp => new SessionStore(sp.GetRequiredService<NpgsqlDataSource>()));
     }
 

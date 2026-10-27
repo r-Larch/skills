@@ -207,6 +207,13 @@ The pre-v1 cookie-only `/api/*` routes are removed; `/api/session`, `/api/agent-
 
 Foreman authenticates with the reader token: it watches every project and can write nothing.
 
+**`WORKSTATE_PUBLIC_URL`** (`WorkState:PublicUrl`, **optional**; compose passes
+`${WORKSTATE_PUBLIC_URL:-}`) is the base of the `web` line `work_brief` and `work_get` print
+(doc 01 §8). Unset, the line names the scheme and host the MCP request came in on — from the host
+that is `http://127.0.0.1:5290`, which is also where the dashboard is. Set it when humans reach the
+dashboard at another address than agents reach `/mcp` (a reverse proxy, a LAN name). `X-Forwarded-*`
+is never read for it: nothing in the pipeline trusts a proxy header any client can send.
+
 ### How to make it always-on
 
 **Both composes have `restart: unless-stopped` on both services.** So, from a clone:

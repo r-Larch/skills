@@ -341,7 +341,8 @@ public sealed partial class BoardReader(WorkStateQueries queries, BoardQueries b
         Housekeeping housekeeping,
         CancellationToken cancellationToken = default,
         bool signed = false,
-        bool keyed = false)
+        bool keyed = false,
+        string? webBase = null)
     {
         if (await RefuseVariantAsync(scope, variant, cancellationToken) is { } refused)
         {
@@ -357,7 +358,28 @@ public sealed partial class BoardReader(WorkStateQueries queries, BoardQueries b
             await housekeeping.ConsumeNotesAsync(scope.Item.Id, rendered, cancellationToken);
         }
 
+        if (webBase is not null)
+        {
+            brief = await WithWebAsync(brief, scope.Item, webBase, cancellationToken);
+        }
+
         return signed ? brief : Unsigned(brief, keyed);
+    }
+
+    /// <summary>
+    /// Under the header, where the session line also lands. Only a caller that came in over HTTP has a
+    /// base to name, so a brief rendered without one prints no line rather than a guessed host.
+    /// </summary>
+    private async Task<string> WithWebAsync(string brief, ScopeRef item, string webBase, CancellationToken cancellationToken)
+    {
+        if (await board.FullRefAsync(item.Id, cancellationToken) is not { Length: > 0 } fullRef)
+        {
+            return brief;
+        }
+
+        var lines = brief.Split('\n').ToList();
+        lines.Insert(Math.Min(1, lines.Count), $"web      {WebLinks.Link(webBase, fullRef)}");
+        return string.Join("\n", lines);
     }
 
     public const string UnnamedKeyed = "session  unnamed — work_session(name:\"<the name ListAgents shows for you>\")";

@@ -56,11 +56,19 @@ public sealed class V1BriefTests(PostgresFixture fixture)
             return await response.Content.ReadAsStringAsync(Ct);
         }
 
-        Task<string> ToolAsync() => ReadServer.CallAsync(
-            mcp,
-            "work_brief",
-            new Dictionary<string, object?> { ["scope"] = "sample-run", ["for"] = variant },
-            Ct);
+        // web-links: the tool's one extra line is the dashboard's own address, which the dashboard
+        // has no use for; every other byte is the same.
+        async Task<string> ToolAsync()
+        {
+            var lines = (await ReadServer.CallAsync(
+                mcp,
+                "work_brief",
+                new Dictionary<string, object?> { ["scope"] = "sample-run", ["for"] = variant },
+                Ct)).Split('\n').ToList();
+            Assert.Single(lines, l => l.StartsWith("web      ", StringComparison.Ordinal));
+            lines.RemoveAll(l => l.StartsWith("web      ", StringComparison.Ordinal));
+            return string.Join("\n", lines);
+        }
 
         var apiLeading = await ApiAsync();
         var afterApiLed = await MutationsAsync(run);

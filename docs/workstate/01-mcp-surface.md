@@ -469,6 +469,17 @@ URI scheme `work://`. Read-only projections, `cacheScope: "private"`, short `ttl
   rule: the bare ref while it resolves alone, else the shortest form that does.
   > **Changed 2026-10-26 (bare-brief).** A follow-up created under project `workstate` printed `1`,
   > and the `work_get(refs:["1"])` it suggested was refused as ambiguous across 14 runs.
+
+  Beside the `work://` URIs, `work_get` prints one `web` line per item block (after `brief`), and
+  `work_brief` — every variant that renders a scope, the project brief and the gate brief included,
+  not a refusal — prints one under its header: the dashboard address of that item,
+  `<base>/r/<fullRef>`, where `fullRef` is the v1 API's `project/run/ref` path and `/r` resolves it
+  (doc 13). `<base>` is `WORKSTATE_PUBLIC_URL` when set (doc 08), else the scheme and host the MCP
+  request came in on; a render with no request behind it (the `work://` resources, tests) prints no
+  line rather than guess a host. No tool opens a browser and none was added: the server runs in
+  Docker, so the line is something to hand a human.
+  > **Changed 2026-10-27 (web-links).** Asked "show me the workstate", a session had no address to
+  > give: no tool printed the dashboard's, and its URLs carry guids.
 - **`completions/complete` has no client mechanism at all.** ⛔ **The completion plan is dropped**, and
   `WithCompleteHandler` is not wired. The "live item picker for free" was wishful; there is no picker.
 - **Exact URIs win over templates.** Reading `work://probe/fixed` returned the *fixed* resource, not

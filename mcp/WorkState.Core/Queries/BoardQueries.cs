@@ -1085,6 +1085,39 @@ public sealed partial class BoardQueries(NpgsqlDataSource dataSource)
         """;
 
     /// <summary>
+    /// <c>project/run/ref</c> (a run's is <c>project/run</c>, a project's its ref) over <c>i</c>, its
+    /// ref scope <c>s</c> and <see cref="NearestProject"/> <c>pj</c>. The v1 API's <c>fullRef</c> and
+    /// the tools' <c>web</c> line both print it, and <c>/r</c> resolves it back.
+    /// </summary>
+    internal const string FullRefColumn =
+        """
+        CASE WHEN pj.ref IS NULL OR pj.id = s.id
+             THEN coalesce(s.ref || '/', '') || i.ref
+             ELSE pj.ref || '/' || coalesce(s.ref || '/', '') || i.ref END
+        """;
+
+    internal const string NearestProject =
+        """
+        LEFT   JOIN LATERAL (
+                   SELECT a.id, a.ref FROM item a
+                   WHERE  a.kind = 'project' AND a.id = ANY(i.ancestors)
+                   ORDER  BY array_position(i.ancestors, a.id) DESC
+                   LIMIT  1) pj ON true
+        """;
+
+    public Task<string?> FullRefAsync(Guid itemId, CancellationToken cancellationToken = default)
+        => SingleAsync<string>(
+            $"""
+             SELECT {FullRefColumn}
+             FROM   item i
+             LEFT   JOIN item s ON s.id = i.ref_scope_id AND s.id <> i.id
+             {NearestProject}
+             WHERE  i.id = @id;
+             """,
+            new { id = itemId },
+            cancellationToken);
+
+    /// <summary>
     /// Npgsql reads a <c>timestamptz</c> back as a UTC <see cref="DateTime"/>, and Dapper matches a
     /// record constructor by the reader's field types — so without this, every record carrying a
     /// <see cref="DateTimeOffset"/> fails to materialise at all rather than converting.

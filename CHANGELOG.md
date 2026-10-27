@@ -6,6 +6,16 @@ What changes for someone who has the `rlarch` plugin installed, newest first. Fo
 
 ## [Unreleased]
 
+### Added
+
+- **Readable dashboard links.** `work_brief` (every variant, the project and gate briefs included)
+  and `work_get` (per item) print a `web` line, `<base>/r/<project/run/ref>`, that a session can
+  hand a human. The server's `/r/{path}` resolves any ref form `work_get` accepts and redirects to
+  that item's dashboard page. Ambiguous or unknown paths get a page that lists the candidates. It is
+  behind the dashboard sign-in, and after signing in you land on the linked page. The base is the
+  request's host unless `WORKSTATE_PUBLIC_URL` is set (optional, in `mcp/.env.example`). Needs the
+  WorkState server image with this change.
+
 ## [2.5.0] - 2026-10-27
 
 ### Added
