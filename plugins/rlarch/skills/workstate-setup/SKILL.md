@@ -132,6 +132,7 @@ home      /home/u/.workstate (pull-only compose written)
 env       wrote /home/u/.workstate/.env: 3 tokens, dashboard and Postgres passwords (values not shown, mode 600)
 start     project 'workstate' up, http://127.0.0.1:5290/health 200
 register  'workstate' -> http://127.0.0.1:5290/mcp as orchestrator (user scope; token stored by Claude Code, not shown)
+shadows   none: no local or project 'workstate' entry overrides it
 prove     19 work_* tools for the orchestrator token: orchestrator/controller
 dashboard http://127.0.0.1:5290 - sign in with WORKSTATE_DASHBOARD_USERNAME / _PASSWORD from /home/u/.workstate/.env
 next      start a new Claude Code session: the work_* tools appear there, not in this one
@@ -147,6 +148,15 @@ because a tool a token may not call is absent from `tools/list` rather than refu
 | **6** | a worker token, working |
 | another number | the running image is older or newer than these skills — run again with `--update` |
 | an error naming the token or the server | read the line; it names the `docker compose … logs api` to look at |
+
+`shadows` lists every other entry of the same name that wins over the one just registered — a
+local-scope entry in `~/.claude.json` for some project, or a project-scope one in this directory's
+`.mcp.json` (Claude Code resolves local > project > user). Sessions in that directory then use the
+old entry: no session helper, often an old token, while `register` and `prove` look fine. Each line
+names the directory, url and whether it has a helper, never a header value, and ends with the
+command that removes it. The script removes nothing: **show the user the lines and let them run the
+command in that directory**; a project entry is a committed team file, so it is theirs to agree with
+the repo, not yours to edit. `not checked` means node was missing or the config unreadable.
 
 When it stops instead, the last line says why. `docker  not reachable` means Docker itself is not
 running: **ask the user to start Docker Desktop** (Linux: `sudo systemctl start docker`; macOS with

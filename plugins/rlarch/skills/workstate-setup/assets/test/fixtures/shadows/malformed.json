@@ -1,0 +1,1 @@
+{ "projects": { "P:/x": { "mcpServers": { "workstate": { "headers": { "Authorization": "Bearer SENTINEL-TOKEN-malformed" } } } }

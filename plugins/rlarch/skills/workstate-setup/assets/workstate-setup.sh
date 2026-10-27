@@ -259,6 +259,31 @@ else
     status "register" "'$name' -> $mcp_url as $role${agent:+, agent $agent}$helper_note ($scope scope; token stored by Claude Code, not shown)"
 fi
 
+# the shadow check - a local or project entry of the same name wins over the user one; removing it is the user's call
+if [ "$has_node" -eq 1 ]; then
+    here="$PWD"
+    command -v cygpath >/dev/null 2>&1 && here="$(cygpath -m "$PWD")"
+    finder_args=("$script_dir/find-shadows.mjs" --name "$name" --dir "$here")
+    [ "$scope" = "local" ] && finder_args+=(--own "$here")
+    shadows="$(node "${finder_args[@]}" 2>/dev/null || true)"
+    found=(); unchecked=0
+    while IFS= read -r line; do
+        case "$line" in
+            '') ;;
+            'not checked'*) status "shadows" "$line"; unchecked=1 ;;
+            *) found+=("$line") ;;
+        esac
+    done <<<"$shadows"
+    if [ "${#found[@]}" -gt 0 ]; then
+        status "shadows" "${#found[@]} '$name' entry(s) win over the user registration (local > project > user), so sessions there miss it and its session helper; this script removes nothing - run the command shown yourself:"
+        for line in "${found[@]}"; do printf '          %s\n' "$line"; done
+    elif [ "$unchecked" -eq 0 ]; then
+        status "shadows" "none: no local or project '$name' entry overrides it"
+    fi
+else
+    status "shadows" "not checked (needs node)"
+fi
+
 # e. prove - count what the server lists for that token
 body="$(curl -s -m 10 -X POST "$mcp_url" -H "Content-Type: application/json" -H "Accept: application/json, text/event-stream" \
     -H "Authorization: Bearer $token" -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' || true)"
