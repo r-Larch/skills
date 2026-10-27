@@ -53,7 +53,7 @@ public sealed partial class BoardQueries(NpgsqlDataSource dataSource)
              FROM   item i
              LEFT JOIN item s ON s.id = i.ref_scope_id AND s.id <> i.id
              JOIN   item_kind k ON k.key = i.kind
-             LEFT JOIN item_rollup r ON r.id = i.id
+             {WorkStateQueries.Rollup}
              WHERE  i.workspace_id = @workspace AND i.kind IN ('run','project')
                AND  (@under::uuid IS NULL OR i.id = @under OR i.ancestors @> ARRAY[@under]::uuid[])
              ORDER BY EXISTS (SELECT 1 FROM item ap
@@ -575,7 +575,7 @@ public sealed partial class BoardQueries(NpgsqlDataSource dataSource)
         CancellationToken cancellationToken = default)
     {
         const string sql =
-            """
+            $"""
             SELECT i.id                         AS "Id",
                    i.ref                        AS "Ref",
                    CASE WHEN s.ref IS NULL THEN i.ref ELSE s.ref || '/' || i.ref END
@@ -620,7 +620,7 @@ public sealed partial class BoardQueries(NpgsqlDataSource dataSource)
                      FROM   claim cc LEFT JOIN agent_session hs ON hs.id = cc.session_id
                      WHERE  cc.item_id = i.id AND cc.released_at IS NULL AND cc.expires_at >= now()
                      LIMIT  1) h ON true
-            LEFT   JOIN item_rollup r ON r.id = i.id
+            {WorkStateQueries.Rollup}
             WHERE  i.id = ANY(@ids);
             """;
 

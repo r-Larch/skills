@@ -29,7 +29,7 @@ public static class WorkStateDbContextOptions
         this DbContextOptionsBuilder builder,
         string connectionString)
         => builder
-            .UseNpgsql(connectionString, MapEnums)
+            .UseNpgsql(WorkStateDataSource.WithSessionSettings(connectionString), MapEnums)
             .UseSnakeCaseNamingConvention();
 
     public static DbContextOptions<WorkStateDbContext> Build(string connectionString)

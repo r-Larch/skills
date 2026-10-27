@@ -10,9 +10,22 @@ namespace WorkState.Core.Data;
 /// </summary>
 public static class WorkStateDataSource
 {
+    /// <summary>
+    /// The session settings every connection the server opens runs with — this data source and the
+    /// EF context alike (<see cref="WorkStateDbContextOptions.UseWorkState"/>). <c>jit=off</c>: the
+    /// reads are short and their per-row laterals push the estimate past <c>jit_above_cost</c>, so a
+    /// 27 ms board paid 35 ms of compile (doc 15).
+    /// </summary>
+    public static string WithSessionSettings(string connectionString)
+    {
+        var builder = new NpgsqlConnectionStringBuilder(connectionString);
+        builder.Options = string.IsNullOrWhiteSpace(builder.Options) ? "-c jit=off" : $"{builder.Options} -c jit=off";
+        return builder.ConnectionString;
+    }
+
     public static NpgsqlDataSource Create(string connectionString)
     {
-        var builder = new NpgsqlDataSourceBuilder(connectionString);
+        var builder = new NpgsqlDataSourceBuilder(WithSessionSettings(connectionString));
 
         builder.MapEnum<ItemStatus>("item_status");
         builder.MapEnum<ItemResolution>("item_resolution");

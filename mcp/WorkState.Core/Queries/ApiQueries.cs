@@ -304,7 +304,7 @@ public sealed class ApiQueries(NpgsqlDataSource dataSource)
                     r.done_count::int AS "RollupDone"
              FROM   item i
              JOIN   item_kind k ON k.key = i.kind
-             JOIN   item_rollup r ON r.id = i.id
+             {WorkStateQueries.Rollup}
              {WorkStateQueries.DocumentPath}
              LEFT   JOIN LATERAL (
                       SELECT count(*) AS total, count(*) FILTER (WHERE ic.checked) AS ok

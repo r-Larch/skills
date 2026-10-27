@@ -15,6 +15,14 @@ What changes for someone who has the `rlarch` plugin installed, newest first. Fo
   whether it has a helper, never a header or token - with the command that removes it
   (`claude mcp remove workstate -s local`, run in that repo). The script removes nothing itself.
   Checked by `find-shadows.mjs`, which needs `node`.
+- **WorkState server: the board, the tree and the attention block are faster on a large workspace.**
+  Measured on a seeded 5,000-item workspace (docs/workstate/15-query-plans.md):
+  - The dashboard board went from 77 ms to 31 ms, and the facts behind attention from 67 ms to 1 ms.
+  - `work_tree`/`work_brief` subtrees went from 45 ms to 15 ms, and ref resolution from up to 14 ms to under 0.2 ms.
+  - The fixes: a new index on `lower(ref)` (migration `RefLookupIndex`, applied on start); the rollup
+    is counted per row instead of joining the `item_rollup` view; and the server's own database
+    connections run with `jit=off`.
+  - Results are unchanged.
 
 ## [2.4.0] - 2026-10-27
 
