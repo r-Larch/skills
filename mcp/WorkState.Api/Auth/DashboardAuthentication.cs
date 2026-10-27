@@ -77,15 +77,18 @@ public static class DashboardAuth
     /// An API is not a login page: an unauthenticated <c>/api</c> call gets 401 and a forbidden one
     /// 403, never a 302 to HTML the SPA would have to parse to discover it was signed out.
     /// </summary>
-    public static void Configure(CookieAuthenticationOptions options, DashboardOptions dashboard)
+    public static void Configure(CookieAuthenticationOptions options, DashboardOptions dashboard, string? publicUrl = null)
     {
         options.Cookie.Name = CookieName;
         options.Cookie.HttpOnly = true;
         options.Cookie.SameSite = SameSiteMode.Strict;
 
-        // doc 08 §4 keeps the API bound to localhost over plain HTTP, so requiring a secure cookie
-        // here would lock the operator out of the only deployment that exists.
-        options.Cookie.SecurePolicy = CookieSecurePolicy.SameAsRequest;
+        // Local installs are plain HTTP on loopback, so the default follows the request — which, behind
+        // a trusted proxy, is the forwarded scheme. An https public URL forces it: a proxy left out of
+        // WORKSTATE_TRUSTED_PROXIES must not quietly downgrade the session cookie on a TLS origin.
+        options.Cookie.SecurePolicy = IsHttps(publicUrl)
+            ? CookieSecurePolicy.Always
+            : CookieSecurePolicy.SameAsRequest;
         options.SlidingExpiration = true;
         options.ExpireTimeSpan = TimeSpan.FromDays(7);
 
@@ -114,4 +117,7 @@ public static class DashboardAuth
             return Task.CompletedTask;
         };
     }
+
+    private static bool IsHttps(string? publicUrl)
+        => Uri.TryCreate(publicUrl?.Trim(), UriKind.Absolute, out var uri) && uri.Scheme == Uri.UriSchemeHttps;
 }
