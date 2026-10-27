@@ -158,9 +158,9 @@ public static partial class ApiV1
         }
 
         var asked = string.IsNullOrWhiteSpace(variant) ? "resume" : variant.Trim().ToLowerInvariant();
-        if (asked is not ("resume" or "worker"))
+        if (!BoardReader.BriefVariants.Contains(asked))
         {
-            return Results.BadRequest(new { error = "for= is resume or worker" });
+            return Results.BadRequest(new { error = $"for= is {string.Join(", ", BoardReader.BriefVariants)}" });
         }
 
         var brief = await reader.BriefSessionAsync(

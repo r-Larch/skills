@@ -24,10 +24,35 @@ public sealed partial class BoardReader(WorkStateQueries queries, BoardQueries b
     private const int BriefAssumptionCap = 5;
     private const int BriefNoteCap = 3;
 
-    public async Task<ScopeResult> ResolveAsync(
+    public Task<ScopeResult> ResolveAsync(
         string? workspaceSlug,
         string? scope,
         CancellationToken cancellationToken = default)
+        => ResolveAsync(workspaceSlug, scope, workspace => board.DefaultScopeAsync(workspace, cancellationToken), cancellationToken);
+
+    /// <summary>
+    /// <see cref="ResolveAsync(string?, string?, CancellationToken)"/> with an ambiguous ref's
+    /// candidates ordered around the caller's own default scope — the home <c>work_get</c>'s refusal
+    /// orders by — so a resource and the tool never list one ref's candidates differently.
+    /// </summary>
+    public Task<ScopeResult> ResolveForCallerAsync(
+        string? workspaceSlug,
+        string? scope,
+        Guid? sessionId,
+        CancellationToken cancellationToken = default)
+        => ResolveAsync(
+            workspaceSlug,
+            scope,
+            async _ => (await ResolveDefaultAsync(workspaceSlug, null, sessionId, cancellationToken)) is ScopeResult.Found home
+                ? home.Item
+                : null,
+            cancellationToken);
+
+    private async Task<ScopeResult> ResolveAsync(
+        string? workspaceSlug,
+        string? scope,
+        Func<Guid, Task<ScopeRef?>> homeOf,
+        CancellationToken cancellationToken)
     {
         var workspaceId = await board.WorkspaceAsync(workspaceSlug, cancellationToken);
         if (workspaceId is not { } workspace)
@@ -56,7 +81,7 @@ public sealed partial class BoardReader(WorkStateQueries queries, BoardQueries b
             return new ScopeResult.Missing(asked, await NearbyAsync(workspace, asked, cancellationToken));
         }
 
-        var home = await board.DefaultScopeAsync(workspace, cancellationToken);
+        var home = await homeOf(workspace);
         return new ScopeResult.Ambiguous(
             asked,
             await board.UniqueRefsAsync(workspace, Prefer(matches, home), cancellationToken),

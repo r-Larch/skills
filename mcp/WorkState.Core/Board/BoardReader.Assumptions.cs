@@ -76,6 +76,21 @@ public sealed partial class BoardReader
 
     private static string AssumptionCallable(AssumptionDetailRow a) => a.Qualified ? a.QualifiedRef : a.Ref;
 
+    /// <summary>An assumption on no item whose bare ref a run's assumption shares, renamed to the <c>workspace/</c> form that names it alone.</summary>
+    private async Task<AssumptionDetailRow> CallableAssumptionAsync(
+        Guid workspaceId,
+        AssumptionDetailRow assumption,
+        CancellationToken cancellationToken)
+    {
+        if (assumption.Qualified)
+        {
+            return assumption;
+        }
+
+        var form = await board.CallableAssumptionRefAsync(workspaceId, assumption.Ref, cancellationToken);
+        return form == assumption.Ref ? assumption : assumption with { QualifiedRef = form, Qualified = true };
+    }
+
     private static string AssumptionNext(AssumptionDetailRow a)
         => a.State == AssumptionState.Open
             ? $"Next: work_assume(ref:\"{AssumptionCallable(a)}\", resolve:\"confirmed\", evidence:\"…\") once it is "

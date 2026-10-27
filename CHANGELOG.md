@@ -21,6 +21,23 @@ What changes for someone who has the `rlarch` plugin installed, newest first. Fo
   keeps only hits inside that subtree. Workspace-wide rules and assumptions are left out of a scoped
   search, since they belong to no item. A search without `scope` prints its item rows exactly as
   before. A new index (`note_search_idx`) keeps note matching off a sequential scan.
+- **The gate brief prints the phase's gate criterion.** When a phase records what must be true to
+  accept it (`gate_criterion`, today set by the importer), the gate brief's header shows it as a
+  `PASS IF` line. A phase without one shows nothing extra.
+- **The dashboard API serves the gate brief.** `GET /api/v1/items/{id}/brief?for=gate` returns the
+  same text as `work_brief(for:"gate")`. Any value other than `resume`, `worker` or `gate` is still a 400.
+- **`workspace/A1` names an assumption that sits on no item.** Its bare `A1` was ambiguous as soon as
+  a run had its own `A1`, and nothing else named it. `work_search` and `work_get` now print
+  `workspace/A1` in that case, and `work_get` and `work_assume` accept it.
+
+### Changed
+
+- **`tools/list` budgets raised, and four descriptions trimmed** (owner's decision, 2026-10-27). A
+  keyed orchestrator list had reached 6,395 of its 6,400 tokens, so the next tool would not fit.
+  The ceilings are now 2,600 for a worker and 7,200 for an orchestrator or controller. `work_brief`,
+  `work_get`, `work_threads` and `work_status` each lost one sentence that only repeated the server
+  instructions or another line of the same description. Lists now measure 1,963 for a worker and
+  6,155 for an orchestrator or controller (2,111 and 6,303 with `work_session`).
 
 ### Fixed
 
@@ -33,6 +50,17 @@ What changes for someone who has the `rlarch` plugin installed, newest first. Fo
   `project/run/ref`, from a new additive v1 field `fullRef`; a crumb line has one copy button, for
   the page's own path, and the item page shows that path above its title instead of a ref line
   below it. The copy icon is centred on the text beside it and no longer makes its line taller.
+- **A worker can open a note that `work_search` finds.** A note hit routed to `work_history`, which a
+  worker cannot call. For a worker the hit now prints the note in full under its row and routes to
+  `work_get` on the item the note is about.
+- **Every retry an ambiguous or unknown `scope` prints is a complete call.** `work_search` printed
+  `work_search(scope:"run-a/1")` with no `q:`, so the retry was refused too. It now includes the
+  query, and the limit if one was given. `work_brief` and the `work://item/<ref>/brief` resource keep
+  `for:"worker"` (or `gate`) in their retries.
+- **`work://item/<ref>/brief` lists an ambiguous ref's candidates in the same order as `work_get`.**
+  It put the busiest run in the workspace first. Now both put the caller's own run first, and so does
+  `work_brief(scope:)`.
+
 - **`workstate-setup` now says when another registration hides the one it wrote.** A local-scope
   `workstate` entry for a repo (in `~/.claude.json`), or a project-scope one in its `.mcp.json`,
   wins over the user registration, so sessions there kept an old entry without the session helper

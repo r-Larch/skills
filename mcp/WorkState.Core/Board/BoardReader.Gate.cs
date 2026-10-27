@@ -105,6 +105,12 @@ public sealed partial class BoardReader
             lines.AddRange(BriefRenderer.Wrap("GOAL     ", goal, 9));
         }
 
+        if (await board.GateCriterionAsync(phase.Id, cancellationToken) is { } criterion
+            && !string.IsNullOrWhiteSpace(criterion))
+        {
+            lines.AddRange(BriefRenderer.Wrap("PASS IF  ", criterion, 9));
+        }
+
         lines.Add(string.Empty);
         lines.Add($"TASKS ({tasks.Count})");
         foreach (var task in tasks)

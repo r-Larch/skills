@@ -131,6 +131,33 @@ public sealed class GateBriefTests(PostgresFixture fixture)
         Assert.StartsWith("GATE 1 — Foundations  ·  run run-a  ·  2 of 2 tasks done", brief, StringComparison.Ordinal);
     }
 
+    /// <summary>gate-rest: <c>item.gate_criterion</c> is what must be true to accept the phase, and no query read it.</summary>
+    [Fact]
+    public async Task A_phases_gate_criterion_is_printed_in_the_gate_header_and_nothing_when_it_has_none()
+    {
+        var world = await WriteSeed.CreateAsync(fixture);
+        var keeper = WriteSeed.Keeper(fixture);
+
+        var without = await world.Reader.BriefSessionAsync(await world.ScopeAsync("1"), "gate", keeper, Ct, signed: true);
+        Assert.DoesNotContain("PASS IF", without, StringComparison.Ordinal);
+
+        await using (var db = fixture.NewContext())
+        {
+            var phase = await db.Items.SingleAsync(i => i.Id == world.PhaseId, Ct);
+            phase.GateCriterion = "every guard refuses with the call that fixes it, and the suite is green on a cold checkout";
+            await db.SaveChangesAsync(Ct);
+        }
+
+        var with = await world.Reader.BriefSessionAsync(await world.ScopeAsync("1"), "gate", keeper, Ct, signed: true);
+        var lines = with.Split('\n');
+        var at = Array.FindIndex(lines, l => l.StartsWith("PASS IF  ", StringComparison.Ordinal));
+
+        Assert.True(at > 0 && at < Array.IndexOf(lines, "TASKS (1)"), with);
+        Assert.Equal(
+            "every guard refuses with the call that fixes it, and the suite is green on a cold checkout",
+            string.Join(" ", lines.Skip(at).TakeWhile(l => l.Length > 0).Select(l => l[9..].Trim())));
+    }
+
     [Fact]
     public async Task The_addressed_header_says_which_call_consumes_and_whether_this_brief_did()
     {
