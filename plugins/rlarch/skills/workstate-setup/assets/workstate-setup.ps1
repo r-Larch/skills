@@ -11,7 +11,11 @@
                          image) and <path>/mcp/.env. Without it: the WorkState home.
   -HomeDir <dir>         the WorkState home (default %USERPROFILE%\.workstate): compose.yml (pulls the
                          published image) and .env
+  -Auth <oauth|token>    how the registration authenticates. oauth: no token stored, the user signs in
+                         on first use (/mcp -> Authenticate). token: a role's bearer token. Default:
+                         oauth when the server offers it (its OAuth metadata answers 200), else token
   -Role <role>           orchestrator (default) | controller | worker - whose token to register
+                         (token only: an OAuth sign-in always gets the controller toolset)
   -Name <name>           registration name (default workstate)
   -Agent <session>       register at LOCAL scope (this directory's project only) with the header
                          X-WorkState-Agent: <session>, so sessions here are recorded by that name
@@ -22,7 +26,7 @@
   -Force                 replace an existing registration of the same name
   -SessionNames          re-register an existing registration with the session helper (a new one gets
                          it anyway), keeping the role its token has unless -Role is given
-  -DryRun               do everything except write the registration; show it with the token masked
+  -DryRun               do everything except write the registration; show it (a token masked)
   -Backup <file>         pg_dump -Fc the database to <file>, and stop
   -Restore <file>        restore <file> over the database (after a safety backup), and stop
 #>
@@ -30,6 +34,7 @@
 param(
     [string]$Clone,
     [string]$HomeDir,
+    [ValidateSet('oauth', 'token')][string]$Auth,
     [ValidateSet('orchestrator', 'controller', 'worker')][string]$Role = 'orchestrator',
     [string]$Name = 'workstate',
     [string]$Agent,
@@ -54,6 +59,8 @@ $scriptDir = $PSScriptRoot
 $onWindows = [System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform([System.Runtime.InteropServices.OSPlatform]::Windows)
 
 if ($Clone -and $HomeDir) { Die '-Clone and -HomeDir are two different installs; pass one' }
+$roleGiven = $PSBoundParameters.ContainsKey('Role')
+if ($Auth -eq 'oauth' -and $roleGiven) { Die '-Role with -Auth oauth: an OAuth sign-in is the dashboard user with the controller toolset; -Role needs -Auth token' }
 
 function Get-EnvValue([string]$Key) {
     $value = $null
@@ -231,8 +238,45 @@ for ($i = 0; $i -lt 90; $i++) {
 if ($health -ne '200') { Die "start     $baseUrl/health never answered 200 (last: $(if ($health) { $health } else { 'none' })); docker compose -p $Project logs api" }
 Status 'start' "project '$Project' up, $baseUrl/health 200"
 
-# d. register - the token goes from the .env straight into the harness's config
+# d. register - the token goes from the .env straight into the harness's config; with oauth none is stored
 $mcpUrl = "$baseUrl/mcp"
+
+# One request, whatever it answers: Invoke-WebRequest throws on 4xx, with the response on the exception.
+function Invoke-Probe([string]$Uri, [string]$Method = 'Get') {
+    $result = @{ Status = ''; Body = ''; Authenticate = '' }
+    $request = @{ Uri = $Uri; Method = $Method; TimeoutSec = 10; UseBasicParsing = $true }
+    if ($Method -eq 'Post') {
+        $request.ContentType = 'application/json'
+        $request.Headers = @{ Accept = 'application/json, text/event-stream' }
+        $request.Body = '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
+    }
+    try {
+        $r = Invoke-WebRequest @request
+        $result.Status = [string][int]$r.StatusCode
+        $result.Body = if ($r.Content -is [byte[]]) { [Text.Encoding]::UTF8.GetString($r.Content) } else { [string]$r.Content }
+    }
+    catch {
+        $response = $_.Exception.PSObject.Properties['Response']
+        if ($response -and $response.Value) {
+            $result.Status = [string][int]$response.Value.StatusCode
+            $headers = $response.Value.Headers
+            if ($headers -is [System.Net.WebHeaderCollection]) { $result.Authenticate = [string]$headers['WWW-Authenticate'] }
+            else { $result.Authenticate = (@($headers.WwwAuthenticate) | ForEach-Object { $_.ToString() }) -join ', ' }
+        }
+    }
+    $result
+}
+# What the url answered, and Offers only for an OAuth protected-resource document.
+function Test-Prm([string]$Uri) {
+    $probe = Invoke-Probe $Uri
+    # 200 alone proves nothing: the dashboard answers unknown paths with its index.html
+    if ($probe.Status -eq '200' -and $probe.Body.Contains('"authorization_servers"')) { return @{ Offers = $true; Answer = '200' } }
+    if ($probe.Status -eq '200') { return @{ Offers = $false; Answer = '200 without authorization_servers' } }
+    @{ Offers = $false; Answer = $(if ($probe.Status) { $probe.Status } else { 'nothing' }) }
+}
+# WS_SETUP_PRM_URL is a test seam: point it at a 404 to see the token fallback without stopping the server.
+$prmUrl = if ($env:WS_SETUP_PRM_URL) { $env:WS_SETUP_PRM_URL } else { "$baseUrl/.well-known/oauth-protected-resource/mcp" }
+$prm = Test-Prm $prmUrl
 $existing = $false
 $scope = 'user'
 if ($Agent) { $scope = 'local' }
@@ -247,28 +291,51 @@ else {
     elseif ($getOut -notmatch 'No MCP server named') { Die "register  claude mcp get $Name failed; run claude mcp list to see why" }
     if ($existing -and $scope -eq 'local' -and $getOut -notmatch 'Scope: Local') { $existing = $false }
 }
+$existingAuth = if ($getOut.Contains('Bearer ')) { 'token' } else { 'oauth' }
+
+# which auth: a kept registration keeps its own; else -Auth, -Role, the re-registered one's, the server's offer
+$keep = $existing -and -not ($Force -or $SessionNames)
+if ($keep) {
+    $why = "the existing '$Name' registration uses $existingAuth, kept"
+    if ($Auth -and $Auth -ne $existingAuth) { $why += " (-Force replaces it with $Auth)" }
+    $Auth = $existingAuth
+}
+elseif ($Auth) { $why = "-Auth $Auth" }
+elseif ($roleGiven) { $Auth = 'token'; $why = "-Role $Role needs a token" }
+elseif ($existing) { $Auth = $existingAuth; $why = "the existing '$Name' registration uses $existingAuth" }
+elseif ($prm.Offers) { $Auth = 'oauth'; $why = "the server offers OAuth sign-in ($prmUrl 200)" }
+else { $Auth = 'token'; $why = "the server has no OAuth sign-in ($prmUrl answered $($prm.Answer)): an image older than OAuth; -Update gets a newer one" }
+if ($Auth -eq 'oauth' -and -not $keep -and -not $prm.Offers) {
+    Die "auth      -Auth oauth, but $prmUrl answered $($prm.Answer): this server predates OAuth sign-in; run with -Update (home: pulls the image, clone: rebuilds it), or pass -Auth token"
+}
+Status 'auth' "${Auth}: $why"
 
 # -SessionNames on an existing registration keeps the role its token already has.
-if ($existing -and $SessionNames -and -not $PSBoundParameters.ContainsKey('Role')) {
+if ($Auth -eq 'token' -and $existing -and $SessionNames -and -not $roleGiven) {
     foreach ($candidate in 'controller', 'orchestrator', 'worker') {
         $candidateToken = Get-EnvValue "WORKSTATE_$($candidate.ToUpperInvariant())_TOKEN"
         if ($candidateToken -and $getOut.Contains("Bearer $candidateToken")) { $Role = $candidate; break }
     }
 }
-$tokenKey = "WORKSTATE_$($Role.ToUpperInvariant())_TOKEN"
-$token = Get-EnvValue $tokenKey
-if (-not $token) { Die "env       $envFile has no $tokenKey" }
+$token = ''
+if ($Auth -eq 'token') {
+    $tokenKey = "WORKSTATE_$($Role.ToUpperInvariant())_TOKEN"
+    $token = Get-EnvValue $tokenKey
+    if (-not $token) { Die "env       $envFile has no $tokenKey" }
+}
 
 function Get-Registration([string]$Bearer) {
-    $headers = [ordered]@{ Authorization = "Bearer $Bearer" }
+    $headers = [ordered]@{}
+    if ($Auth -eq 'token') { $headers['Authorization'] = "Bearer $Bearer" }
     if ($Agent) { $headers['X-WorkState-Agent'] = $Agent }
-    $entry = [ordered]@{ type = 'http'; url = $mcpUrl; headers = $headers }
+    $entry = [ordered]@{ type = 'http'; url = $mcpUrl }
+    if ($headers.Count -gt 0) { $entry['headers'] = $headers }
     if ($node) { $entry['headersHelper'] = "node `"$($helperFile.Replace('\', '/'))`"" }
     $entry | ConvertTo-Json -Compress
 }
 $shown = "claude mcp add-json --scope $scope $Name '$(Get-Registration '***')'"
 
-if ($existing -and -not ($Force -or $SessionNames)) {
+if ($keep) {
     Status 'register' "kept the existing '$Name' registration (pass -SessionNames to add the session helper, -Force to replace it)"
 }
 elseif ($DryRun) {
@@ -286,7 +353,12 @@ else {
     }
     & claude mcp add-json --scope $scope $Name $json *> $null
     if ($LASTEXITCODE -ne 0) { Die "register  claude mcp add-json failed: $shown" }
-    Status 'register' "'$Name' -> $mcpUrl as $Role$(if ($Agent) { ", agent $Agent" })$(if ($node) { ', session helper' }) ($scope scope; token stored by Claude Code, not shown)"
+    if ($Auth -eq 'oauth') {
+        Status 'register' "'$Name' -> $mcpUrl with OAuth sign-in$(if ($Agent) { ", agent $Agent" })$(if ($node) { ', session helper' }) ($scope scope; no token stored)"
+    }
+    else {
+        Status 'register' "'$Name' -> $mcpUrl as $Role$(if ($Agent) { ", agent $Agent" })$(if ($node) { ', session helper' }) ($scope scope; token stored by Claude Code, not shown)"
+    }
 }
 
 # the shadow check - a local or project entry of the same name wins over the user one; removing it is the user's call
@@ -306,24 +378,40 @@ if ($node) {
 }
 else { Status 'shadows' 'not checked (needs node)' }
 
-# e. prove - count what the server lists for that token
-$body = ''
-try {
-    $body = (Invoke-WebRequest -Uri $mcpUrl -Method Post -TimeoutSec 10 -UseBasicParsing -ContentType 'application/json' `
-            -Headers @{ Accept = 'application/json, text/event-stream'; Authorization = "Bearer $token" } `
-            -Body '{"jsonrpc":"2.0","id":1,"method":"tools/list"}').Content
-    if ($body -is [byte[]]) { $body = [Text.Encoding]::UTF8.GetString($body) }
+# e. prove - oauth: the server asks for sign-in the way Claude Code discovers it; token: count what it lists
+if ($Auth -eq 'oauth') {
+    $reply = Invoke-Probe $mcpUrl 'Post'
+    $code = if ($reply.Status) { $reply.Status } else { 'nothing' }
+    if ($code -ne '401') { Die "prove     POST $mcpUrl without a token answered $code, not 401: this server does not ask for sign-in; docker compose -p $Project logs api" }
+    $match = [regex]::Match($reply.Authenticate, 'resource_metadata="([^"]*)"')
+    if (-not $match.Success) { Die "prove     POST $mcpUrl answered 401 without resource_metadata=: Claude Code cannot find the sign-in; an image older than OAuth (run with -Update)" }
+    $metadata = $match.Groups[1].Value
+    $metadataCheck = Test-Prm $metadata
+    if (-not $metadataCheck.Offers) { Die "prove     $metadata answered $($metadataCheck.Answer), not the OAuth metadata: Claude Code cannot discover the sign-in; docker compose -p $Project logs api" }
+    Status 'prove' "POST /mcp without a token: 401 with resource_metadata=$metadata, which answers 200 - Claude Code finds the sign-in from there"
 }
-catch { $body = '' }
-$count = @([regex]::Matches([string]$body, '"name":"work_[a-z_]*"') | ForEach-Object { $_.Value } | Sort-Object -Unique).Count
-switch ($count) {
-    19 { $implied = 'orchestrator/controller' }
-    6 { $implied = 'worker' }
-    0 { Die "prove     tools/list returned no work_* tool for the $Role token: the token or the server is wrong; docker compose -p $Project logs api" }
-    default { $implied = 'unexpected - an image older or newer than these skills (run with -Update)' }
+else {
+    $body = ''
+    try {
+        $body = (Invoke-WebRequest -Uri $mcpUrl -Method Post -TimeoutSec 10 -UseBasicParsing -ContentType 'application/json' `
+                -Headers @{ Accept = 'application/json, text/event-stream'; Authorization = "Bearer $token" } `
+                -Body '{"jsonrpc":"2.0","id":1,"method":"tools/list"}').Content
+        if ($body -is [byte[]]) { $body = [Text.Encoding]::UTF8.GetString($body) }
+    }
+    catch { $body = '' }
+    $count = @([regex]::Matches([string]$body, '"name":"work_[a-z_]*"') | ForEach-Object { $_.Value } | Sort-Object -Unique).Count
+    switch ($count) {
+        19 { $implied = 'orchestrator/controller' }
+        6 { $implied = 'worker' }
+        0 { Die "prove     tools/list returned no work_* tool for the $Role token: the token or the server is wrong; docker compose -p $Project logs api" }
+        default { $implied = 'unexpected - an image older or newer than these skills (run with -Update)' }
+    }
+    Status 'prove' "$count work_* tools for the $Role token: $implied"
 }
-Status 'prove' "$count work_* tools for the $Role token: $implied"
 
 # f. what the human needs next
 Status 'dashboard' "$baseUrl - sign in with WORKSTATE_DASHBOARD_USERNAME / _PASSWORD from $envFile"
-Status 'next' 'start a new Claude Code session: the work_* tools appear there, not in this one'
+if ($Auth -eq 'oauth') {
+    Status 'next' "start a new Claude Code session, run /mcp, pick '$Name', Authenticate, sign in with that dashboard user and Approve: the work_* tools appear there, not in this one"
+}
+else { Status 'next' 'start a new Claude Code session: the work_* tools appear there, not in this one' }

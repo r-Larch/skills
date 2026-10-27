@@ -421,14 +421,20 @@ pwsh "$env:CLAUDE_PLUGIN_ROOT/skills/workstate-setup/assets/workstate-setup.ps1"
 
 It keeps everything in `~/.workstate/` — a `compose.yml` that pulls the image, and a `.env` with
 random tokens and passwords that it writes once and never overwrites — starts the stack, runs the one
-`claude mcp add` itself, and proves from `tools/list` how many tools came back. **No token or password
-passes through the model:** the script prints status lines only, and the dashboard password stays in
-`~/.workstate/.env` for you to read. If you develop WorkState, `--clone <path>` uses
-`<path>/mcp/compose.yml` instead, which builds the image from source.
+`claude mcp add` itself, and proves the server answers the way that registration needs. **By default
+the registration uses OAuth and stores no token:** in your next session run `/mcp`, pick `workstate`,
+choose *Authenticate*, sign in with the dashboard user from `~/.workstate/.env` and approve. A server
+image older than OAuth, `--auth token` or a `--role` registers a role's bearer token instead, and
+proves from `tools/list` how many tools came back; sessions started by `agent_launch` always use
+tokens, since they cannot sign in in a browser. **No token or password passes through the model:**
+the script prints status lines only, and the dashboard password stays in `~/.workstate/.env` for you
+to read. If you develop WorkState, `--clone <path>` uses `<path>/mcp/compose.yml` instead, which
+builds the image from source.
 
 It is then at **http://127.0.0.1:5290** permanently (`restart: unless-stopped`, so it survives a
 reboot wherever Docker starts at logon). Use `127.0.0.1`, not `localhost`: the server binds IPv4
-loopback only, and some clients try `::1` first.
+loopback only, some clients try `::1` first, and an OAuth sign-in is bound to the host it was made
+on.
 
 **Back up the database** — it is the only copy of every plan and verification:
 
@@ -532,7 +538,7 @@ plugins/rlarch/                          # the plugin
     SKILL.md
   skills/workstate-setup/
     SKILL.md                             # four states, one script — see "WorkState" above
-    assets/workstate-setup.sh / .ps1     # .env, compose up, claude mcp add, tools/list proof, backup/restore
+    assets/workstate-setup.sh / .ps1     # .env, compose up, claude mcp add (OAuth or token), proof, backup/restore
     assets/compose.yml                   # pull-only compose: ghcr.io/r-larch/workstate-api
   skills/workstate-import/
     SKILL.md                             # discover, judge against the code, ask, work_import

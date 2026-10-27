@@ -1,6 +1,6 @@
 ---
 name: workstate-setup
-description: "Get the WorkState MCP server running and registered, so the `work_*` tools are callable. WorkState is a self-hosted HTTP MCP server (a .NET service plus a Postgres, in Docker, on your own machine) that holds what coding agents are doing - projects, runs, phases, tasks, claims, evidence and an append-only journal - with an operator dashboard on the same port. This skill detects which of four states the machine is in and runs one shipped script that does only the part that is missing: writes the local-only `.env` with random tokens, pulls the published image (no clone needed) or builds from a clone, starts it, registers it with `claude mcp add`, and proves from `tools/list` that the tools are really there - without the model ever reading, pasting or curling a token. Also backs up and restores the database. USE FOR: `work_brief` or any other `work_*` tool is missing and a skill told you it needs the store; a first install of WorkState; \"the workstate tools are gone\"; the server is up but this session cannot see it; backing up or restoring WorkState. DO NOT USE FOR: using the tools once they work (call `work_brief`), or deploying WorkState anywhere but localhost."
+description: "Get the WorkState MCP server running and registered, so the `work_*` tools are callable. WorkState is a self-hosted HTTP MCP server (a .NET service plus a Postgres, in Docker, on your own machine) that holds what coding agents are doing - projects, runs, phases, tasks, claims, evidence and an append-only journal - with an operator dashboard on the same port. This skill detects which of four states the machine is in and runs one shipped script that does only the part that is missing: writes the local-only `.env` with random tokens, pulls the published image (no clone needed) or builds from a clone, starts it, registers it with `claude mcp add` - with OAuth sign-in by default, so no token is stored, or with a role's token - and proves that the server answers the way that registration needs - without the model ever reading, pasting or curling a token. Also backs up and restores the database. USE FOR: `work_brief` or any other `work_*` tool is missing and a skill told you it needs the store; a first install of WorkState; \"the workstate tools are gone\"; the server is up but this session cannot see it; backing up or restoring WorkState. DO NOT USE FOR: using the tools once they work (call `work_brief`), or deploying WorkState anywhere but localhost."
 ---
 
 # WorkState setup
@@ -60,7 +60,9 @@ curl -s -m 5 -o /dev/null -w "%{http_code}" http://127.0.0.1:5290/health
 | `✔ Connected` | `200` | **registered and healthy, this session just started too early** | §5 only — restart, and change nothing else |
 
 That last row is the one worth reading twice: a `Connected` server with no `work_*` tool in your list
-is not broken, it is a session that began before the registration did.
+is not broken, it is a session that began before the registration did. The same goes for a
+`workstate` line that says it needs authentication: that is an OAuth registration nobody has signed
+in to yet. Change nothing; the user signs in (§5).
 
 ---
 
@@ -104,7 +106,8 @@ or in PowerShell:
 |---|---|---|
 | `--clone <path>` | `-Clone <path>` | use a clone (§2) instead of the home |
 | `--home-dir <dir>` | `-HomeDir <dir>` | a different home than `~/.workstate` |
-| `--role orchestrator\|controller\|worker` | `-Role …` | whose token is registered; **orchestrator is the usual choice** |
+| `--auth oauth\|token` | `-Auth …` | how the registration signs in (below); **the default is the right choice** |
+| `--role orchestrator\|controller\|worker` | `-Role …` | token only: whose token is registered; orchestrator if you pass none |
 | `--agent <session>` | `-Agent <session>` | register at **local** scope (this project only) with `X-WorkState-Agent: <session>`, so sessions here are recorded by that name |
 | `--name <name>` | `-Name <name>` | registration name (default `workstate`) |
 | `--port <port>` | `-Port <port>` | host port, used only when it writes a **new** `.env` (default 5290) |
@@ -112,17 +115,38 @@ or in PowerShell:
 | `--update` | `-Update` | pull the image again (home) or rebuild it (clone) |
 | `--force` | `-Force` | replace an existing registration of the same name |
 | `--session-names` | `-SessionNames` | re-register an existing install with the session helper, keeping its token's role |
-| `--dry-run` | `-DryRun` | do everything but write the registration; show it with the token masked |
+| `--dry-run` | `-DryRun` | do everything but write the registration; show it (a token masked as `***`) |
 | `--backup <file>` / `--restore <file>` | `-Backup` / `-Restore` | §4, and nothing else |
+
+**OAuth is the default for a human's own registration.** When the server offers it (its
+`/.well-known/oauth-protected-resource/mcp` document answers), the script registers the URL with
+**no `Authorization` header** and stores no token anywhere. On first use the user signs in once in
+the browser: in a new session, `/mcp`, pick the server, **Authenticate**, sign in with the
+**dashboard user** (`WORKSTATE_DASHBOARD_USERNAME` / `_PASSWORD` from the `.env`) and **Approve**.
+The server remembers the approval, so a later sign-in skips the consent page. An OAuth sign-in is
+the dashboard user, who gets the **controller** toolset — `--role` does not apply, and passing it
+with `--auth oauth` stops with a line saying so. A server image older than OAuth (an
+old pull of `latest`) does not offer it: the script says so and falls back to a token; `--update`
+gets a newer image. `--auth oauth` against such a server stops instead of falling back.
+
+`--auth token` (or any `--role`) registers a role's bearer token from the `.env`, exactly as before.
+**Agents stay on tokens:** a session started by `agent_launch` runs unattended and cannot sign in in a
+browser, so it always uses a token — see below. An existing registration keeps its kind: it is kept
+as it is unless you pass `--force`, and `--force` or `--session-names` re-register it as the same
+kind unless `--auth` (or `--role`) says otherwise.
+
+**Register `127.0.0.1`, never `localhost`.** The sign-in is bound to the host the server was reached
+on, so a registration on one name cannot use a grant issued on the other. The script always writes
+`http://127.0.0.1:<port>/mcp`; do not edit it into `localhost`.
 
 The registration also runs `session-header.mjs` (copied next to the `.env`; needs `node`) on each
 connect: it keys the session by its Claude Code process, so `work_session(name)` can name a
 hand-started session that shares this registration. A new install gets it; an existing one needs
 `--session-names` once, then a new session.
 
-The roles nest — a controller token also satisfies orchestrator and worker. Register a worker only
-for a session that just executes tasks handed to it. Sessions launched by `nested-claude`'s
-`agent_launch` get their own minted token and name instead; give it `workstate.env_file` = the `.env`
+The roles nest — a controller token also satisfies orchestrator and worker. Register a worker token
+(`--role worker`) only for a session that just executes tasks handed to it. Sessions launched by
+`nested-claude`'s `agent_launch` get their own minted token and name instead; give it `workstate.env_file` = the `.env`
 this script names (`<home>/.env` or `<clone>/mcp/.env`) — a path, which is all it needs.
 
 Each step prints one line; every step is idempotent, so running it again is always safe:
@@ -130,20 +154,38 @@ Each step prints one line; every step is idempotent, so running it again is alwa
 ```
 home      /home/u/.workstate (pull-only compose written)
 env       wrote /home/u/.workstate/.env: 3 tokens, dashboard and Postgres passwords (values not shown, mode 600)
+helper    /home/u/.workstate/session-header.mjs (names each session; needs node, found)
 start     project 'workstate' up, http://127.0.0.1:5290/health 200
-register  'workstate' -> http://127.0.0.1:5290/mcp as orchestrator (user scope; token stored by Claude Code, not shown)
+auth      oauth: the server offers OAuth sign-in (http://127.0.0.1:5290/.well-known/oauth-protected-resource/mcp 200)
+register  'workstate' -> http://127.0.0.1:5290/mcp with OAuth sign-in, session helper (user scope; no token stored)
 shadows   none: no local or project 'workstate' entry overrides it
-prove     19 work_* tools for the orchestrator token: orchestrator/controller
+prove     POST /mcp without a token: 401 with resource_metadata=http://127.0.0.1:5290/.well-known/oauth-protected-resource/mcp, which answers 200 - Claude Code finds the sign-in from there
 dashboard http://127.0.0.1:5290 - sign in with WORKSTATE_DASHBOARD_USERNAME / _PASSWORD from /home/u/.workstate/.env
+next      start a new Claude Code session, run /mcp, pick 'workstate', Authenticate, sign in with that dashboard user and Approve: the work_* tools appear there, not in this one
+```
+
+With a token (`--auth token`, a `--role`, or a server without OAuth) the `auth`, `register`, `prove`
+and `next` lines read instead:
+
+```
+auth      token: --auth token
+register  'workstate' -> http://127.0.0.1:5290/mcp as orchestrator, session helper (user scope; token stored by Claude Code, not shown)
+prove     19 work_* tools for the orchestrator token: orchestrator/controller
 next      start a new Claude Code session: the work_* tools appear there, not in this one
 ```
 
-An existing `.env` is **never overwritten** (`env  kept …`), and an existing registration is kept
-unless you pass `--force`. **Report the `prove` count to the user** — the count *is* the role check,
-because a tool a token may not call is absent from `tools/list` rather than refused:
+`auth` always says which kind it chose and why. An existing `.env` is **never overwritten**
+(`env  kept …`), and an existing registration is kept unless you pass `--force`.
+
+**Report the `prove` line to the user.** With OAuth there is no token to list tools with, so it
+proves what Claude Code needs to find the sign-in: `POST /mcp` without a token answers `401` with a
+`resource_metadata=` link, and that document answers. The tools themselves show up only after the
+sign-in in the next session. With a token, the count *is* the role check, because a tool a token may
+not call is absent from `tools/list` rather than refused:
 
 | `prove` says | It means |
 |---|---|
+| **401 with resource_metadata=…** | OAuth ready; the user signs in in the next session (§5) |
 | **19** | an orchestrator or controller token, working |
 | **6** | a worker token, working |
 | another number | the running image is older or newer than these skills — run again with `--update` |
@@ -194,7 +236,11 @@ You cannot finish this yourself — the last step is the user's. **Tell them, in
 `work_*` tools are registered and will appear in their next session, not this one.** Ask them to:
 
 1. Exit this session and start a new one in the same project.
-2. Call `work_brief` — it is the recovery payload and it needs nothing read before it. On an empty
+2. **OAuth registration only** (`auth  oauth` above): run `/mcp`, pick the server, choose
+   **Authenticate**, sign in in the browser with the dashboard user from the `.env`, and
+   **Approve**. `/mcp` then says it is connected. Claude Code stores the grant; this is not a step
+   for every session.
+3. Call `work_brief` — it is the recovery payload and it needs nothing read before it. On an empty
    server it answers with onboarding instead of an error. Projects are bound to repositories, one
    project per repo: `work_brief(repo: {remote, root})` opens the repo's project, and onboarding
    names the `work_create` that binds an unbound one.
