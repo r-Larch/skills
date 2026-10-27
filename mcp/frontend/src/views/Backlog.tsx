@@ -1,18 +1,29 @@
 import { For, Show } from 'solid-js'
-import { A, useParams } from '@solidjs/router'
+import { A, useParams, useSearchParams } from '@solidjs/router'
 import * as api from '../api.ts'
+import type { ItemRef } from '../api.ts'
 import { load, overview } from '../store.ts'
-import { itemHref, runHref } from '../nav.ts'
-import { refState } from '../state.ts'
+import { SHOW_CANCELLED, backlogHref, itemHref, runHref } from '../nav.ts'
+import { LEAF, refState } from '../state.ts'
 import { plural, short } from '../format.ts'
-import { CopyRef, Dot, Known, ProjectName } from '../ui.tsx'
+import { CancelledToggle, CopyRef, Dot, Known, ProjectName } from '../ui.tsx'
 
 export default function Backlog() {
   const params = useParams<{ project: string }>()
+  const [search] = useSearchParams<{ cancelled?: string }>()
   const page = load(() => params.project, api.backlog)
-  const project = () => overview()?.projects.find((p) => p.item.id === params.project)?.item
+  const project = () => overview()?.projects.find((p) => p.item.id === params.project)
+  const shown = () => search.cancelled === SHOW_CANCELLED
 
   const count = () => page.data()?.groups.reduce((n, g) => n + g.items.length, 0) ?? 0
+
+  /** The backlog read lists open work only; cancelled leaves come off the backlog run's board. */
+  const runId = () => page.data()?.run?.id
+  const cancelledCount = () => project()?.runs.find((r) => r.item.id === runId())?.rollup.cancelled ?? 0
+  const board = load(() => (shown() ? runId() : undefined), api.board)
+  const cancelledItems = () =>
+    (board.data()?.rows ?? []).filter((r) => LEAF.has(r.item.kind) && r.item.status === 'cancelled').map((r) => r.item)
+  const toggle = () => `${backlogHref(params.project)}${shown() ? '' : `?cancelled=${SHOW_CANCELLED}`}`
 
   return (
     <div class="page">
@@ -20,10 +31,10 @@ export default function Backlog() {
         <div>
           <div class="crumbs">
             <A href="/">Overview</A> /{' '}
-            <Show when={project()} fallback="project">
+            <Show when={project()?.item} fallback="project">
               {(p) => (
                 <>
-                  <ProjectName project={p()} /> <CopyRef value={p().qualifiedRef} />
+                  <ProjectName project={p()} /> <CopyRef item={p()} />
                 </>
               )}
             </Show>
@@ -68,31 +79,38 @@ export default function Backlog() {
                         <A class="group-h" href={itemHref(origin(), null)}>
                           From {short(origin().title)}
                           <span class="gc">
-                            {origin().qualifiedRef} <CopyRef value={origin().qualifiedRef} />
+                            {origin().qualifiedRef} <CopyRef item={origin()} />
                           </span>
                         </A>
                       )}
                     </Show>
-                    <For each={group.items}>
-                      {(item) => (
-                        <A class="item" href={itemHref(item, b().run)}>
-                          <Dot k={refState(item).k} />
-                          <div class="item-t">
-                            <span class="item-ref">{item.qualifiedRef}</span>
-                            <CopyRef value={item.qualifiedRef} />
-                            {item.title}
-                          </div>
-                          <div class="item-side">{item.kind}</div>
-                        </A>
-                      )}
-                    </For>
+                    <For each={group.items}>{(item) => <BacklogItem item={item} run={b().run} />}</For>
                   </>
                 )}
               </For>
+              <Show when={shown() && cancelledItems().length > 0}>
+                <div class="group-h">Cancelled</div>
+                <For each={cancelledItems()}>{(item) => <BacklogItem item={item} run={b().run} />}</For>
+              </Show>
+              <CancelledToggle count={cancelledCount()} shown={shown()} href={toggle()} class="pad" />
             </div>
           )}
         </Known>
       </Show>
     </div>
+  )
+}
+
+function BacklogItem(props: { item: ItemRef; run: ItemRef | null }) {
+  return (
+    <A class={`item${props.item.status === 'cancelled' ? ' gone' : ''}`} href={itemHref(props.item, props.run)}>
+      <Dot k={refState(props.item).k} />
+      <div class="item-t">
+        <span class="item-ref">{props.item.qualifiedRef}</span>
+        <CopyRef item={props.item} />
+        {props.item.title}
+      </div>
+      <div class="item-side">{props.item.kind}</div>
+    </A>
   )
 }

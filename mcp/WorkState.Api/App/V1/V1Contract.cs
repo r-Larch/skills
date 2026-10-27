@@ -5,7 +5,9 @@ namespace WorkState.Api.App.V1;
 // doc 10 — the frozen v1 shapes, one record per object in the spec. Field names are the spec's,
 // camelCased by the host's web JSON defaults. Additive only: never rename or remove a member here.
 
-public sealed record ItemRefView(Guid Id, string Ref, string QualifiedRef, string Kind, string Title, string Status);
+/// <summary><see cref="FullRef"/> is <c>project/run/ref</c> (a run's is <c>project/run</c>, a project's its ref):
+/// longer than <see cref="QualifiedRef"/>, and it stays unambiguous as runs are added.</summary>
+public sealed record ItemRefView(Guid Id, string Ref, string QualifiedRef, string Kind, string Title, string Status, string FullRef);
 
 public sealed record RollupView(
     int Total,

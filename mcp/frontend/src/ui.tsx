@@ -1,7 +1,9 @@
 import { For, Show, createSignal, onCleanup, type Accessor, type JSX } from 'solid-js'
-import type { BoardRow } from './api.ts'
+import { A } from '@solidjs/router'
+import type { BoardRow, ItemRef } from './api.ts'
 import { rowState, type State, type StateKey } from './state.ts'
 import { UNKNOWN, projectName, projectRefIfDifferent } from './format.ts'
+import { copyValue } from './nav.ts'
 import { CopyIcon } from './icons.tsx'
 
 export const Dot = (props: { k: StateKey | 'note'; title?: string; style?: JSX.CSSProperties }) => (
@@ -21,11 +23,12 @@ export const ProjectName = (props: { project: { title: string; ref: string } }) 
 )
 
 /**
- * One-click copy of a callable ref (doc 13). `value` is always the server's `qualifiedRef`, whole,
- * whatever the ref beside it shows. It often sits inside a row link, so the click is taken on the
- * button itself and never reaches the link or the router's document listener.
+ * One-click copy of an item's full path (doc 13), `copyValue()`, whatever the ref beside it shows.
+ * It often sits inside a row link, so the click is taken on the button itself and never reaches the
+ * link or the router's document listener.
  */
-export function CopyRef(props: { value: string }) {
+export function CopyRef(props: { item: Pick<ItemRef, 'fullRef'> }) {
+  const value = () => copyValue(props.item)
   const [done, setDone] = createSignal<'copied' | 'selected'>()
   let picked: HTMLSpanElement | undefined
   let timer: ReturnType<typeof setTimeout> | undefined
@@ -42,7 +45,7 @@ export function CopyRef(props: { value: string }) {
       // A clipboard write can stay pending with no error (a held permission, an unfocused
       // window); without a deadline the button would show nothing at all.
       await Promise.race([
-        navigator.clipboard.writeText(props.value),
+        navigator.clipboard.writeText(value()),
         new Promise((_, reject) => setTimeout(() => reject(new Error('clipboard timeout')), 1200)),
       ])
       show('copied')
@@ -65,26 +68,36 @@ export function CopyRef(props: { value: string }) {
 
   return (
     <span class="copy-ref">
+      <span class="copy-strut" aria-hidden="true">{'​'}</span>
       <button
         type="button"
         class={`copy${done() === 'copied' ? ' done' : ''}`}
-        aria-label={`Copy ref ${props.value}`}
-        title={`Copy ${props.value}`}
+        aria-label={`Copy ref ${value()}`}
+        title={`Copy ${value()}`}
         ref={(el) => el.addEventListener('click', click)}
       >
         {done() === 'copied' ? 'Copied' : <CopyIcon />}
       </button>
       <Show when={done() === 'selected'}>
         <span class="copy-sel" ref={picked} title="The clipboard is unavailable here; press Ctrl+C">
-          {props.value}
+          {value()}
         </span>
       </Show>
       <span class="sr-only" role="status">
-        {done() === 'copied' ? `Copied ${props.value}` : done() === 'selected' ? `${props.value} selected, press Ctrl+C` : ''}
+        {done() === 'copied' ? `Copied ${value()}` : done() === 'selected' ? `${value()} selected, press Ctrl+C` : ''}
       </span>
     </span>
   )
 }
+
+/** The quiet link that shows or hides cancelled work; `href` is the page with the flag flipped. */
+export const CancelledToggle = (props: { count: number; shown: boolean; href: string; class?: string }) => (
+  <Show when={props.count > 0}>
+    <A class={`toggle-cancelled${props.class ? ` ${props.class}` : ''}`} href={props.href} noScroll>
+      {props.shown ? `Hide ${props.count} cancelled` : `Show ${props.count} cancelled`}
+    </A>
+  </Show>
+)
 
 /** One segment per leaf, in board order. Gone leaves are already out of `leaves`. */
 export const Segs = (props: { leaves: BoardRow[]; style?: JSX.CSSProperties }) => (

@@ -28,7 +28,7 @@ export default function Project() {
                   <div>
                     <div class="sub">Project</div>
                     <h1>
-                      <ProjectName project={p().item} /> <CopyRef value={p().item.qualifiedRef} />
+                      <ProjectName project={p().item} /> <CopyRef item={p().item} />
                     </h1>
                   </div>
                   <div class="stamp">

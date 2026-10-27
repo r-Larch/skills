@@ -1,4 +1,4 @@
-import type { BoardRow, ItemPage, ItemRef } from './api.ts'
+import type { BoardRow, ItemPage, ItemRef, Rollup } from './api.ts'
 
 /** doc 10's Rollup leaves: the kinds that are a unit of work rather than a container of it. */
 export const LEAF = new Set(['task', 'followup', 'subtask', 'spike', 'question', 'incident'])
@@ -77,16 +77,17 @@ export function pageInput(page: ItemPage): StateInput {
 export const refState = (ref: ItemRef): State =>
   state({ kind: ref.kind, status: ref.status, resolution: null, claimExpired: false, proof: null, waitingOn: [] })
 
-export type Tally = Record<StateKey, number> & { total: number; done: number; leaves: BoardRow[] }
+export type Tally = Record<StateKey, number> & { total: number; done: number; cancelled: number; leaves: BoardRow[] }
 
 /** The segmented bar's numbers: every leaf under `rows`, gone ones counted but never drawn. */
 export function tally(rows: BoardRow[]): Tally {
-  const t: Tally = { gone: 0, stop: 0, doing: 0, proven: 0, claimed: 0, wait: 0, idle: 0, total: 0, done: 0, leaves: [] }
+  const t: Tally = { gone: 0, stop: 0, doing: 0, proven: 0, claimed: 0, wait: 0, idle: 0, total: 0, done: 0, cancelled: 0, leaves: [] }
 
   for (const row of rows) {
     if (!LEAF.has(row.item.kind)) continue
     const k = rowState(row).k
     t[k] += 1
+    if (row.item.status === 'cancelled') t.cancelled += 1
     if (k === 'gone') continue
     t.total += 1
     t.leaves.push(row)
@@ -95,3 +96,29 @@ export function tally(rows: BoardRow[]): Tally {
   t.done = t.proven + t.claimed
   return t
 }
+
+/** The run header's sentence. Gone leaves are outside `total`, so they are named, never dropped. */
+export function progress(t: Tally): string {
+  const moved = t.gone - t.cancelled
+  return (
+    `${t.done} of ${t.total} done` +
+    (t.cancelled ? `, ${t.cancelled} cancelled` : '') +
+    (moved ? `, ${moved} moved or superseded` : '') +
+    (t.claimed ? `, ${t.claimed} without independent proof` : '') +
+    (t.doing ? `, ${t.doing} in progress` : '') +
+    (t.stop ? `, ${t.stop} blocked` : '') +
+    (t.wait ? `, ${t.wait} waiting on other tasks` : '') +
+    '.'
+  )
+}
+
+/** The same denominator as `tally()` from a server rollup, whose `total` counts every leaf. */
+export const counted = (r: Rollup): { done: number; total: number; cancelled: number } => ({
+  done: r.done,
+  total: r.total - r.cancelled - r.superseded,
+  cancelled: r.cancelled,
+})
+
+/** A compact "3/6" cell's tooltip, so the dense count still says what it leaves out. */
+export const countTitle = (c: { done: number; total: number; cancelled: number }): string =>
+  `${c.done} of ${c.total} done${c.cancelled ? `, ${c.cancelled} cancelled` : ''}`
