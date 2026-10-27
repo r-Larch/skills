@@ -1,13 +1,14 @@
-import { For, Index, Show, createEffect, on } from 'solid-js'
-import { A, useParams, useSearchParams } from '@solidjs/router'
+import { For, Index, Show } from 'solid-js'
+import { A, useNavigate, useParams, useSearchParams } from '@solidjs/router'
 import * as api from '../api.ts'
 import type { Board, BoardRow, ItemRef } from '../api.ts'
 import { load } from '../store.ts'
 import { CLOSED, progress, rowState, tally } from '../state.ts'
 import { FILTERS, asFilter, cancelledLines, plan, planQuery as query, type Filter } from '../plan.ts'
 import { SHOW_CANCELLED, boardHref, runHref } from '../nav.ts'
-import { claimHolder, short } from '../format.ts'
-import { CancelledToggle, CopyRef, Dot, Known, ProjectName, Segs } from '../ui.tsx'
+import { UNKNOWN, claimHolder, short } from '../format.ts'
+import { CancelledToggle, CopyRef, Dot, ProjectName, Segs } from '../ui.tsx'
+import { SplitView } from '../split-view.tsx'
 import Detail, { asTab, type Tab } from './Detail.tsx'
 import { PromptActions } from './Prompts.tsx'
 
@@ -37,48 +38,65 @@ export default function Run() {
   const planShown = () => cancelled() && filter() === 'all'
   const planToggle = () => `${here()}${planShown() ? query(filter(), tab(), false) : query('all', tab(), true)}`
 
-  let detail: HTMLDivElement | undefined
-  createEffect(
-    on(
-      () => params.item,
-      (item, previous) => {
-        if (item === previous || detail === undefined) return
-        if (matchMedia('(max-width: 1100px)').matches) detail.scrollIntoView({ block: 'start' })
-      },
-      { defer: true },
-    ),
-  )
+  const navigate = useNavigate()
+  const close = () => navigate(`${runHref(params.run)}${query(filter(), tab(), cancelled())}`, { scroll: false })
+  const sheetTitle = () => {
+    const item = page.data()?.item
+    return item ? `${item.ref} · ${short(item.title)}` : 'Item detail'
+  }
 
   return (
-    <div class="page">
+    <>
       <Show when={board.missing()}>
-        <div class="panel empty">There is no run with this id. It may have been removed, or the link is from another workspace.</div>
+        <div class="page">
+          <div class="panel empty">There is no run with this id. It may have been removed, or the link is from another workspace.</div>
+        </div>
       </Show>
-      <Show when={board.error()}>{(e) => <div class="failure">{e()}</div>}</Show>
+      <Show when={board.error()}>
+        {(e) => (
+          <div class="page" style={{ 'padding-bottom': 0 }}>
+            <div class="failure">{e()}</div>
+          </div>
+        )}
+      </Show>
 
       <Show when={!board.missing()}>
-        <Known value={board.data()} class="panel empty">
+        <Show
+          when={board.data()}
+          fallback={
+            <div class="page">
+              <div class="panel empty">{UNKNOWN}</div>
+            </div>
+          }
+        >
           {(b) => (
-            <>
-              <RunHeader board={b()} />
-              <div class="work">
-                <div class="panel plan">
-                  <nav class="filters" aria-label="Filter the plan">
-                    <For each={FILTERS}>
-                      {([key, label]) => (
-                        <A href={`${here()}${query(key, tab(), cancelled())}`} class={filter() === key ? 'on' : ''} noScroll>
-                          {label}
-                        </A>
-                      )}
-                    </For>
-                    <CancelledToggle count={cancelledLines(b())} shown={planShown()} href={planToggle()} class="end" />
-                  </nav>
-                  <div class="plan-list">
-                    <PlanList board={b()} filter={filter()} cancelled={cancelled()} selected={selected()} href={href} />
+            <SplitView
+              title={sheetTitle()}
+              open={params.item !== undefined}
+              onClose={close}
+              showing={selected()}
+              main={
+                <div class="page">
+                  <RunHeader board={b()} />
+                  <div class="panel plan">
+                    <nav class="filters" aria-label="Filter the plan">
+                      <For each={FILTERS}>
+                        {([key, label]) => (
+                          <A href={`${here()}${query(key, tab(), cancelled())}`} class={filter() === key ? 'on' : ''} noScroll>
+                            {label}
+                          </A>
+                        )}
+                      </For>
+                      <CancelledToggle count={cancelledLines(b())} shown={planShown()} href={planToggle()} class="end" />
+                    </nav>
+                    <div class="plan-list">
+                      <PlanList board={b()} filter={filter()} cancelled={cancelled()} selected={selected()} href={href} />
+                    </div>
                   </div>
                 </div>
-
-                <div class="panel" ref={detail}>
+              }
+              side={
+                <>
                   <Show when={page.missing()}>
                     <div class="placeholder">There is no item with this id.</div>
                   </Show>
@@ -97,13 +115,13 @@ export default function Run() {
                       />
                     )}
                   </Show>
-                </div>
-              </div>
-            </>
+                </>
+              }
+            />
           )}
-        </Known>
+        </Show>
       </Show>
-    </div>
+    </>
   )
 }
 
