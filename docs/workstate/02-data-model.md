@@ -245,8 +245,8 @@ CREATE INDEX run_serialization_idx ON run_config (serialization_key);
 
 Consequences, all of them things the corpus had to enforce by hand:
 
-- An orchestrator's token is scoped to its **run subtree**: `work_next`/`work_brief` default to its
-  own work, and it cannot transition another run's items.
+- An orchestrator's unscoped reads default to its **own work** (`work_next`/`work_brief`); its writes
+  are not fenced to its run — cross-project writes are intended on a single-user server (doc 01 §6).
 - Write claims are unique per `serialization_key`, so *"never two writing agents in parallel"* holds
   within a tree and correctly **does not** block two runs in separate worktrees.
 - A **controller** token spans projects, sees every run side by side, and is the only role that may
