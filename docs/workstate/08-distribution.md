@@ -118,6 +118,10 @@ the prompt catalogue and `work_import`.
 `0.6.0` (rlarch 2.4.0) carries session self-naming (the client key, `work_session`) and the bare
 `work_brief()` project chooser.
 
+`0.7.0` (rlarch 2.5.0) carries the gate brief (`for:"gate"`, also over the read API), `work_search`
+over assumptions, rules and notes with `scope`, the raised `tools/list` budgets, the dashboard's
+`fullRef` field, and two indexes (`item_ref_lower_idx`, `note_search_idx`).
+
 ---
 
 ## 3. Should the skills use it? — Yes, and as a **hard** dependency

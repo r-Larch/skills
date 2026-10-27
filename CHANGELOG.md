@@ -6,6 +6,8 @@ What changes for someone who has the `rlarch` plugin installed, newest first. Fo
 
 ## [Unreleased]
 
+## [2.5.0] - 2026-10-27
+
 ### Added
 
 - **`work_brief(scope:"<phase>", for:"gate")`** — the phase's tasks with their status and last
