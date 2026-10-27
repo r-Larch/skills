@@ -108,9 +108,10 @@ public sealed class StaticTokenHandler(
         _ => [],
     };
 
-    private static ClaimsIdentity Identity(string[] roles)
+    /// <summary>The shape every agent principal has; <c>OAuthTokenHandler</c> builds its own from this too.</summary>
+    internal static ClaimsIdentity Identity(string[] roles, string authenticationType = SchemeName)
     {
-        var identity = new ClaimsIdentity(SchemeName);
+        var identity = new ClaimsIdentity(authenticationType);
         identity.AddClaim(new Claim(ClaimTypes.Name, roles[^1]));
         foreach (var role in roles)
         {

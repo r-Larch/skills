@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using OpenIddict.EntityFrameworkCore.Models;
 using WorkState.Core.Domain;
 
 namespace WorkState.Core.Data;
@@ -29,6 +30,7 @@ public class WorkStateDbContext(DbContextOptions<WorkStateDbContext> options) : 
     public DbSet<DataProtectionKey> DataProtectionKeys => Set<DataProtectionKey>();
     public DbSet<AgentSession> AgentSessions => Set<AgentSession>();
     public DbSet<ImportRecord> ImportRecords => Set<ImportRecord>();
+    public DbSet<OAuthKey> OAuthKeys => Set<OAuthKey>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -52,6 +54,28 @@ public class WorkStateDbContext(DbContextOptions<WorkStateDbContext> options) : 
         MapThreads(b);
         MapDataProtection(b);
         MapSessions(b);
+        MapOAuth(b);
+    }
+
+    /// <summary>
+    /// OpenIddict's EF stores, under snake_case names like every other table here; its own defaults are
+    /// PascalCase. Nothing in this schema references them and they reference nothing in it.
+    /// </summary>
+    private static void MapOAuth(ModelBuilder b)
+    {
+        b.UseOpenIddict();
+        b.Entity<OpenIddictEntityFrameworkCoreApplication>().ToTable("openiddict_application");
+        b.Entity<OpenIddictEntityFrameworkCoreAuthorization>().ToTable("openiddict_authorization");
+        b.Entity<OpenIddictEntityFrameworkCoreScope>().ToTable("openiddict_scope");
+        b.Entity<OpenIddictEntityFrameworkCoreToken>().ToTable("openiddict_token");
+
+        b.Entity<OAuthKey>(e =>
+        {
+            e.ToTable("oauth_key");
+            e.HasKey(x => x.Purpose);
+            e.Property(x => x.CreatedAt).HasDefaultValueSql("now()");
+            e.ToTable(t => t.HasCheckConstraint("oauth_key_purpose_known", "purpose IN ('signing', 'encryption')"));
+        });
     }
 
     private static void MapSessions(ModelBuilder b)
