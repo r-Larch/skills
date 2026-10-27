@@ -44,9 +44,17 @@ public sealed class ApiQueries(NpgsqlDataSource dataSource)
                            WHERE  o.workspace_id = i.workspace_id
                              AND  lower(o.ref) = lower(i.ref)
                              AND  o.id <> i.id) AS "RefShared",
-                   i.opened_at    AS "OpenedAt"
+                   i.opened_at    AS "OpenedAt",
+                   CASE WHEN pj.ref IS NULL OR pj.id = s.id
+                        THEN coalesce(s.ref || '/', '') || i.ref
+                        ELSE pj.ref || '/' || coalesce(s.ref || '/', '') || i.ref END AS "FullRef"
             FROM   item i
             LEFT   JOIN item s ON s.id = i.ref_scope_id AND s.id <> i.id
+            LEFT   JOIN LATERAL (
+                       SELECT a.id, a.ref FROM item a
+                       WHERE  a.kind = 'project' AND a.id = ANY(i.ancestors)
+                       ORDER  BY array_position(i.ancestors, a.id) DESC
+                       LIMIT  1) pj ON true
             WHERE  i.id = ANY(@ids);
             """;
 

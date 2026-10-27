@@ -36,7 +36,7 @@ export function EventLine(props: { event: JournalEvent; withRef: boolean }) {
               <A class="item-ref" href={itemHref(item(), e().run)}>
                 {item().qualifiedRef}
               </A>
-              <CopyRef value={item().qualifiedRef} />
+              <CopyRef item={item()} />
             </>
           )}
         </Show>

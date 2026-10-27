@@ -6,7 +6,9 @@ import { load } from '../store.ts'
 import { CLOSED, pageInput, refState, rowState, state } from '../state.ts'
 import { ago, cap, claimHolder, clock, day } from '../format.ts'
 import { CheckIcon } from '../icons.tsx'
-import { CopyRef, Dot, Pill, ProjectName } from '../ui.tsx'
+import { pathCrumbs } from '../nav.ts'
+import { withoutCancelled } from '../plan.ts'
+import { CancelledToggle, CopyRef, Dot, Pill } from '../ui.tsx'
 import { EventLine } from './Activity.tsx'
 import { PromptActions } from './Prompts.tsx'
 
@@ -20,10 +22,14 @@ type Props = {
   run: ItemRef | null
   rows: Map<string, BoardRow>
   tab: Tab
+  /** Whether cancelled children are listed. */
+  cancelled: boolean
   /** The href for another item, carrying whatever query the page keeps (filter, tab). */
   href: (item: ItemRef) => string
   /** The href for this item on another tab. */
   tabHref: (tab: Tab) => string
+  /** The href for this item with cancelled children shown or hidden. */
+  cancelledHref: (show: boolean) => string
 }
 
 export default function Detail(props: Props) {
@@ -62,27 +68,22 @@ export default function Detail(props: Props) {
   return (
     <>
       <div class="detail-head">
-        <div class="crumbs">
-          <For each={p().path}>
-            {(step, i) => (
+        <div class="crumbs path">
+          <For each={pathCrumbs(p().item, p().path)}>
+            {(crumb, i) => (
               <>
-                {i() > 0 ? ' / ' : ''}
-                <A href={props.href(step)}>
-                  <Show when={step.kind === 'project'} fallback={step.ref}>
-                    <ProjectName project={step} />
-                  </Show>
-                </A>
-                <CopyRef value={step.qualifiedRef} />
+                {i() > 0 ? '/' : ''}
+                <Show when={crumb.item} fallback={<span class="here">{crumb.text}</span>}>
+                  {(step) => <A href={props.href(step())}>{crumb.text}</A>}
+                </Show>
               </>
             )}
           </For>
+          <CopyRef item={p().item} />
         </div>
         <div class="dh-row">
           <div>
             <h2 class="dh-title">{p().item.title}</h2>
-            <div class="dh-ref">
-              {p().item.qualifiedRef} <CopyRef value={p().item.qualifiedRef} />
-            </div>
           </div>
           <Pill state={s()} />
         </div>
@@ -133,7 +134,7 @@ export default function Detail(props: Props) {
                     </span>
                     <span>
                       {n.to?.id === p().item.id ? (n.consumedAt ? 'delivered' : 'not yet read') : n.to ? `to ${n.to.qualifiedRef}` : 'record'}
-                      <Show when={n.to?.id !== p().item.id ? n.to : null}>{(to) => <> <CopyRef value={to().qualifiedRef} /></>}</Show>
+                      <Show when={n.to?.id !== p().item.id ? n.to : null}>{(to) => <> <CopyRef item={to()} /></>}</Show>
                     </span>
                   </div>
                   <div class="note-b">{n.body}</div>
@@ -173,6 +174,7 @@ function OverviewTab(props: Props) {
   const p = () => props.page
   const blockers = () => p().links.in.filter((l) => l.type === 'blocks' && !CLOSED.has(l.item.status)).map((l) => l.item)
   const checked = () => p().criteria.filter((c) => c.checked).length
+  const children = () => withoutCancelled(p().children, props.cancelled)
   const childState = (item: ItemRef) => {
     const row = props.rows.get(item.id)
     return row ? rowState(row) : refState(item)
@@ -211,7 +213,7 @@ function OverviewTab(props: Props) {
                   <Dot k={childState(b).k} />
                   <div>
                     <span class="item-ref">{b.qualifiedRef}</span>
-                    <CopyRef value={b.qualifiedRef} />
+                    <CopyRef item={b} />
                     {b.title}
                   </div>
                   <span class="row-m">{childState(b).label}</span>
@@ -255,7 +257,7 @@ function OverviewTab(props: Props) {
                   <Dot k={childState(f.item).k} />
                   <div>
                     <span class="item-ref">{f.item.qualifiedRef}</span>
-                    <CopyRef value={f.item.qualifiedRef} />
+                    <CopyRef item={f.item} />
                     {f.item.title}
                   </div>
                   <span class="row-m">{f.severity ?? ''}</span>
@@ -269,13 +271,13 @@ function OverviewTab(props: Props) {
       <Show when={p().children.length > 0}>
         <Section title="Inside">
           <div class="kids">
-            <For each={p().children}>
+            <For each={children().shown}>
               {(child) => (
                 <A class="row" href={props.href(child.item)}>
                   <Dot k={childState(child.item).k} />
                   <div>
                     <span class="item-ref">{child.item.ref}</span>
-                    <CopyRef value={child.item.qualifiedRef} />
+                    <CopyRef item={child.item} />
                     {child.item.title}
                   </div>
                   <span class="row-m">{childState(child.item).label}</span>
@@ -283,6 +285,7 @@ function OverviewTab(props: Props) {
               )}
             </For>
           </div>
+          <CancelledToggle count={children().count} shown={props.cancelled} href={props.cancelledHref(!props.cancelled)} />
         </Section>
       </Show>
 

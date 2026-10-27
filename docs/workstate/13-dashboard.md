@@ -62,9 +62,10 @@ its crumbs, the plan list rows, the detail's *Waiting on* / *Findings* / *Inside
 *to &lt;ref&gt;*, the run page crumbs, each project panel's header and the project page heading, the run
 strips, *Working now*, the inbox rows, the backlog's crumbs, group heads and rows, and the Activity
 lines — a small copy icon sits beside it (`src/ui.tsx` `CopyRef`). It copies the item's
-`qualifiedRef`, the callable form the server computes (doc 10 rule 2) that `work_get` /
+`fullRef`, the full path `project/run/ref` the server computes (doc 10 rule 2) that `work_get` /
 `work_brief` resolve to exactly that item; the client never composes a ref, and copies the whole
-value even where the shown ref is the bare one. It is a `<button>` (keyboard reachable,
+path even where the shown ref is the bare one. A crumb line carries one copy button, for the
+current page's full path; the item page shows that path as its crumb line above the title. It is a `<button>` (keyboard reachable,
 `aria-label` *Copy ref &lt;ref&gt;*, a `title` tooltip); it writes with `navigator.clipboard.writeText`
 and shows *Copied* in its place for a moment, or, where the clipboard is unavailable, shows the ref
 selected beside it to press Ctrl+C. Inside a row link it takes its own click, so the row still

@@ -2,8 +2,9 @@ import { Show, createEffect } from 'solid-js'
 import { useNavigate, useParams, useSearchParams } from '@solidjs/router'
 import * as api from '../api.ts'
 import { load } from '../store.ts'
-import { itemHref, runOf } from '../nav.ts'
-import Detail, { asTab } from './Detail.tsx'
+import { SHOW_CANCELLED, itemHref, runOf } from '../nav.ts'
+import { DEFAULT_FILTER, planQuery } from '../plan.ts'
+import Detail, { asTab, type Tab } from './Detail.tsx'
 
 /**
  * `/items/{id}`: the address for an item when the linking page does not know its run. Once the
@@ -12,9 +13,11 @@ import Detail, { asTab } from './Detail.tsx'
  */
 export default function Item() {
   const params = useParams<{ item: string }>()
-  const [search] = useSearchParams<{ tab?: string }>()
+  const [search] = useSearchParams<{ tab?: string; cancelled?: string }>()
   const navigate = useNavigate()
   const page = load(() => params.item, api.item)
+  const tab = () => asTab(search.tab)
+  const cancelled = () => search.cancelled === SHOW_CANCELLED
 
   const run = () => {
     const p = page.data()
@@ -24,8 +27,10 @@ export default function Item() {
   createEffect(() => {
     const r = run()
     const p = page.data()
-    if (r && p) navigate(`${itemHref(p.item, r)}${search.tab ? `?tab=${search.tab}` : ''}`, { replace: true })
+    if (r && p) navigate(`${itemHref(p.item, r)}${planQuery(DEFAULT_FILTER, tab(), cancelled())}`, { replace: true })
   })
+
+  const self = (t: Tab, show: boolean) => `/items/${params.item}${planQuery(DEFAULT_FILTER, t, show)}`
 
   return (
     <div class="page">
@@ -41,9 +46,11 @@ export default function Item() {
                 page={p()}
                 run={null}
                 rows={new Map()}
-                tab={asTab(search.tab)}
+                tab={tab()}
+                cancelled={cancelled()}
                 href={(item) => itemHref(item, null)}
-                tabHref={(t) => `/items/${p().item.id}${t === 'overview' ? '' : `?tab=${t}`}`}
+                tabHref={(t) => self(t, cancelled())}
+                cancelledHref={(show) => self(tab(), show)}
               />
             </div>
           )}

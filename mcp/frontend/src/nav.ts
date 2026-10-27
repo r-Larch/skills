@@ -13,6 +13,28 @@ export function itemHref(item: Pick<ItemRef, 'id' | 'kind'>, run: Pick<ItemRef, 
 
 export const runHref = (run: string) => `/runs/${run}`
 
+/** What a copy button puts on the clipboard: the server's full path, never a ref composed here. */
+export const copyValue = (item: Pick<ItemRef, 'fullRef'>): string => item.fullRef
+
+/**
+ * The full path as crumbs: each segment links to the item on `path` (or the item itself) it names,
+ * and the last segment is the page itself, so it is text.
+ */
+export function pathCrumbs(item: ItemRef, path: ItemRef[]): { text: string; item: ItemRef | null }[] {
+  const segments = item.fullRef.split('/')
+  let from = 0
+  return segments.map((text, i) => {
+    if (i === segments.length - 1) return { text, item: null }
+    const at = path.findIndex((p, j) => j >= from && p.ref.toLowerCase() === text.toLowerCase())
+    if (at < 0) return { text, item: null }
+    from = at + 1
+    return { text, item: path[at]! }
+  })
+}
+
+/** The query flag that shows cancelled work where it is hidden by default. */
+export const SHOW_CANCELLED = 'show'
+
 /**
  * A link drawn on a run page: inside this run's board it keeps the board and selects the item;
  * anything else (a blocker in another run, the project) leaves through `itemHref`.

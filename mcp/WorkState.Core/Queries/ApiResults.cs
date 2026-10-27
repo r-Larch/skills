@@ -18,7 +18,8 @@ public sealed record RefRow(
     Guid? ParentId,
     string? QualifiedRef,
     bool RefShared,
-    DateTimeOffset OpenedAt)
+    DateTimeOffset OpenedAt,
+    string FullRef)
 {
     public ScopeRef Scope => new(Id, WorkspaceId, Ref, Kind, Title, Intent, Status, RefScopeId, ParentId, QualifiedRef);
 }

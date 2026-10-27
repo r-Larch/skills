@@ -3,7 +3,7 @@ import { A, useLocation } from '@solidjs/router'
 import { boards, failure, overview } from './store.ts'
 import { link } from './live.ts'
 import { toggleTheme } from './theme.ts'
-import { tally } from './state.ts'
+import { countTitle, counted, tally } from './state.ts'
 import { projectHref, runHref } from './nav.ts'
 import { clock, short } from './format.ts'
 import { ProjectName } from './ui.tsx'
@@ -191,8 +191,8 @@ function RunLink(props: { run: RunOverview; current: boolean }) {
       title={props.run.item.title}
     >
       <span class="rl-title">{short(props.run.item.title)}</span>
-      <span class="rl-count">
-        {counts() ? `${counts()!.done}/${counts()!.total}` : `${props.run.rollup.done}/${props.run.rollup.total}`}
+      <span class="rl-count" title={countTitle(counts() ?? counted(props.run.rollup))}>
+        {`${(counts() ?? counted(props.run.rollup)).done}/${(counts() ?? counted(props.run.rollup)).total}`}
       </span>
       <span class="rl-bar">
         <i style={{ width: width('proven'), background: 'var(--proven)' }} />

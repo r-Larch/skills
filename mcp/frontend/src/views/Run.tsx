@@ -3,26 +3,20 @@ import { A, useParams, useSearchParams } from '@solidjs/router'
 import * as api from '../api.ts'
 import type { Board, BoardRow, ItemRef } from '../api.ts'
 import { load } from '../store.ts'
-import { CLOSED, rowState, tally } from '../state.ts'
-import { FILTERS, asFilter, plan, type Filter } from '../plan.ts'
-import { boardHref, runHref } from '../nav.ts'
+import { CLOSED, progress, rowState, tally } from '../state.ts'
+import { FILTERS, asFilter, cancelledLines, plan, planQuery as query, type Filter } from '../plan.ts'
+import { SHOW_CANCELLED, boardHref, runHref } from '../nav.ts'
 import { claimHolder, short } from '../format.ts'
-import { CopyRef, Dot, Known, ProjectName, Segs } from '../ui.tsx'
+import { CancelledToggle, CopyRef, Dot, Known, ProjectName, Segs } from '../ui.tsx'
 import Detail, { asTab, type Tab } from './Detail.tsx'
 import { PromptActions } from './Prompts.tsx'
 
-const query = (filter: Filter, tab: Tab) => {
-  const q = new URLSearchParams()
-  if (filter !== 'all') q.set('filter', filter)
-  if (tab !== 'overview') q.set('tab', tab)
-  return q.size > 0 ? `?${q}` : ''
-}
-
 export default function Run() {
   const params = useParams<{ run: string; item?: string }>()
-  const [search] = useSearchParams<{ filter?: string; tab?: string }>()
+  const [search] = useSearchParams<{ filter?: string; tab?: string; cancelled?: string }>()
   const filter = () => asFilter(search.filter)
   const tab = () => asTab(search.tab)
+  const cancelled = () => search.cancelled === SHOW_CANCELLED
 
   const board = load(() => params.run, api.board)
   const selected = () => params.item ?? params.run
@@ -31,11 +25,17 @@ export default function Run() {
   const rows = () => new Map((board.data()?.rows ?? []).map((r) => [r.item.id, r]))
 
   /** Inside this run the board keeps its place; anything else goes through `/items/{id}`. */
-  const href = (item: Pick<ItemRef, 'id' | 'kind'>, tabFor: Tab = tab()) => {
+  const href = (item: Pick<ItemRef, 'id' | 'kind'>, tabFor: Tab = tab(), cancelledFor = cancelled()) => {
     const to = boardHref(params.run, (id) => rows().has(id), item)
     const here = runHref(params.run)
-    return to === here || to.startsWith(`${here}/`) ? `${to}${query(filter(), tabFor)}` : to
+    return to === here || to.startsWith(`${here}/`) ? `${to}${query(filter(), tabFor, cancelledFor)}` : to
   }
+
+  const here = () => (params.item ? `${runHref(params.run)}/${params.item}` : runHref(params.run))
+
+  /** Showing cancelled work in the plan means All: no other filter lists closed rows. */
+  const planShown = () => cancelled() && filter() === 'all'
+  const planToggle = () => `${here()}${planShown() ? query(filter(), tab(), false) : query('all', tab(), true)}`
 
   let detail: HTMLDivElement | undefined
   createEffect(
@@ -66,18 +66,15 @@ export default function Run() {
                   <nav class="filters" aria-label="Filter the plan">
                     <For each={FILTERS}>
                       {([key, label]) => (
-                        <A
-                          href={`${params.item ? `${runHref(params.run)}/${params.item}` : runHref(params.run)}${query(key, tab())}`}
-                          class={filter() === key ? 'on' : ''}
-                          noScroll
-                        >
+                        <A href={`${here()}${query(key, tab(), cancelled())}`} class={filter() === key ? 'on' : ''} noScroll>
                           {label}
                         </A>
                       )}
                     </For>
+                    <CancelledToggle count={cancelledLines(b())} shown={planShown()} href={planToggle()} class="end" />
                   </nav>
                   <div class="plan-list">
-                    <PlanList board={b()} filter={filter()} selected={selected()} href={href} />
+                    <PlanList board={b()} filter={filter()} cancelled={cancelled()} selected={selected()} href={href} />
                   </div>
                 </div>
 
@@ -93,8 +90,10 @@ export default function Run() {
                         run={b().run}
                         rows={rows()}
                         tab={tab()}
+                        cancelled={cancelled()}
                         href={(item) => href(item)}
                         tabHref={(t) => href(p().item, t)}
+                        cancelledHref={(show) => href(p().item, tab(), show)}
                       />
                     )}
                   </Show>
@@ -110,17 +109,6 @@ export default function Run() {
 
 function RunHeader(props: { board: Board }) {
   const t = () => tally(props.board.rows)
-  const sub = () => {
-    const x = t()
-    return (
-      `${x.done} of ${x.total} done` +
-      (x.claimed ? `, ${x.claimed} without independent proof` : '') +
-      (x.doing ? `, ${x.doing} in progress` : '') +
-      (x.stop ? `, ${x.stop} blocked` : '') +
-      (x.wait ? `, ${x.wait} waiting on other tasks` : '') +
-      '.'
-    )
-  }
 
   return (
     <div class="page-h">
@@ -130,13 +118,12 @@ function RunHeader(props: { board: Board }) {
             <Show when={props.board.project} fallback="Overview">
               {(project) => <ProjectName project={project()} />}
             </Show>
-          </A>
-          <Show when={props.board.project}>{(project) => <CopyRef value={project().qualifiedRef} />}</Show> /{' '}
-          {props.board.run.qualifiedRef}
-          <CopyRef value={props.board.run.qualifiedRef} />
+          </A>{' '}
+          / {props.board.run.ref}
+          <CopyRef item={props.board.run} />
         </div>
         <h1>{short(props.board.run.title)}</h1>
-        <div class="sub">{sub()}</div>
+        <div class="sub">{progress(t())}</div>
         <PromptActions scope={props.board.run.id} />
       </div>
       <Segs leaves={t().leaves} style={{ width: 'min(420px, 40vw)' }} />
@@ -147,10 +134,11 @@ function RunHeader(props: { board: Board }) {
 function PlanList(props: {
   board: Board
   filter: Filter
+  cancelled: boolean
   selected: string
   href: (item: ItemRef) => string
 }) {
-  const groups = () => plan(props.board, props.filter)
+  const groups = () => plan(props.board, props.filter, props.cancelled)
 
   return (
     <Index each={groups()} fallback={<div class="empty">Nothing matches this filter.</div>}>
@@ -204,7 +192,7 @@ function PlanItem(props: { row: BoardRow; indent: number; selected: string; href
       <Dot k={s().k} />
       <div class="item-t">
         <span class="item-ref">{props.row.item.ref}</span>
-        <CopyRef value={props.row.item.qualifiedRef} />
+        <CopyRef item={props.row.item} />
         {props.row.item.title}
       </div>
       <div class="item-side">

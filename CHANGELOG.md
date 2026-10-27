@@ -24,6 +24,15 @@ What changes for someone who has the `rlarch` plugin installed, newest first. Fo
 
 ### Fixed
 
+- **Dashboard: the run plan opens on Open, progress names cancelled work, copy copies the full
+  path.** A run page now opens with the Open filter; All and Needs attention stay one click away
+  and `filter=all` survives every link. The run's sub line counts what it leaves out ("3 of 6
+  done, 13 cancelled."), and the sidebar and overview counts use the same denominator. Cancelled
+  items are hidden in the plan, an item's children and the backlog page behind a "Show N
+  cancelled" link (`cancelled=show` in the URL). Every copy button copies the full path
+  `project/run/ref`, from a new additive v1 field `fullRef`; a crumb line has one copy button, for
+  the page's own path, and the item page shows that path above its title instead of a ref line
+  below it. The copy icon is centred on the text beside it and no longer makes its line taller.
 - **`workstate-setup` now says when another registration hides the one it wrote.** A local-scope
   `workstate` entry for a repo (in `~/.claude.json`), or a project-scope one in its `.mcp.json`,
   wins over the user registration, so sessions there kept an old entry without the session helper
