@@ -1,0 +1,263 @@
+using Microsoft.AspNetCore;
+using Microsoft.Extensions.Primitives;
+using Microsoft.IdentityModel.Tokens;
+using ModelContextProtocol.AspNetCore.Authentication;
+using ModelContextProtocol.Authentication;
+using OpenIddict.Abstractions;
+using OpenIddict.Server;
+using OpenIddict.Server.AspNetCore;
+using OpenIddict.Validation;
+using WorkState.Core.Data;
+using WorkState.Core.Domain;
+using WorkState.Mcp;
+using static OpenIddict.Abstractions.OpenIddictConstants;
+
+namespace WorkState.Api.Auth.OAuth;
+
+/// <summary>
+/// The OAuth 2.1 authorization server <c>/mcp</c> trusts beside the static and minted tokens: OpenIddict
+/// in passthrough mode over the EF stores in <see cref="WorkStateDbContext"/>, authorization code with
+/// PKCE S256 and refresh only.
+/// <para>
+/// Two values are per request rather than per process, because a local install has no public URL and
+/// is reached on whatever loopback origin the client used: the issuer (OpenIddict infers it when none
+/// is set) and the resource, <c>&lt;origin&gt;/mcp</c>. Both come from <see cref="WebBase"/>, so the
+/// authorize request, the token's audience and the check on <c>/mcp</c> name the same origin.
+/// </para>
+/// </summary>
+public static class OAuthServer
+{
+    public const string AuthorizePath = "/connect/authorize";
+    public const string TokenPath = "/connect/token";
+    public const string RevokePath = "/connect/revoke";
+    public const string RegisterPath = "/connect/register";
+
+    public const string McpScope = "mcp";
+    public const string McpPath = "/mcp";
+
+    public const string ClientIdMetadataSupported = "client_id_metadata_document_supported";
+
+    /// <summary>
+    /// Set explicitly: left null, a refresh token inherits the lifetime of the principal it was redeemed
+    /// from, which on the first exchange is the five-minute authorization code (Nomos found this live).
+    /// </summary>
+    public static readonly TimeSpan RefreshTokenLifetime = TimeSpan.FromDays(30);
+
+    public static string Resource(string origin) => origin + McpPath;
+
+    public static void Add(IServiceCollection services, string connectionString, string? publicUrl)
+    {
+        services.AddDbContext<WorkStateDbContext>(options => options.UseWorkState(connectionString));
+        services.AddSingleton<OAuthKeyRing>();
+
+        services.AddOpenIddict()
+            .AddCore(core => core.UseEntityFrameworkCore().UseDbContext<WorkStateDbContext>())
+            .AddServer(server =>
+            {
+                if (Uri.TryCreate(publicUrl?.Trim(), UriKind.Absolute, out var issuer))
+                {
+                    server.SetIssuer(issuer);
+                }
+
+                server.SetAuthorizationEndpointUris(AuthorizePath)
+                    .SetTokenEndpointUris(TokenPath)
+                    .SetRevocationEndpointUris(RevokePath);
+
+                server.AllowAuthorizationCodeFlow()
+                    .AllowRefreshTokenFlow()
+                    .RequireProofKeyForCodeExchange()
+                    .SetRefreshTokenLifetime(RefreshTokenLifetime);
+
+                // S256 only: OpenIddict enables plain beside it by default, and a client offered plain will
+                // take it. With plain gone, a request naming it or naming no method is refused.
+                server.Configure(options => options.CodeChallengeMethods.Remove(CodeChallengeMethods.Plain));
+
+                server.RegisterScopes(Scopes.OpenId, Scopes.Profile, Scopes.OfflineAccess, McpScope);
+
+                // RegisterResources takes a fixed list and the resource here follows the request's origin;
+                // RequireKnownResource below is the same check against that origin.
+                server.DisableResourceValidation();
+                server.IgnoreResourcePermissions();
+
+                // Likewise keyed on the origin, which is a URL (C32), never on the environment's name.
+                server.UseAspNetCore()
+                    .EnableAuthorizationEndpointPassthrough()
+                    .EnableTokenEndpointPassthrough()
+                    .DisableTransportSecurityRequirement();
+
+                server.AddEventHandler(RequireTransportSecurity);
+                server.AddEventHandler(RequireKnownResourceOnAuthorize);
+                server.AddEventHandler(RequireKnownResourceOnToken);
+                server.AddEventHandler(AdvertiseRegistration);
+            })
+            .AddValidation(validation =>
+            {
+                // In-process: no discovery fetch over the public URL, which from inside a container would
+                // hair-pin through the proxy.
+                validation.UseLocalServer();
+                validation.UseAspNetCore();
+
+                // One user, one database: a lookup per call is what makes a revoked token stop working
+                // now rather than when it expires.
+                validation.EnableTokenEntryValidation();
+                validation.EnableAuthorizationEntryValidation();
+
+                validation.AddEventHandler(RequireMcpAudience);
+            });
+
+        // Here rather than through AddSigningKey, which wants the key at registration time; the ring
+        // needs the database and the DataProtection keys, which only exist once the container does.
+        services.AddOptions<OpenIddictServerOptions>().Configure<OAuthKeyRing>((options, ring) =>
+        {
+            options.SigningCredentials.Add(new SigningCredentials(
+                ring.Load(OAuthKey.Signing), SecurityAlgorithms.RsaSha256));
+            options.EncryptionCredentials.Add(new EncryptingCredentials(
+                ring.Load(OAuthKey.Encryption), SecurityAlgorithms.RsaOAEP, SecurityAlgorithms.Aes256CbcHmacSha512));
+        });
+
+        services.AddAuthentication().AddMcp(options =>
+        {
+            // Its default forwards authentication to "Bearer". This scheme only challenges; it admits no one.
+            options.ForwardAuthenticate = null;
+            options.Events.OnResourceMetadataRequest = context =>
+            {
+                var origin = Origin(context.HttpContext);
+                context.ResourceMetadata = new ProtectedResourceMetadata
+                {
+                    Resource = Resource(origin),
+                    AuthorizationServers = [origin],
+                    ScopesSupported = [McpScope, Scopes.OfflineAccess],
+                    BearerMethodsSupported = ["header"],
+                };
+                return Task.CompletedTask;
+            };
+        });
+
+        ClientIdMetadata.Add(services);
+        services.AddHostedService<OAuthPruning>();
+    }
+
+    /// <summary>The scheme and host the request names, or the configured public URL — <see cref="WebBase"/>.</summary>
+    public static string Origin(HttpContext context)
+        => context.RequestServices.GetRequiredService<WebBase>().Current
+           ?? throw new InvalidOperationException("The request has no host to derive the issuer from.");
+
+    /// <summary>
+    /// HTTPS, except where the origin is plain HTTP on a loopback host — a local install, which never has
+    /// TLS and never leaves the machine. A public URL on https makes every plain request a refusal, even
+    /// one that reached the container directly.
+    /// </summary>
+    private static readonly OpenIddictServerHandlerDescriptor RequireTransportSecurity =
+        OpenIddictServerHandlerDescriptor.CreateBuilder<OpenIddictServerEvents.ProcessRequestContext>()
+            .UseInlineHandler(context =>
+            {
+                var request = context.Transaction.GetHttpRequest()
+                              ?? throw new InvalidOperationException("No HTTP request on the OpenIddict transaction.");
+
+                // Unknown is every request that is not an OAuth endpoint, /mcp and the dashboard included.
+                if (context.EndpointType == OpenIddictServerEndpointType.Unknown
+                    || request.IsHttps
+                    || IsLoopbackHttp(Origin(request.HttpContext)))
+                {
+                    return default;
+                }
+
+                context.Reject(
+                    error: Errors.InvalidRequest,
+                    description: "This server only accepts HTTPS requests.");
+                return default;
+            })
+            .SetOrder(OpenIddictServerAspNetCoreHandlers.ValidateTransportSecurityRequirement.Descriptor.Order)
+            .SetType(OpenIddictServerHandlerType.Custom)
+            .Build();
+
+    private static readonly OpenIddictServerHandlerDescriptor RequireKnownResourceOnAuthorize =
+        OpenIddictServerHandlerDescriptor.CreateBuilder<OpenIddictServerEvents.ValidateAuthorizationRequestContext>()
+            .UseInlineHandler(context =>
+            {
+                if (UnknownResource(context.Transaction, context.Request) is { } unknown)
+                {
+                    context.Reject(Errors.InvalidTarget, $"The resource '{unknown}' is not served here.");
+                }
+
+                return default;
+            })
+            .SetOrder(OpenIddictServerHandlers.Authentication.ValidateResources.Descriptor.Order)
+            .SetType(OpenIddictServerHandlerType.Custom)
+            .Build();
+
+    private static readonly OpenIddictServerHandlerDescriptor RequireKnownResourceOnToken =
+        OpenIddictServerHandlerDescriptor.CreateBuilder<OpenIddictServerEvents.ValidateTokenRequestContext>()
+            .UseInlineHandler(context =>
+            {
+                if (UnknownResource(context.Transaction, context.Request) is { } unknown)
+                {
+                    context.Reject(Errors.InvalidTarget, $"The resource '{unknown}' is not served here.");
+                }
+
+                return default;
+            })
+            .SetOrder(OpenIddictServerHandlers.Exchange.ValidateResources.Descriptor.Order)
+            .SetType(OpenIddictServerHandlerType.Custom)
+            .Build();
+
+    /// <summary>
+    /// RFC 7591 and the MCP client-ID metadata draft, neither of which OpenIddict advertises itself, and
+    /// <c>none</c>: every client here is public.
+    /// </summary>
+    private static readonly OpenIddictServerHandlerDescriptor AdvertiseRegistration =
+        OpenIddictServerHandlerDescriptor.CreateBuilder<OpenIddictServerEvents.ApplyConfigurationResponseContext>()
+            .UseInlineHandler(context =>
+            {
+                var issuer = ((string?)context.Response[Metadata.Issuer])?.TrimEnd('/');
+                context.Response["registration_endpoint"] = issuer + RegisterPath;
+                context.Response[ClientIdMetadataSupported] = true;
+
+                var methods = (StringValues)context.Response[Metadata.TokenEndpointAuthMethodsSupported];
+                if (!methods.Contains(ClientAuthenticationMethods.None))
+                {
+                    context.Response[Metadata.TokenEndpointAuthMethodsSupported] =
+                        StringValues.Concat(methods, ClientAuthenticationMethods.None);
+                }
+
+                return default;
+            })
+            .SetType(OpenIddictServerHandlerType.Custom)
+            .Build();
+
+    /// <summary>
+    /// The audience check, as <c>AddAudiences</c> would make it if the audience were fixed: OpenIddict's own
+    /// <c>ValidateAudiences</c> runs right after and refuses a token that names none of these.
+    /// </summary>
+    private static readonly OpenIddictValidationHandlerDescriptor RequireMcpAudience =
+        OpenIddictValidationHandlerDescriptor.CreateBuilder<OpenIddictValidationEvents.ValidateTokenContext>()
+            .UseInlineHandler(context =>
+            {
+                var request = context.Transaction.GetHttpRequest()
+                              ?? throw new InvalidOperationException("No HTTP request on the OpenIddict transaction.");
+
+                context.ValidAudiences.Add(Resource(Origin(request.HttpContext)));
+                return default;
+            })
+            .SetOrder(OpenIddictValidationHandlers.Protection.ValidateAudiences.Descriptor.Order - 500)
+            .SetType(OpenIddictValidationHandlerType.Custom)
+            .Build();
+
+    /// <summary>The first requested resource that is neither this origin's <c>/mcp</c> nor registered.</summary>
+    private static string? UnknownResource(OpenIddictServerTransaction transaction, OpenIddictRequest request)
+    {
+        var http = transaction.GetHttpRequest()
+                   ?? throw new InvalidOperationException("No HTTP request on the OpenIddict transaction.");
+
+        var known = transaction.Options.Resources.Select(resource => resource.AbsoluteUri)
+            .Append(Resource(Origin(http.HttpContext)))
+            .ToHashSet(StringComparer.Ordinal);
+
+        return request.GetResources().FirstOrDefault(resource => !known.Contains(resource));
+    }
+
+    private static bool IsLoopbackHttp(string origin)
+        => Uri.TryCreate(origin, UriKind.Absolute, out var uri)
+           && uri.Scheme == Uri.UriSchemeHttp
+           && uri.IsLoopback;
+}

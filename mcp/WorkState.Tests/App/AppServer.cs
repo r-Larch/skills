@@ -46,7 +46,8 @@ internal sealed class AppServer : IAsyncDisposable
         string? readerToken = null,
         string? heartbeat = null,
         string? publicUrl = null,
-        string? trustedProxies = null)
+        string? trustedProxies = null,
+        Action<WebApplicationBuilder>? configure = null)
     {
         var app = ApiHost.Build([], builder =>
         {
@@ -65,6 +66,7 @@ internal sealed class AppServer : IAsyncDisposable
                 ["WORKSTATE_PUBLIC_URL"] = publicUrl,
                 ["WORKSTATE_TRUSTED_PROXIES"] = trustedProxies,
             });
+            configure?.Invoke(builder);
         });
 
         await app.StartAsync(cancellationToken);
