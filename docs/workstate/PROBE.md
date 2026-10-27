@@ -194,3 +194,32 @@ specification. **This is why the probe ran before the product code.**
 | **C** | Duplicate into both, per the spec's back-compat `SHOULD`. | Pays exactly the token cost §2 existed to avoid. |
 
 **U3 must not build a renderer until this is settled.**
+
+---
+
+## 7. OAuth sign-in from Claude Code — observed (shared-v1/client-proof)
+
+Run **2026-10-27** against Claude Code v2.1.312, local image at merge `2d0caaa`. Registration:
+`claude mcp add --scope local --transport http workstate-oauth http://127.0.0.1:5290/mcp`, with no
+header. In a new session René ran `/mcp`, chose `workstate-oauth`, signed in in the browser and
+approved consent. `/mcp` printed *"Authentication successful. Connected to workstate-oauth."* and
+`mcp__workstate-oauth__work_brief` answered. The rows below come from the server's OpenIddict
+tables, not from the client's account of itself.
+
+| Question | Observed |
+|---|---|
+| Discovery | The 401 from `/mcp` with `resource_metadata=` was enough. Neither the trailing slash on the discovery issuer nor its absence on PRM `authorization_servers` bothered the client. |
+| Registration or client-ID metadata? | **Client-ID metadata document.** The client row's `client_id` is `https://claude.ai/oauth/claude-code-client-metadata`, display name *Claude Code*, public, no secret. `/connect/register` was not used. |
+| Redirect URIs it declares | `http://localhost/callback`, `http://127.0.0.1/callback`, `http://localhost:41290/callback` |
+| Scopes requested | `mcp offline_access`, stored as a permanent authorization, so the next sign-in skips consent. |
+| Tokens issued | Code, redeemed within 1 s. Access token valid for 1 h. Refresh token valid for 30 d. |
+| Refresh | A refresh token was issued; its use was not observed in this run. It shows up as a second access token row after the first one expires. |
+| Session name | *unnamed*. The header-less registration has no `headersHelper`. The OAuth principal is the static controller identity, so `X-WorkState-Agent` names it just as it names a token registration. |
+
+What follows:
+- **Dynamic registration is a fallback**, kept for clients without a metadata document. The
+  metadata-document path is what Claude Code exercises, and its SSRF guard is the one that matters.
+- **One origin.** With `WORKSTATE_PUBLIC_URL` unset, the issuer and audience follow the request host,
+  so register `127.0.0.1` and stay on it (the oauth-core note).
+- **Agents keep tokens.** `agent_launch` sessions run unattended and cannot sign in in a browser,
+  so they keep the static or minted `wss_` tokens (C31).
