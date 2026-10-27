@@ -6,6 +6,33 @@ What changes for someone who has the `rlarch` plugin installed, newest first. Fo
 
 ## [Unreleased]
 
+## [2.7.0] - 2026-10-28
+
+### Added
+
+- **`workstate-setup` registers with OAuth sign-in by default.** When the running server offers it
+  (its `/.well-known/oauth-protected-resource/mcp` document answers), the script registers
+  `http://127.0.0.1:<port>/mcp` with no `Authorization` header and stores no token. In the next
+  session you run `/mcp`, pick the server, choose *Authenticate*, sign in with the dashboard user
+  from the `.env` and approve. The sign-in gets the controller toolset. The `prove` step checks
+  what Claude Code needs to find the sign-in: `POST /mcp` without a token answers 401 with
+  `resource_metadata=`, and that document answers. The session helper stays on OAuth
+  registrations, and `--agent`, `--name`, `--force`, `--session-names` and `--dry-run` work as
+  before. Needs a WorkState server image with OAuth; against an older one the script says so and
+  falls back to a token.
+- **`--auth oauth|token`** (`-Auth` in PowerShell) chooses the kind explicitly. A new `auth` status
+  line says which kind was chosen and why. `--auth oauth` against a server without OAuth stops and
+  points at `--update`. `--role` with `--auth oauth` stops, because an OAuth sign-in has no role
+  to choose.
+
+### Changed
+
+- **`--role` now implies a token registration**, which works exactly as before, `tools/list` count
+  included. An existing registration is recognised as OAuth or token and keeps its kind, even with
+  `--force` or `--session-names`, unless `--auth` or `--role` says otherwise. Sessions started by
+  `agent_launch` keep using tokens through `workstate.env_file`, since they cannot sign in in a
+  browser.
+
 ## [2.6.0] - 2026-10-27
 
 ### Added
