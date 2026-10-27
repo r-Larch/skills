@@ -1,0 +1,44 @@
+{
+    "numStartups": 12,
+    "mcpServers": {
+        "workstate": {
+            "type": "http",
+            "url": "http://127.0.0.1:5290/mcp",
+            "headers": { "Authorization": "Bearer SENTINEL-TOKEN-user-7f3a91" },
+            "headersHelper": "node \"C:/Users/u/.workstate/session-header.mjs\""
+        }
+    },
+    "projects": {
+        "P:/Projects/LarchSys/Skills": {
+            "allowedTools": [],
+            "mcpServers": {
+                "workstate": {
+                    "type": "http",
+                    "url": "http://localhost:5290/mcp",
+                    "headers": { "Authorization": "Bearer SENTINEL-TOKEN-local-2c8e44" }
+                }
+            }
+        },
+        "P:/Projects/Other": {
+            "mcpServers": {
+                "workstate": {
+                    "type": "http",
+                    "url": "http://u:SENTINEL-TOKEN-userinfo@127.0.0.1:5290/mcp?token=SENTINEL-TOKEN-query",
+                    "headers": { "Authorization": "Bearer SENTINEL-TOKEN-helper-91d0aa", "X-WorkState-Agent": "SENTINEL-TOKEN-agent" },
+                    "headersHelper": "node \"C:/Users/u/.workstate/session-header.mjs\""
+                }
+            }
+        },
+        "P:/Projects/Unrelated": {
+            "mcpServers": {
+                "workstate-staging": {
+                    "type": "http",
+                    "url": "http://127.0.0.1:6290/mcp",
+                    "headers": { "Authorization": "Bearer SENTINEL-TOKEN-staging" }
+                },
+                "github": { "type": "http", "url": "https://api.example.com/mcp" }
+            }
+        },
+        "P:/Projects/Empty": {}
+    }
+}

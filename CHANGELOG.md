@@ -4,6 +4,18 @@ What changes for someone who has the `rlarch` plugin installed, newest first. Fo
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions are the `version` field in
 `plugins/rlarch/.claude-plugin/plugin.json`, which is what the updater gates on.
 
+## [Unreleased]
+
+### Fixed
+
+- **`workstate-setup` now says when another registration hides the one it wrote.** A local-scope
+  `workstate` entry for a repo (in `~/.claude.json`), or a project-scope one in its `.mcp.json`,
+  wins over the user registration, so sessions there kept an old entry without the session helper
+  while the script printed success. A new `shadows` line lists each such entry - directory, url,
+  whether it has a helper, never a header or token - with the command that removes it
+  (`claude mcp remove workstate -s local`, run in that repo). The script removes nothing itself.
+  Checked by `find-shadows.mjs`, which needs `node`.
+
 ## [2.4.0] - 2026-10-27
 
 ### Added

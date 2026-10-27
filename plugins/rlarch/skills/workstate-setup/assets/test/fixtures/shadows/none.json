@@ -1,0 +1,17 @@
+{
+    "mcpServers": {
+        "workstate": {
+            "type": "http",
+            "url": "http://127.0.0.1:5290/mcp",
+            "headers": { "Authorization": "Bearer SENTINEL-TOKEN-user-7f3a91" },
+            "headersHelper": "node \"C:/Users/u/.workstate/session-header.mjs\""
+        }
+    },
+    "projects": {
+        "P:/Projects/Unrelated": {
+            "mcpServers": {
+                "workstate-staging": { "type": "http", "url": "http://127.0.0.1:6290/mcp", "headers": { "Authorization": "Bearer SENTINEL-TOKEN-staging" } }
+            }
+        }
+    }
+}
