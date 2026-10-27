@@ -214,8 +214,23 @@ Foreman authenticates with the reader token: it watches every project and can wr
 `${WORKSTATE_PUBLIC_URL:-}`) is the base of the `web` line `work_brief` and `work_get` print
 (doc 01 §8). Unset, the line names the scheme and host the MCP request came in on — from the host
 that is `http://127.0.0.1:5290`, which is also where the dashboard is. Set it when humans reach the
-dashboard at another address than agents reach `/mcp` (a reverse proxy, a LAN name). `X-Forwarded-*`
-is never read for it: nothing in the pipeline trusts a proxy header any client can send.
+dashboard at another address than agents reach `/mcp` (a reverse proxy, a LAN name). An `https`
+public URL also makes the dashboard cookie `Secure` unconditionally; otherwise the cookie follows the
+request's scheme.
+
+**`WORKSTATE_TRUSTED_PROXIES`** (`WorkState:TrustedProxies`, **optional**; compose passes
+`${WORKSTATE_TRUSTED_PROXIES:-}`) is a comma-separated list of IPs or CIDRs whose `X-Forwarded-Proto`,
+`X-Forwarded-Host` and `X-Forwarded-For` the API believes. Set it to the reverse proxy's address (on
+a docker network, that network's CIDR). From those addresses the request's scheme and host become
+the forwarded ones before authentication runs, so the `web` line (when no public URL is set), the
+`/r` redirects and the cookie's `Secure` flag all follow the `https` origin the proxy is reached on.
+From any other address the headers are ignored. Empty, the default, trusts nobody and leaves the
+forwarded-headers middleware out of the pipeline: a local install has no proxy, and a header any
+client can send must not choose the origin. A malformed entry stops the API at startup.
+
+These two are the only settings that differ between a local and a server install (rule C32): the
+image, the port it listens on (8080) and the code path are the same. The reverse-proxy compose itself
+(TLS, Traefik) is unit `shared-v1/deploy`.
 
 ### How to make it always-on
 

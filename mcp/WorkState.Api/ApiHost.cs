@@ -54,7 +54,7 @@ public static class ApiHost
                 options.ControllerToken = builder.Configuration["WorkState:Auth:ControllerToken"];
                 options.ReaderToken = builder.Configuration["WorkState:Auth:ReaderToken"];
             })
-            .AddCookie(DashboardAuth.SchemeName, options => DashboardAuth.Configure(options, dashboard));
+            .AddCookie(DashboardAuth.SchemeName, options => DashboardAuth.Configure(options, dashboard, PublicUrl(builder.Configuration)));
 
         // doc 01 §6. AddAuthorizationFilters() honours [Authorize] on a tool, and a tool the token
         // cannot satisfy is hidden from tools/list rather than refused on call (PROBE Q6) — so
@@ -129,9 +129,18 @@ public static class ApiHost
             .WithToolsFromAssembly(typeof(WorkReadTools).Assembly)
             .WithResourcesFromAssembly(typeof(WorkResources).Assembly);
 
+        var forwarded = TrustedProxies.Options(TrustedProxies.Read(builder.Configuration));
+
         var app = builder.Build();
 
         app.Services.GetService<SchemaOwner>()?.Apply();
+
+        // First, so authentication, the cookie's Secure flag and every WebBase link see the scheme and
+        // host the proxy was reached on — and only when that proxy is one the operator named.
+        if (forwarded is not null)
+        {
+            app.UseForwardedHeaders(forwarded);
+        }
 
         app.UseApiVersionHeader();
         app.UseAuthentication();
@@ -209,9 +218,12 @@ public static class ApiHost
         builder.Services.AddSingleton<CallerIdentity>();
         builder.Services.AddSingleton(sp => new WebBase(
             sp.GetRequiredService<IHttpContextAccessor>(),
-            builder.Configuration[WebBase.Key] ?? builder.Configuration[WebBase.EnvironmentKey]));
+            PublicUrl(builder.Configuration)));
         builder.Services.AddSingleton(sp => new SessionStore(sp.GetRequiredService<NpgsqlDataSource>()));
     }
+
+    private static string? PublicUrl(IConfiguration configuration)
+        => configuration[WebBase.Key] ?? configuration[WebBase.EnvironmentKey];
 
     /// <summary>
     /// The dashboard cookie's signing keys, into Postgres rather than the container filesystem — see
