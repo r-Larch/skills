@@ -122,6 +122,9 @@ the prompt catalogue and `work_import`.
 over assumptions, rules and notes with `scope`, the raised `tools/list` budgets, the dashboard's
 `fullRef` field, and two indexes (`item_ref_lower_idx`, `note_search_idx`).
 
+`0.7.1` (rlarch 2.5.1) carries readable dashboard links (`/r/<project/run/ref>`, the `web` line in
+`work_brief` and `work_get`, optional `WORKSTATE_PUBLIC_URL`) and the dashboard's split run page.
+
 ---
 
 ## 3. Should the skills use it? — Yes, and as a **hard** dependency

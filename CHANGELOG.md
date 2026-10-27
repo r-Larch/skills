@@ -6,6 +6,8 @@ What changes for someone who has the `rlarch` plugin installed, newest first. Fo
 
 ## [Unreleased]
 
+## [2.5.1] - 2026-10-27
+
 ### Added
 
 - **Readable dashboard links.** `work_brief` (every variant, the project and gate briefs included)
