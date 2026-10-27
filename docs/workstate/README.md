@@ -24,6 +24,7 @@ queries the agents use.
 | **[11-sessions.md](11-sessions.md)** | **Sessions as first-class records.** The role comes from the token; the session's name comes from the `X-WorkState-Agent` registration header and labels claims and events. Header-only, because the transport is stateless. |
 | [12-install-harness-identity.md](12-install-harness-identity.md) | Install, harness and identity from a fresh PC: what Claude Code's MCP support measurably does, where configuration lives, and the open questions. Its credential-helper design (option G) is a **proposal**, not built. |
 | **[13-dashboard.md](13-dashboard.md)** | **The dashboard as built** on the v1 read API: pages and URLs, the detail panel (reported vs verified), the state vocabulary, theme tokens. |
+| [15-query-plans.md](15-query-plans.md) | The hot reads `EXPLAIN`ed against a seeded 5,000-item workspace: the plans, the times, a verdict for each, and the fixes (a `lower(ref)` index, a lateral rollup, `jit=off`). |
 
 ### Records
 

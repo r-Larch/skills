@@ -27,6 +27,25 @@ public sealed class WorkStateQueries(NpgsqlDataSource dataSource)
         """;
 
     /// <summary>
+    /// <c>item_rollup</c> for the row <c>i</c>, as <c>r</c>, with the view's buckets (RollupReview
+    /// migration). Joined row by row, the view is aggregated for every item in the store before the
+    /// join narrows it — 20 ms and a JIT compile at 5,000 items (doc 15); this counts only
+    /// <c>i</c>'s own subtree.
+    /// </summary>
+    internal const string Rollup =
+        """
+        CROSS JOIN LATERAL (
+          SELECT count(*) FILTER (WHERE c.status IN ('open','ready')) AS open_count,
+                 count(*) FILTER (WHERE c.status = 'in_progress')     AS doing_count,
+                 count(*) FILTER (WHERE c.status = 'blocked')         AS blocked_count,
+                 count(*) FILTER (WHERE c.status = 'review')          AS review_count,
+                 count(*) FILTER (WHERE c.status = 'done')            AS done_count
+          FROM   item c
+          WHERE  c.ancestors @> ARRAY[i.id]
+        ) r
+        """;
+
+    /// <summary>
     /// Remaining work under <paramref name="scopeItemId"/> that nothing unfinished blocks and that
     /// has no open children of its own. doc 02 §4 — the single hottest query.
     /// </summary>
@@ -132,7 +151,7 @@ public sealed class WorkStateQueries(NpgsqlDataSource dataSource)
                     r.review_count    AS "ReviewCount",
                     r.done_count      AS "DoneCount"
              FROM   item i
-             JOIN   item_rollup r ON r.id = i.id
+             {Rollup}
              {DocumentPath}
              WHERE  i.id = @scope OR i.ancestors @> ARRAY[@scope]::uuid[]
              ORDER BY p.path || i.seq;
