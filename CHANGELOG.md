@@ -6,6 +6,22 @@ What changes for someone who has the `rlarch` plugin installed, newest first. Fo
 
 ## [Unreleased]
 
+### Changed
+
+- **Dashboard: the run page is a split.** The plan list is the page: it scrolls with the page, and
+  the run header scrolls away with it. The item detail is a panel docked on the right at full
+  height with its own scroll, resizable by dragging its edge or with the arrow keys on the focused
+  edge (Home or a double-click resets), and the width is remembered per browser. When the run area
+  is narrower than 769px the detail opens as a sheet over the list, with a title row and a Close
+  (or Escape) that clears the selection and keeps the filter. Selecting an item keeps the list where
+  it was.
+
+### Fixed
+
+- **Dashboard: one scrollbar on every page.** The copy buttons' screen-reader status text was
+  positioned against the document instead of the scrolling page, so a long page also grew the
+  document and showed a second scrollbar beside the page's own.
+
 ## [2.5.0] - 2026-10-27
 
 ### Added

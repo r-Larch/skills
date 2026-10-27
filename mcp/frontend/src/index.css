@@ -121,7 +121,9 @@ a.proj.on { background: var(--side-2); color: var(--gold); }
 
 /* ── page ────────────────────────────────────────────────────────────────────────────────────── */
 
-.main { overflow-y: auto; min-width: 0; }
+/* Positioned so an absolute descendant (sr-only text) is laid out in the scroll root and never
+   stretches the document into a second scrollbar. */
+.main { overflow-y: auto; min-width: 0; position: relative; }
 .page { padding: 34px 40px 60px; max-width: 1760px; margin: 0 auto; }
 .page-h { display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; margin-bottom: 26px; flex-wrap: wrap; }
 .page-h > div:first-child { min-width: 0; }
@@ -237,9 +239,25 @@ a.row:hover { background: var(--bg); }
 
 /* ── run workspace ───────────────────────────────────────────────────────────────────────────── */
 
-.work { display: grid; grid-template-columns: minmax(380px, 1fr) minmax(0, 1.35fr); gap: 20px; align-items: start; }
-.plan { position: sticky; top: 20px; max-height: calc(100vh - 40px); display: flex; flex-direction: column; }
-.plan-list { overflow-y: auto; padding: 6px 0 10px; }
+/* The plan list is the page and scrolls with <main>; the detail is docked on the right at full
+   height with its own scroll, or a sheet over the list when the run area is too narrow (split.ts). */
+.split { display: flex; align-items: flex-start; min-width: 0; }
+.split-main { flex: 1 1 0; min-width: 0; }
+.split.docked .split-main .page { padding-right: 24px; }
+.split-side { flex: none; position: sticky; top: 0; height: 100vh; overflow-y: auto; background: var(--panel); container-type: inline-size; overscroll-behavior: contain; }
+.split-side.sheet { position: fixed; top: 0; right: 0; bottom: 0; height: auto; z-index: 30; border-left: 1px solid var(--line); box-shadow: var(--shadow); }
+.sheet-h { position: sticky; top: 0; z-index: 1; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 16px 10px 24px; background: var(--panel); border-bottom: 1px solid var(--line); }
+.sheet-t { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; font-size: 13px; }
+.split-handle { flex: none; position: sticky; top: 0; height: 100vh; width: 9px; margin-right: -4px; cursor: col-resize; touch-action: none; z-index: 2; }
+.split-handle::before { content: ''; position: absolute; top: 0; bottom: 0; left: 4px; width: 1px; background: var(--line); }
+.split-handle::after { content: ''; position: absolute; top: 50%; left: 2px; width: 5px; height: 32px; margin-top: -16px; border-radius: 3px; background: var(--ink-3); opacity: 0; }
+.split-handle:hover::before, .split-handle:focus-visible::before, .split-handle.on::before { background: var(--accent); }
+.split-handle:hover::after, .split-handle:focus-visible::after, .split-handle.on::after { opacity: 1; background: var(--accent); }
+.split-handle:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; border-radius: 0; }
+@container (max-width: 560px) {
+  .evidence { grid-template-columns: minmax(0, 1fr); }
+}
+.plan-list { padding: 6px 0 10px; }
 .filters { display: flex; flex-wrap: wrap; gap: 4px; padding: 10px 14px; border-bottom: 1px solid var(--line-2); }
 .filters a, .tabs a { padding: 4px 10px; border-radius: 8px; font-size: 12.5px; color: var(--ink-2); font-weight: 500; }
 .filters a.on, .tabs a.on { background: var(--accent-soft); color: var(--accent); }
@@ -261,7 +279,7 @@ a.group-h:hover { color: var(--accent); }
    The strut is a line of the surrounding font: the box takes its baseline and the button centres on
    its height, so the icon sits on the text's centre in any font; the negative block margins keep
    the 18px button from growing the line. */
-.copy-ref { display: inline-flex; align-items: center; gap: 4px; vertical-align: baseline; }
+.copy-ref { display: inline-flex; align-items: center; gap: 4px; vertical-align: baseline; position: relative; }
 .copy-strut { width: 0; overflow: hidden; margin-right: -4px; }
 .copy { display: inline-flex; align-items: center; justify-content: center; height: 18px; min-width: 18px; padding: 0 3px; margin: -4px 6px -4px -3px; border-radius: 5px; color: var(--ink-3); opacity: 0.6; font-size: 11px; font-weight: 500; line-height: 1; }
 .copy svg { width: 12px; height: 12px; }
@@ -346,8 +364,7 @@ a.item-ref:hover { color: var(--accent); }
 .gate .bad { margin: 12px 0 0; font-size: 12.5px; color: var(--stop); }
 
 @media (max-width: 1100px) {
-  .grid-2, .work { grid-template-columns: minmax(0, 1fr); }
-  .plan { position: static; max-height: none; }
+  .grid-2 { grid-template-columns: minmax(0, 1fr); }
   .evidence { grid-template-columns: minmax(0, 1fr); }
 }
 
@@ -370,4 +387,7 @@ a.item-ref:hover { color: var(--accent); }
 @media (prefers-reduced-motion: no-preference) {
   .s-doing { animation: breathe 2.4s ease-in-out infinite; }
   @keyframes breathe { 50% { box-shadow: 0 0 0 6px var(--doing-soft); } }
+  .split-handle::before, .split-handle::after { transition: background-color 0.15s, opacity 0.15s; }
+  .split-side.sheet { animation: sheet-in 0.18s ease-out; }
+  @keyframes sheet-in { from { transform: translateX(24px); opacity: 0; } }
 }
