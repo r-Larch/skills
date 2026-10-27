@@ -8,6 +8,7 @@
 import { CLOSED, LEAF, countTitle, counted, independent, progress, state, tally } from '../src/state.ts'
 import { DEFAULT_FILTER, FILTERS, asFilter, cancelledLines, plan, planQuery, withoutCancelled } from '../src/plan.ts'
 import { boardHref, copyValue, itemHref, pathCrumbs, routeReads } from '../src/nav.ts'
+import { HANDLE, LIST_MIN, PANEL_MIN, PANEL_SHARE, WIDTH_KEY, clampWidth, docks, panelWidth, rememberWidth, rememberedWidth } from '../src/split.ts'
 
 let failures = 0
 
@@ -179,6 +180,43 @@ check('reads for /runs/R/T', routeReads('/runs/R/T?tab=evidence'), ['/api/v1/run
 check('reads for /items/P', routeReads('/items/P'), ['/api/v1/items/P'])
 check('reads for a backlog', routeReads('/projects/P/backlog'), ['/api/v1/backlog?project=P'])
 check('an unknown path has no page', routeReads('/runs'), [])
+
+console.log('\n── the run split: docked or a sheet, by the measured width ─────────────────')
+const fits = LIST_MIN + HANDLE + PANEL_MIN
+check('docking width is list + handle + panel minimums', fits, 769)
+check('docks at exactly the docking width', docks(fits), true)
+check('a sheet one pixel below it', docks(fits - 1), false)
+check('a phone-width run area is a sheet', docks(390), false)
+check('a wide run area docks', docks(1600), true)
+
+console.log('\n── the run split: a dragged width is clamped ───────────────────────────────')
+check('below the panel minimum', clampWidth(100, 1600), PANEL_MIN)
+check('past the list minimum', clampWidth(5000, 1600), 1600 - HANDLE - LIST_MIN)
+check('inside both floors, rounded', clampWidth(500.4, 1600), 500)
+check('at the docking width the panel has its minimum only', clampWidth(600, fits), PANEL_MIN)
+check('default share before any drag', panelWidth(undefined, 1600), Math.round((1600 - HANDLE) * PANEL_SHARE))
+check('a remembered width wider than the room yields', panelWidth(1400, 1000), 1000 - HANDLE - LIST_MIN)
+
+console.log('\n── the run split: the remembered width ─────────────────────────────────────')
+const memory = (value) => {
+  const map = new Map(value === undefined ? [] : [[WIDTH_KEY, value]])
+  return { getItem: (k) => map.get(k) ?? null, setItem: (k, v) => map.set(k, v), removeItem: (k) => map.delete(k), map }
+}
+const throwing = { getItem: () => { throw new Error('blocked') }, setItem: () => { throw new Error('blocked') }, removeItem: () => { throw new Error('blocked') } }
+check('a stored width is read', rememberedWidth(() => memory('512')), 512)
+check('nothing stored is no preference', rememberedWidth(() => memory(undefined)), undefined)
+check('garbage stored is no preference', rememberedWidth(() => memory('wide')), undefined)
+check('getItem throwing falls back', rememberedWidth(() => throwing), undefined)
+check('localStorage itself throwing falls back', rememberedWidth(() => { throw new Error('SecurityError') }), undefined)
+check('the fallback is the default share', panelWidth(rememberedWidth(() => throwing), 1600), panelWidth(undefined, 1600))
+const kept = memory(undefined)
+rememberWidth(487.6, () => kept)
+check('a width is stored rounded', kept.map.get(WIDTH_KEY), '488')
+rememberWidth(undefined, () => kept)
+check('a reset forgets it', kept.map.has(WIDTH_KEY), false)
+let threw = false
+try { rememberWidth(400, () => throwing) } catch { threw = true }
+check('storing into throwing storage does not throw', threw, false)
 
 console.log(failures === 0 ? '\nAll checks passed.' : `\n${failures} check(s) failed.`)
 if (failures > 0) process.exitCode = 1

@@ -44,7 +44,8 @@ internal sealed class AppServer : IAsyncDisposable
         CancellationToken cancellationToken,
         bool dashboardConfigured = true,
         string? readerToken = null,
-        string? heartbeat = null)
+        string? heartbeat = null,
+        string? publicUrl = null)
     {
         var app = ApiHost.Build([], builder =>
         {
@@ -60,6 +61,7 @@ internal sealed class AppServer : IAsyncDisposable
                 ["WorkState:Dashboard:Username"] = dashboardConfigured ? Username : null,
                 ["WorkState:Dashboard:Password"] = dashboardConfigured ? Password : null,
                 ["WorkState:Stream:Heartbeat"] = heartbeat,
+                ["WORKSTATE_PUBLIC_URL"] = publicUrl,
             });
         });
 

@@ -42,6 +42,18 @@ Every page is a URL.
 `?filter=open|attention` and `?tab=evidence|notes|activity|brief` ride on the run URL, so a
 selection is deep-linkable and back/forward walk it.
 
+**Readable links: `/r/{path}`** (server-side, `WorkState.Api/App/RefLinks.cs`; not an SPA route).
+`{path}` is any ref form `work_get` accepts — `project`, `project/run`, `project/run/ref`, and the
+shorter unique forms — resolved by the same reader, then a 302 to the page above: a project to
+`/projects/{id}`, a run to `/runs/{id}`, an item in a run to `/runs/{run}/{id}`, anything else to
+`/items/{id}`. An ambiguous path answers 300 with a small page listing the unique forms as `/r`
+links; an unknown one 404 with the nearby refs. It takes the dashboard cookie only (a bearer token
+does not open it). Without the cookie it answers 401 with a sign-in form — the server's own page,
+since the SPA's Gate would land on its not-found route — which posts to `/api/session` and reloads
+the same URL, so the link survives sign-in with no credential and no target in any URL, and nothing
+about the store (no id, no candidate) is said before the cookie is. `work_brief` and `work_get` print
+these links as their `web` line (doc 01 §8).
+
 The **detail panel**: crumbs, full title and qualified ref, a state pill, chips (kind, commit,
 claim holder, tree, priority, severity, resolution, closed/started), then tabs:
 

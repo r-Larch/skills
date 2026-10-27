@@ -112,7 +112,7 @@ public static class ApiHost
                 {
                     Name = "workstate",
                     Title = "WorkState",
-                    Version = "0.7.0",
+                    Version = "0.7.1",
                 };
                 options.ServerInstructions = WorkStateServerInstructions.Text;
             })
@@ -142,6 +142,8 @@ public static class ApiHost
         app.MapMcp("/mcp").RequireAuthorization(WorkStatePolicies.Any);
 
         app.MapAppApi();
+
+        app.MapRefLinks();
 
         app.MapSpaFallback();
 
@@ -205,6 +207,9 @@ public static class ApiHost
             sp.GetRequiredService<BoardQueries>(),
             sp.GetRequiredService<Housekeeping>()));
         builder.Services.AddSingleton<CallerIdentity>();
+        builder.Services.AddSingleton(sp => new WebBase(
+            sp.GetRequiredService<IHttpContextAccessor>(),
+            builder.Configuration[WebBase.Key] ?? builder.Configuration[WebBase.EnvironmentKey]));
         builder.Services.AddSingleton(sp => new SessionStore(sp.GetRequiredService<NpgsqlDataSource>()));
     }
 

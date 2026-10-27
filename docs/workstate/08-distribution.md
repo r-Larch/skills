@@ -122,6 +122,9 @@ the prompt catalogue and `work_import`.
 over assumptions, rules and notes with `scope`, the raised `tools/list` budgets, the dashboard's
 `fullRef` field, and two indexes (`item_ref_lower_idx`, `note_search_idx`).
 
+`0.7.1` (rlarch 2.5.1) carries readable dashboard links (`/r/<project/run/ref>`, the `web` line in
+`work_brief` and `work_get`, optional `WORKSTATE_PUBLIC_URL`) and the dashboard's split run page.
+
 ---
 
 ## 3. Should the skills use it? — Yes, and as a **hard** dependency
@@ -206,6 +209,13 @@ The pre-v1 cookie-only `/api/*` routes are removed; `/api/session`, `/api/agent-
 | minted `wss_…` (per session) | none — `POST /api/agent-sessions` with an orchestrator or controller bearer returns it once; the store keeps only its SHA-256. Expires after `ttlHours` (default 72, max 720) **unused** — an idle window each use renews, no hard cap — revoked by `DELETE` | exactly what a static token of its granted role reaches (never above its minter's role), and its calls are that session's: `X-WorkState-Agent` is ignored |
 
 Foreman authenticates with the reader token: it watches every project and can write nothing.
+
+**`WORKSTATE_PUBLIC_URL`** (`WorkState:PublicUrl`, **optional**; compose passes
+`${WORKSTATE_PUBLIC_URL:-}`) is the base of the `web` line `work_brief` and `work_get` print
+(doc 01 §8). Unset, the line names the scheme and host the MCP request came in on — from the host
+that is `http://127.0.0.1:5290`, which is also where the dashboard is. Set it when humans reach the
+dashboard at another address than agents reach `/mcp` (a reverse proxy, a LAN name). `X-Forwarded-*`
+is never read for it: nothing in the pipeline trusts a proxy header any client can send.
 
 ### How to make it always-on
 
