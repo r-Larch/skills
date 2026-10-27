@@ -145,8 +145,10 @@ A unit page: what was asked, what the agent **reported**, what was **verified**.
   "eventsHasMore": true }
 ```
 
-### `GET /api/v1/items/{id}/brief?for=resume|worker`
+### `GET /api/v1/items/{id}/brief?for=resume|worker|gate`
 `text/plain`: the verbatim `work_brief` an agent would read. A secondary tab, not the main view.
+`gate` renders `work_brief(for:"gate")` — on anything but a phase, its refusal text — and any other
+`for=` is a 400 naming the three.
 
 ### `GET /api/v1/inbox?project={id}` (project optional)
 Everything waiting on a **human**, newest first.

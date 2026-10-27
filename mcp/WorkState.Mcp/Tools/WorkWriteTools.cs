@@ -32,9 +32,8 @@ public sealed class WorkWriteTools(
     [Description("""
         Moves an item: open → ready → in_progress → review → done. in_progress takes a claim on the
         working tree; done is refused until every criterion is checked, an orchestrator verification
-        exists, no child is open and no blocker finding targets it. The refusal names the call for
-        each thing missing. Deferring is a move, not a status: it needs target: and creates
-        a real open item there, so nothing is dropped silently.
+        exists, no child is open and no blocker finding targets it. Deferring is a move, not a
+        status: it needs target: and creates a real open item there.
         Next: after in_progress, work_verify; after done, work_next.
         """)]
     public async Task<CallToolResult> StatusAsync(

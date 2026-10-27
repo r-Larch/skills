@@ -189,7 +189,7 @@ public sealed class SelfNamingTests(PostgresFixture fixture)
         var measured = new List<string>();
         foreach (var (token, budget) in new[]
                  {
-                     (ReadServer.WorkerToken, 2200), (ReadServer.OrchestratorToken, 6400), (ReadServer.ControllerToken, 6400),
+                     (ReadServer.WorkerToken, 2600), (ReadServer.OrchestratorToken, 7200), (ReadServer.ControllerToken, 7200),
                  })
         {
             await using var withKey = await server.ConnectAsync(token, Ct, Client(Key()));

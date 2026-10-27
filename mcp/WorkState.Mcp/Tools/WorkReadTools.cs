@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Authorization;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 using WorkState.Core.Board;
+using WorkState.Core.Domain;
 using WorkState.Core.Rendering;
 using WorkState.Core.Writing;
 
@@ -28,11 +29,11 @@ public sealed class WorkReadTools(
     [Authorize(Policy = WorkStatePolicies.Worker)]
     [McpServerTool(Name = "work_brief", Title = "Orient: the recovery payload", ReadOnly = true)]
     [Description("""
-        The recovery payload for a scope, generated so it cannot be stale: goal, where the run
-        stands, the literal next action, the constraints that bind you, open assumptions, notes
-        addressed to this work, and the last verification recorded.
-        Call it FIRST in every session, and again after a compaction — nothing else needs reading
-        to orient. On an empty server it returns onboarding instead: what to create, and how.
+        The recovery payload for a scope: goal, where the run stands, the literal next action, the
+        constraints that bind you, open assumptions, notes addressed to this work, and the last
+        verification recorded.
+        Call it FIRST in every session, and again after a compaction. On an empty server it returns
+        onboarding instead: what to create, and how.
         Next: do what its own NEXT line says — usually work_get(refs:[...]) and then
         work_status(ref, "in_progress").
         """)]
@@ -51,10 +52,16 @@ public sealed class WorkReadTools(
 
         var resolved = byRepo ?? (string.IsNullOrWhiteSpace(scope)
             ? await reader.ResolveUnscopedBriefAsync(workspace.Slug, cancellationToken)
-            : await reader.ResolveAsync(workspace.Slug, scope, cancellationToken));
+            : await reader.ResolveForCallerAsync(workspace.Slug, scope, caller.Actor.SessionId, cancellationToken));
         if (resolved is not ScopeResult.Found found)
         {
-            return Text(ScopeExplain.Text(resolved, "work_brief", scope));
+            return Text(ScopeExplain.Text(
+                resolved,
+                "work_brief",
+                scope,
+                @for?.Trim().ToLowerInvariant() is { } asked && asked != "resume" && BoardReader.BriefVariants.Contains(asked)
+                    ? $"for:\"{asked}\""
+                    : null));
         }
 
         // The sweep of doc 07 §5 and the note consumption of doc 01 §3.4 both live in
@@ -137,8 +144,7 @@ public sealed class WorkReadTools(
     [McpServerTool(Name = "work_get", Title = "Read: one or more items in full", ReadOnly = true)]
     [Description("""
         Full detail for one or more refs: intent, done-criteria with their check state, the
-        verifications recorded against them, the links in and out, and the work:// URIs of the item
-        and of its worker brief.
+        verifications recorded against them, the links in and out.
         Reach for it before starting an item, or whenever a board row is not enough. The brief is
         never inlined — read the printed work://item/<ref>/brief URI with ReadMcpResourceTool.
         Next: work_status(ref, "in_progress") to start it, or work_brief(scope:"<ref>",
@@ -183,11 +189,18 @@ public sealed class WorkReadTools(
         var resolved = await reader.ResolveDefaultAsync(workspace.Slug, scoped ? scope : null, caller.Actor.SessionId, cancellationToken);
         if (resolved is not ScopeResult.Found found)
         {
-            return Text(ScopeExplain.Text(resolved, "work_search", scoped ? scope : null));
+            var asked = $"q:\"{Glyph.Flat(q).Replace("\"", "\\\"", StringComparison.Ordinal)}\"";
+            return Text(ScopeExplain.Text(
+                resolved, "work_search", scoped ? scope : null, limit == 10 ? asked : $"{asked}, limit:{limit}"));
         }
 
         var body = await reader.SearchAsync(
-            found.WorkspaceId, q ?? string.Empty, Clamp(limit, 1, 50), scoped ? found : null, cancellationToken);
+            found.WorkspaceId,
+            q ?? string.Empty,
+            Clamp(limit, 1, 50),
+            scoped ? found : null,
+            history: caller.Actor.Role != ActorRole.Worker,
+            cancellationToken);
         return Text(Attention.Append(body, await reader.AttentionAsync(found, cancellationToken)));
     }
 
@@ -196,9 +209,8 @@ public sealed class WorkReadTools(
     [Description("""
         Everything unclosed that is not a task: open assumptions, findings, follow-ups, unconsumed
         notes, items in_progress with no live claim, and dependencies waiting on work that will
-        never arrive. Every line ends in the call that closes it.
-        Reach for it before closing a phase and at every handover — this is the list that decides
-        whether a run ends clean or with 84% of its checkboxes open.
+        never arrive.
+        Reach for it before closing a phase and at every handover.
         Next: the call named on each line — work_assume, work_status, or work_brief(for:"worker").
         """)]
     public async Task<CallToolResult> ThreadsAsync(

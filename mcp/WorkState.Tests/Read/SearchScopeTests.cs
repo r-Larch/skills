@@ -127,9 +127,118 @@ public sealed partial class SearchScopeTests(PostgresFixture fixture)
         var text = await SearchAsync(client, "1");
 
         Assert.Contains("work_search — \"1\" exists in 2 runs.", text, StringComparison.Ordinal);
-        Assert.Contains("work_search(scope:\"run-a/1\")", text, StringComparison.Ordinal);
-        Assert.Contains("work_search(scope:\"run-b/1\")", text, StringComparison.Ordinal);
+        Assert.Contains("work_search(scope:\"run-a/1\", q:\"quokka\", limit:20)", text, StringComparison.Ordinal);
+        Assert.Contains("work_search(scope:\"run-b/1\", q:\"quokka\", limit:20)", text, StringComparison.Ordinal);
         Assert.DoesNotContain("SEARCH", text, StringComparison.Ordinal);
+
+        var printed = Regex.Matches(text, """work_search\(scope:"(?<scope>[^"]+)", q:"(?<q>[^"]+)", limit:(?<limit>\d+)\)""");
+        Assert.Equal(2, printed.Count);
+        foreach (Match call in printed)
+        {
+            var again = await ReadServer.CallAsync(
+                client,
+                "work_search",
+                new Dictionary<string, object?>
+                {
+                    ["scope"] = call.Groups["scope"].Value,
+                    ["q"] = call.Groups["q"].Value,
+                    ["limit"] = int.Parse(call.Groups["limit"].Value),
+                },
+                Ct);
+            Assert.StartsWith($"SEARCH \"quokka\" under {call.Groups["scope"].Value}", again, StringComparison.Ordinal);
+        }
+    }
+
+    /// <summary>
+    /// tool-budget. A note hit routed to work_history, which a worker token cannot call; a worker gets
+    /// the note whole under its row and work_get on the item it is on, and every route still opens.
+    /// </summary>
+    [Fact]
+    public async Task A_worker_gets_a_note_whole_and_a_route_it_can_call()
+    {
+        var world = await SeedAsync();
+        await using var server = await ReadServer.StartAsync(fixture.ConnectionString, world.Slug, Ct);
+        await using var client = await server.ConnectAsync(ReadServer.WorkerToken, Ct);
+
+        var found = await ReadServer.CallAsync(
+            client, "work_search", new Dictionary<string, object?> { ["q"] = "quokka", ["limit"] = 20 }, Ct);
+
+        Assert.DoesNotContain("work_history", found, StringComparison.Ordinal);
+
+        var route = RouteOf(found, "migration", "note · carry_forward");
+        Assert.Equal("work_get(refs:[\"1.1\"])", route);
+        var lines = found.Split('\n');
+        var row = Array.FindIndex(lines, l => l.Contains("migration", StringComparison.Ordinal));
+        Assert.Equal($"{new string(' ', 20)}note: quokka migration finished at 4f2a", lines[row + 2]);
+
+        foreach (var line in lines.Where(l => l.TrimStart().StartsWith("→ work_", StringComparison.Ordinal)))
+        {
+            var opened = await FollowAsync(client, line.Trim()["→ ".Length..]);
+            Assert.DoesNotContain("REFUSED", opened, StringComparison.Ordinal);
+            Assert.DoesNotContain("✗", opened.Split('\n')[0], StringComparison.Ordinal);
+        }
+    }
+
+    /// <summary>
+    /// tool-budget. An assumption on no item printed its bare A-ref, which a run's own A1 makes
+    /// ambiguous, and no qualified form existed. <c>workspace/A1</c> is that form, on every surface
+    /// that resolves an A-ref.
+    /// </summary>
+    [Fact]
+    public async Task A_workspace_assumption_is_printed_qualified_and_the_printed_ref_resolves_back()
+    {
+        // assumption_ref_unique is NULLS NOT DISTINCT on (ref_scope_id, ref), so a workspace-wide ref
+        // is unique across every workspace in the shared fixture database: A1 belongs to AmbiguousRefTests.
+        const string number = "A57";
+        var world = await SeedAsync();
+        await using (var db = fixture.NewContext())
+        {
+            foreach (var (scope, statement) in new (Guid?, string)[]
+                     {
+                         (world.RunId, "the quokka sanctuary closes in winter"),
+                         (null, "the quokka sanctuary is open all year"),
+                     })
+            {
+                db.Assumptions.Add(new Core.Domain.Assumption
+                {
+                    Id = Guid.CreateVersion7(),
+                    WorkspaceId = world.WorkspaceId,
+                    ScopeItemId = scope,
+                    Ref = number,
+                    Statement = statement,
+                    Evidence = Core.Domain.EvidenceLevel.Reasoned,
+                    CreatedAt = DateTimeOffset.UtcNow,
+                });
+            }
+
+            await db.SaveChangesAsync(Ct);
+        }
+
+        await using var server = await ReadServer.StartAsync(fixture.ConnectionString, world.Slug, Ct);
+        await using var client = await server.ConnectAsync(ReadServer.WorkerToken, Ct);
+
+        var found = await ReadServer.CallAsync(
+            client, "work_search", new Dictionary<string, object?> { ["q"] = "quokka sanctuary open" }, Ct);
+        var route = RouteOf(found, $"workspace/{number}", "assumption · open");
+        Assert.Equal($"work_get(refs:[\"workspace/{number}\"])", route);
+
+        var opened = await FollowAsync(client, route);
+        Assert.Contains("the quokka sanctuary is open all year", Regex.Replace(opened, @"\s+", " "), StringComparison.Ordinal);
+        Assert.Contains($"Next: work_assume(ref:\"workspace/{number}\", resolve:\"confirmed\"", opened, StringComparison.Ordinal);
+
+        var bare = await ReadServer.CallAsync(client, "work_get", new Dictionary<string, object?> { ["refs"] = new[] { number } }, Ct);
+        Assert.Contains($"\"workspace/{number}\"", bare, StringComparison.Ordinal);
+        Assert.Contains($"\"run-a/{number}\"", bare, StringComparison.Ordinal);
+
+        var resolved = await world.Writer.AssumeAsync(
+            world.WorkspaceId, WriteSeed.Orchestrator, $"workspace/{number}", null, "settled", null, null, "confirmed", null, Ct);
+        Assert.False(resolved.Refused, resolved.Text);
+        Assert.StartsWith($"OK  {number}  resolved confirmed", resolved.Text, StringComparison.Ordinal);
+
+        await using var check = fixture.NewContext();
+        Assert.Equal(
+            Core.Domain.AssumptionState.Confirmed,
+            check.Assumptions.Single(a => a.WorkspaceId == world.WorkspaceId && a.ScopeItemId == null).State);
     }
 
     /// <summary>

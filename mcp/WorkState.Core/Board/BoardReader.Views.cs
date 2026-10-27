@@ -173,11 +173,19 @@ public sealed partial class BoardReader
                     var assumed = await board.AssumptionByRefAsync(workspaceId, reference.Trim(), cancellationToken);
                     if (assumed.Count == 1)
                     {
-                        assumptions.Add(assumed[0]);
+                        assumptions.Add(await CallableAssumptionAsync(workspaceId, assumed[0], cancellationToken));
                         break;
                     }
 
-                    var forms = assumed.Where(a => a.Qualified).Take(5).Select(a => $"\"{a.QualifiedRef}\"").ToList();
+                    var forms = new List<string>();
+                    foreach (var match in assumed.Take(5))
+                    {
+                        if ((await CallableAssumptionAsync(workspaceId, match, cancellationToken)) is { Qualified: true } named)
+                        {
+                            forms.Add($"\"{named.QualifiedRef}\"");
+                        }
+                    }
+
                     problems.Add(assumed.Count == 0
                         ? $"✗ no item or assumption has ref \"{reference}\" "
                           + $"→ work_search(q:\"{reference}\") or work_tree()"
@@ -326,12 +334,23 @@ public sealed partial class BoardReader
     /// own under <c>work_get</c> except an assumption, so its row names its kind and is followed by the
     /// call that prints it whole: a scoped rule's worker brief (every rule in scope, uncapped, and
     /// reading it consumes nothing), the conventions for a workspace rule, the history of a note's item.
+    /// A caller without <c>work_history</c> (a worker) gets the note whole under its row instead, and
+    /// <c>work_get</c> on the item it is on.
     /// </summary>
     public async Task<string> SearchAsync(
         Guid workspaceId,
         string query,
         int limit,
         ScopeResult.Found? scope,
+        CancellationToken cancellationToken = default)
+        => await SearchAsync(workspaceId, query, limit, scope, history: true, cancellationToken);
+
+    public async Task<string> SearchAsync(
+        Guid workspaceId,
+        string query,
+        int limit,
+        ScopeResult.Found? scope,
+        bool history,
         CancellationToken cancellationToken = default)
     {
         var hits = await queries.SearchAsync(workspaceId, query, limit, scope?.Item.Id, false, cancellationToken);
@@ -364,12 +383,17 @@ public sealed partial class BoardReader
                 ? await board.PrintableRefAsync(workspaceId, ownerId, hit.ScopeRef ?? string.Empty, cancellationToken)
                 : null;
 
-            var (handle, route) = hit.Source switch
+            var assumption = hit.Source == "assumption"
+                ? await board.CallableAssumptionRefAsync(workspaceId, hit.Ref, cancellationToken)
+                : null;
+
+            (string handle, string? route) = hit.Source switch
             {
-                "assumption" => (hit.Ref, $"work_get(refs:[\"{hit.Ref}\"])"),
+                "assumption" => (assumption!, $"work_get(refs:[\"{assumption}\"])"),
                 "constraint" => (hit.Ref, owner is null
                     ? $"read {WorkUris.Conventions}"
                     : $"read {WorkUris.ItemBrief(owner)}"),
+                _ when !history => (owner ?? "—", owner is null ? null : $"work_get(refs:[\"{owner}\"])"),
                 _ => (owner ?? "—", owner is null ? "work_history()" : $"work_history(scope:\"{owner}\")"),
             };
 
@@ -377,11 +401,19 @@ public sealed partial class BoardReader
             lines.Add($"{Glyph.Pad(Glyph.Flat(handle), 18)}  "
                       + $"{Glyph.Pad($"{hit.Source} · {hit.Tag}", 30)}  "
                       + Glyph.Row(hit.Snippet, 40));
-            lines.Add($"{new string(' ', 20)}→ {route}");
+            if (route is not null)
+            {
+                lines.Add($"{new string(' ', 20)}→ {route}");
+            }
+
+            if (hit.Source == "note" && !history)
+            {
+                lines.AddRange(BriefRenderer.Wrap($"{new string(' ', 20)}note: ", hit.Title, 26));
+            }
         }
 
         lines.Add(string.Empty);
-        lines.Add($"Next: {first} on a hit.");
+        lines.Add(first is null ? "Next: nothing to open — each note is printed whole above." : $"Next: {first} on a hit.");
         return string.Join("\n", lines);
     }
 

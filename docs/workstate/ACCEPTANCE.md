@@ -281,6 +281,10 @@ Two columns, because a budget with one measurement is a number and a budget with
 point), one reworded argument on `work_get`, and one extra line per item in `work_get` carrying the
 `work://item/<ref>/brief` URI the agent had to compose for itself. **The ceilings were not moved.**
 
+*Since moved, deliberately — owner's decision, 2026-10-27:* the `tools/list` ceilings are now worker
+2,600 and orchestrator/controller 7,200, after a keyed orchestrator list reached 6,395 of 6,400. The
+figures and the trim that came with it are in doc 01 §6.
+
 #### The overlap nobody had measured
 
 doc 04 §1 forbids `ServerInstructions` restating the schema. One level down, the same question: both

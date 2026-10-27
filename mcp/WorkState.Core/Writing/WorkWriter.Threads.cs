@@ -474,14 +474,16 @@ public sealed partial class WorkWriter
             WHERE  a.workspace_id = @workspace
               AND  a.state = 'open'
               AND  lower(a.ref) = lower(@leaf)
-              AND  (@qualifier IS NULL OR lower(s.ref) = lower(@qualifier))
+              AND  (@qualifier IS NULL
+                    OR lower(s.ref) = lower(@qualifier)
+                    OR (a.ref_scope_id IS NULL AND lower(@qualifier) = @everywhere))
             ORDER  BY s.ref
             FOR    NO KEY UPDATE OF a;
             """;
 
         return (await connection.QueryAsync<OpenAssumption>(new CommandDefinition(
             sql,
-            new { workspace = workspaceId, leaf, qualifier },
+            new { workspace = workspaceId, leaf, qualifier, everywhere = Queries.BoardQueries.WorkspaceQualifier },
             transaction,
             cancellationToken: cancellationToken))).AsList();
     }

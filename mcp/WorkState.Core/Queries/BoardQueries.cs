@@ -300,6 +300,10 @@ public sealed partial class BoardQueries(NpgsqlDataSource dataSource)
             : reference;
     }
 
+    /// <summary>What must be true to accept a phase (doc 02, <c>item.gate_criterion</c>); null when none was recorded.</summary>
+    public Task<string?> GateCriterionAsync(Guid itemId, CancellationToken cancellationToken = default)
+        => SingleAsync<string>("SELECT gate_criterion FROM item WHERE id = @id;", new { id = itemId }, cancellationToken);
+
     /// <summary>The run the item is, or sits in; null for a project, a feature or an orphan.</summary>
     public async Task<ScopeRef?> RunOfAsync(Guid itemId, CancellationToken cancellationToken = default)
     {

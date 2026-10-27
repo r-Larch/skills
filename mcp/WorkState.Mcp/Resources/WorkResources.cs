@@ -172,9 +172,9 @@ public sealed class WorkResources(BoardReader reader, WorkspaceOptions workspace
         [Description("The item's ref, exactly as a tool result printed it.")] string @ref,
         CancellationToken cancellationToken)
     {
-        var scope = await reader.ResolveAsync(workspace.Slug, @ref, cancellationToken);
+        var scope = await reader.ResolveForCallerAsync(workspace.Slug, @ref, caller.Actor.SessionId, cancellationToken);
         return scope is ScopeResult.Found found
             ? await reader.BriefAsync(found, "worker", cancellationToken)
-            : ScopeExplain.Text(scope, "work_brief", @ref);
+            : ScopeExplain.Text(scope, "work_brief", @ref, "for:\"worker\"");
     }
 }
