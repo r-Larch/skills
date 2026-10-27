@@ -15,7 +15,7 @@ operator dashboard.
 | Runtime | **.NET 10**, `net10.0`, `.slnx`, nullable + implicit usings on, one root `Directory.Build.props` | workspace standard |
 | MCP | **`ModelContextProtocol.AspNetCore` 2.2.0** (+ `ModelContextProtocol.Core`) | official C# SDK; 2.2.0 aligns with the 2026‑07‑28 revision and negotiates down to 2025‑11‑25 |
 | Transport | **Streamable HTTP**, stateless | 2026‑07‑28 removed protocol sessions; 2.2.0 defaults to stateless HTTP. No sticky routing, trivial horizontal scale |
-| Data | **PostgreSQL 17+** via **Npgsql** | workspace substrate; `pg_trgm` + GIN, `jsonb`, `LISTEN/NOTIFY`, arrays |
+| Data | **PostgreSQL 17+** via **Npgsql** | workspace substrate; `pg_trgm` + GIN, `jsonb`, `LISTEN/NOTIFY`, arrays. The server's own connections (Dapper data source and EF context) run with `jit=off` (`WorkStateDataSource.WithSessionSettings`, doc 15 §4.3): short queries, where a JIT compile cost more than the query |
 | ORM | **EF Core 10** with `UseSnakeCaseNamingConvention()` for the write model; **raw SQL / Dapper for the recursive reads** | EF for migrations and the aggregate writes; hand-written SQL for the frontier, rollup and audit queries, which EF translates badly and which are the hot path |
 | Migrations | EF Core migrations, applied deliberately (never `dotnet ef database update` against a design-time factory that resolves prod — the corpus has that exact incident) | |
 | Observability | **OpenTelemetry** traces+metrics always *emitted*, exported only when an OTLP endpoint is configured; **Sentry** as an OTel backend gated on a DSN; correlation-id middleware **before** auth | standard non-negotiable #5 |
@@ -121,7 +121,7 @@ rubric (one agent, end-to-end, one verification command that can go red).
 | 1.1 | EF model + migration for §2–§5 of the data model (workspace, kinds, item, criteria, links, docs, blocks). Trigger for `ancestors`; fractional `seq` helpers. |
 | 1.2 | Evidence + journal: attempts, reports, verifications, artifacts, events, `pg_notify`. |
 | 1.3 | Threads: assumptions, constraints, notes, claims, tokens. |
-| 1.4 | Query services: frontier, rollup, subtree, open-threads, search. Hand-written SQL, `EXPLAIN`-checked against a seeded 5,000-item workspace. |
+| 1.4 | Query services: frontier, rollup, subtree, open-threads, search. Hand-written SQL. **`EXPLAIN`-checked 2026-10-27** against a seeded 4,955-item / 20,000-event workspace, see [doc 15](15-query-plans.md). Every hot read measured is under 32 ms after three fixes: a `lower(ref)` index (RefLookupIndex), a lateral per-row rollup instead of joining the `item_rollup` view, and `jit=off` on the server's connections. Board was 77 ms and Facts 67 ms before. The opt-in test `QueryPlanTests` (`WORKSTATE_EXPLAIN=1`) re-runs it. |
 
 *Verify:* integration tests against a throwaway Postgres in compose. *Seam:* `ancestors` maintenance
 vs `work_move` — the one place the tree can silently corrupt.

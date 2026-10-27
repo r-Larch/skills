@@ -15,8 +15,6 @@ public sealed partial class BoardQueries(NpgsqlDataSource dataSource)
     /// <summary>Self or anything beneath it. The subtree predicate every query below repeats.</summary>
     private const string InScope = "(i.id = @scope OR i.ancestors @> ARRAY[@scope]::uuid[])";
 
-    static BoardQueries() => SqlMapper.AddTypeHandler(new TimestampHandler());
-
     public async Task<Guid?> WorkspaceAsync(string? slug, CancellationToken cancellationToken = default)
     {
         const string sql =
@@ -53,7 +51,7 @@ public sealed partial class BoardQueries(NpgsqlDataSource dataSource)
              FROM   item i
              LEFT JOIN item s ON s.id = i.ref_scope_id AND s.id <> i.id
              JOIN   item_kind k ON k.key = i.kind
-             LEFT JOIN item_rollup r ON r.id = i.id
+             {WorkStateQueries.Rollup}
              WHERE  i.workspace_id = @workspace AND i.kind IN ('run','project')
                AND  (@under::uuid IS NULL OR i.id = @under OR i.ancestors @> ARRAY[@under]::uuid[])
              ORDER BY EXISTS (SELECT 1 FROM item ap
@@ -301,6 +299,10 @@ public sealed partial class BoardQueries(NpgsqlDataSource dataSource)
             ? await UniqueRefAsync(workspaceId, match, cancellationToken) ?? match.QualifiedRef ?? reference
             : reference;
     }
+
+    /// <summary>What must be true to accept a phase (doc 02, <c>item.gate_criterion</c>); null when none was recorded.</summary>
+    public Task<string?> GateCriterionAsync(Guid itemId, CancellationToken cancellationToken = default)
+        => SingleAsync<string>("SELECT gate_criterion FROM item WHERE id = @id;", new { id = itemId }, cancellationToken);
 
     /// <summary>The run the item is, or sits in; null for a project, a feature or an orphan.</summary>
     public async Task<ScopeRef?> RunOfAsync(Guid itemId, CancellationToken cancellationToken = default)
@@ -575,7 +577,7 @@ public sealed partial class BoardQueries(NpgsqlDataSource dataSource)
         CancellationToken cancellationToken = default)
     {
         const string sql =
-            """
+            $"""
             SELECT i.id                         AS "Id",
                    i.ref                        AS "Ref",
                    CASE WHEN s.ref IS NULL THEN i.ref ELSE s.ref || '/' || i.ref END
@@ -620,7 +622,7 @@ public sealed partial class BoardQueries(NpgsqlDataSource dataSource)
                      FROM   claim cc LEFT JOIN agent_session hs ON hs.id = cc.session_id
                      WHERE  cc.item_id = i.id AND cc.released_at IS NULL AND cc.expires_at >= now()
                      LIMIT  1) h ON true
-            LEFT   JOIN item_rollup r ON r.id = i.id
+            {WorkStateQueries.Rollup}
             WHERE  i.id = ANY(@ids);
             """;
 

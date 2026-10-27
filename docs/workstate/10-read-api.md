@@ -28,13 +28,16 @@ Answers `200 { "id", "ref", "archivedAt": "…" | null, "changed": true }`; 404 
    has `autowork/backlog` (a run) and `m0/backlog` (a phase), and the pre-v1 `/api/runs/backlog/tree`
    404'd on exactly that. A ref a human typed becomes an id through `GET /api/v1/resolve?ref=`.
 2. **Every item, wherever it appears, is an `ItemRef`:**
-   `{ id, ref, qualifiedRef, kind, title, status }`. `qualifiedRef` is always present: equal to `ref`
+   `{ id, ref, qualifiedRef, kind, title, status, fullRef }`. `qualifiedRef` is always present: equal to `ref`
    when the ref is unique in the workspace, otherwise `run/ref` (the same rule the MCP text uses) —
    and when `run/ref` is itself shared (two projects with a run of the same name), the shortest
    project-qualified form that resolves to it alone, `project/ref` or `project/run/ref`.
    It is the callable form (`BoardQueries.CallableRefAsync`): passed to `work_get` / `work_brief` it
-   resolves to that item alone. The dashboard's copy buttons copy exactly this field and never
-   compose a ref of their own.
+   resolves to that item alone. `fullRef` (added later, additive) is the full path
+   `project/run/ref` — a run's is `project/run`, a project's is its ref, an item outside any
+   project keeps its `qualifiedRef` — and resolves the same way. It stays unambiguous as runs are
+   added, which the shortest form does not. The dashboard's copy buttons copy exactly this field
+   and never compose a ref of their own.
 3. **Instants are ISO-8601 with offset.** No "seconds remaining". Every response body carries `asOf`
    (server clock) and `seq` (the newest journal seq the response reflects), so a client can tell
    whether an SSE frame is already reflected.
@@ -54,7 +57,8 @@ Answers `200 { "id", "ref", "archivedAt": "…" | null, "changed": true }`; 404 
 ## Shared shapes
 
 ```jsonc
-ItemRef = { "id": "uuid", "ref": "2.3", "qualifiedRef": "m1/2.3", "kind": "task", "title": "…", "status": "done" }
+ItemRef = { "id": "uuid", "ref": "2.3", "qualifiedRef": "m1/2.3", "kind": "task", "title": "…", "status": "done",
+           "fullRef": "workstate/m1/2.3" }
 Rollup  = { "total": 14, "done": 10, "inProgress": 1, "review": 0, "blocked": 0, "open": 3,
             "cancelled": 0, "superseded": 0 }      // leaves only: task, followup, subtask, spike, question, incident
           // total = every leaf below, cancelled and superseded included (the sum of the seven counts);
@@ -145,8 +149,10 @@ A unit page: what was asked, what the agent **reported**, what was **verified**.
   "eventsHasMore": true }
 ```
 
-### `GET /api/v1/items/{id}/brief?for=resume|worker`
+### `GET /api/v1/items/{id}/brief?for=resume|worker|gate`
 `text/plain`: the verbatim `work_brief` an agent would read. A secondary tab, not the main view.
+`gate` renders `work_brief(for:"gate")` — on anything but a phase, its refusal text — and any other
+`for=` is a 400 naming the three.
 
 ### `GET /api/v1/inbox?project={id}` (project optional)
 Everything waiting on a **human**, newest first.

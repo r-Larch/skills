@@ -40,6 +40,10 @@ public sealed class PostgresFixture : IAsyncLifetime
     public WorkStateDbContext NewContext()
         => new(WorkStateDbContextOptions.Build(ConnectionString));
 
+    /// <summary>The server log, where auto_explain writes (QueryPlanTests).</summary>
+    public async Task<string> ServerLogAsync(CancellationToken cancellationToken)
+        => (await _container.GetLogsAsync(timestampsEnabled: false, ct: cancellationToken)).Stderr;
+
     public async ValueTask DisposeAsync()
     {
         if (_dataSource is not null)

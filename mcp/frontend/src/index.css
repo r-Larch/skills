@@ -257,9 +257,13 @@ a.group-h:hover { color: var(--accent); }
 .item-side { display: flex; gap: 6px; align-items: center; color: var(--ink-3); font-size: 12px; font-variant-numeric: tabular-nums; padding-top: 1px; }
 .who { color: var(--doing); font-weight: 500; }
 
-/* Copy a callable ref (doc 13): a quiet icon beside the ref, "Copied" in its place for a moment. */
+/* Copy a callable ref (doc 13): a quiet icon beside the ref, "Copied" in its place for a moment.
+   The strut is a line of the surrounding font: the box takes its baseline and the button centres on
+   its height, so the icon sits on the text's centre in any font; the negative block margins keep
+   the 18px button from growing the line. */
 .copy-ref { display: inline-flex; align-items: center; gap: 4px; vertical-align: baseline; }
-.copy { display: inline-flex; align-items: center; justify-content: center; height: 18px; min-width: 18px; padding: 0 3px; margin: 0 6px 0 -3px; border-radius: 5px; color: var(--ink-3); opacity: 0.6; font-size: 11px; font-weight: 500; line-height: 1; vertical-align: -3px; }
+.copy-strut { width: 0; overflow: hidden; margin-right: -4px; }
+.copy { display: inline-flex; align-items: center; justify-content: center; height: 18px; min-width: 18px; padding: 0 3px; margin: -4px 6px -4px -3px; border-radius: 5px; color: var(--ink-3); opacity: 0.6; font-size: 11px; font-weight: 500; line-height: 1; }
 .copy svg { width: 12px; height: 12px; }
 .copy:hover, .copy:focus-visible { opacity: 1; color: var(--accent); background: var(--accent-soft); }
 .copy.done { opacity: 1; color: var(--proven); background: var(--proven-soft); }
@@ -271,7 +275,13 @@ a.group-h:hover { color: var(--accent); }
 .dh-row { display: flex; gap: 16px; align-items: flex-start; justify-content: space-between; }
 .dh-row > div { min-width: 0; }
 .dh-title { font-size: 20px; font-weight: 600; line-height: 1.35; margin: 0; overflow-wrap: anywhere; }
-.dh-ref { font-family: var(--font-mono); font-size: 13px; color: var(--ink-3); margin-top: 4px; }
+.crumbs .copy-ref { margin-left: 4px; }
+.crumbs.path { font-family: var(--font-mono); }
+.crumbs.path .here { color: var(--ink-2); }
+.toggle-cancelled { display: inline-block; margin-top: 8px; font-size: 12.5px; color: var(--ink-3); }
+.toggle-cancelled:hover { color: var(--accent); }
+.filters .toggle-cancelled { margin: 0 0 0 auto; color: var(--ink-3); font-weight: 400; }
+.toggle-cancelled.pad { display: block; margin: 0; padding: 10px 18px 4px; }
 .detail-head .chips { margin-top: 14px; }
 .tabs { display: flex; flex-wrap: wrap; gap: 4px; padding: 10px 16px; border-bottom: 1px solid var(--line-2); }
 .tabs a { padding: 7px 13px; border-radius: 9px; font-size: 14px; }

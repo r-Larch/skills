@@ -173,11 +173,19 @@ public sealed partial class BoardReader
                     var assumed = await board.AssumptionByRefAsync(workspaceId, reference.Trim(), cancellationToken);
                     if (assumed.Count == 1)
                     {
-                        assumptions.Add(assumed[0]);
+                        assumptions.Add(await CallableAssumptionAsync(workspaceId, assumed[0], cancellationToken));
                         break;
                     }
 
-                    var forms = assumed.Where(a => a.Qualified).Take(5).Select(a => $"\"{a.QualifiedRef}\"").ToList();
+                    var forms = new List<string>();
+                    foreach (var match in assumed.Take(5))
+                    {
+                        if ((await CallableAssumptionAsync(workspaceId, match, cancellationToken)) is { Qualified: true } named)
+                        {
+                            forms.Add($"\"{named.QualifiedRef}\"");
+                        }
+                    }
+
                     problems.Add(assumed.Count == 0
                         ? $"✗ no item or assumption has ref \"{reference}\" "
                           + $"→ work_search(q:\"{reference}\") or work_tree()"
@@ -226,7 +234,7 @@ public sealed partial class BoardReader
             var callable = await CallableAsync(item, fact, cancellationToken);
 
             lines.Add(BoardRenderer.Row(new BoardItem(
-                item.Ref,
+                await board.PrintableRefAsync(workspaceId, item.Id, item.Ref, cancellationToken),
                 item.Kind,
                 item.Status,
                 item.Title,
@@ -314,35 +322,98 @@ public sealed partial class BoardReader
         return string.Join("\n", lines);
     }
 
-    public async Task<string> SearchAsync(
+    public Task<string> SearchAsync(
         Guid workspaceId,
         string query,
         int limit,
         CancellationToken cancellationToken = default)
+        => SearchAsync(workspaceId, query, limit, null, cancellationToken);
+
+    /// <summary>
+    /// An item row is unchanged from the items-only search. Any other hit has no detail view of its
+    /// own under <c>work_get</c> except an assumption, so its row names its kind and is followed by the
+    /// call that prints it whole: a scoped rule's worker brief (every rule in scope, uncapped, and
+    /// reading it consumes nothing), the conventions for a workspace rule, the history of a note's item.
+    /// A caller without <c>work_history</c> (a worker) gets the note whole under its row instead, and
+    /// <c>work_get</c> on the item it is on.
+    /// </summary>
+    public async Task<string> SearchAsync(
+        Guid workspaceId,
+        string query,
+        int limit,
+        ScopeResult.Found? scope,
+        CancellationToken cancellationToken = default)
+        => await SearchAsync(workspaceId, query, limit, scope, history: true, cancellationToken);
+
+    public async Task<string> SearchAsync(
+        Guid workspaceId,
+        string query,
+        int limit,
+        ScopeResult.Found? scope,
+        bool history,
+        CancellationToken cancellationToken = default)
     {
-        var hits = await queries.SearchAsync(workspaceId, query, limit, cancellationToken);
+        var hits = await queries.SearchAsync(workspaceId, query, limit, scope?.Item.Id, false, cancellationToken);
+        var under = scope is null ? string.Empty : $" under {await CallableAsync(scope.Item, cancellationToken)}";
         if (hits.Count == 0)
         {
-            return $"SEARCH \"{Glyph.Flat(query)}\" — no hits.\n"
-                 + "      Try fewer words, or work_tree() to see what is here.";
+            return $"SEARCH \"{Glyph.Flat(query)}\"{under} — no hits.\n"
+                 + (scope is null
+                     ? "      Try fewer words, or work_tree() to see what is here."
+                     : "      Try fewer words, drop the scope, or work_tree() to see what is here.");
         }
 
-        var lines = new List<string> { $"SEARCH \"{Glyph.Flat(query)}\" — {hits.Count} hits", string.Empty };
+        var lines = new List<string> { $"SEARCH \"{Glyph.Flat(query)}\"{under} — {hits.Count} hits", string.Empty };
+        string? first = null;
 
-        // doc 13: a printed ref is one the caller can pass back, so a ref other items share is qualified.
-        var printed = new List<string>(hits.Count);
         foreach (var hit in hits)
         {
-            printed.Add(await board.PrintableRefAsync(workspaceId, hit.Id, hit.Ref, cancellationToken));
+            // doc 13: a printed ref is one the caller can pass back, so a ref other items share is qualified.
+            if (hit.Source == "item")
+            {
+                var printed = await board.PrintableRefAsync(workspaceId, hit.Id, hit.Ref, cancellationToken);
+                first ??= $"work_get(refs:[\"{printed}\"])";
+                lines.Add($"{Glyph.Pad(Glyph.Flat(printed), 18)}  "
+                          + $"{Glyph.Pad(Glyph.Row(hit.Title, 30), 30)}  "
+                          + Glyph.Row(hit.Snippet, 40));
+                continue;
+            }
+
+            var owner = hit.ScopeId is { } ownerId
+                ? await board.PrintableRefAsync(workspaceId, ownerId, hit.ScopeRef ?? string.Empty, cancellationToken)
+                : null;
+
+            var assumption = hit.Source == "assumption"
+                ? await board.CallableAssumptionRefAsync(workspaceId, hit.Ref, cancellationToken)
+                : null;
+
+            (string handle, string? route) = hit.Source switch
+            {
+                "assumption" => (assumption!, $"work_get(refs:[\"{assumption}\"])"),
+                "constraint" => (hit.Ref, owner is null
+                    ? $"read {WorkUris.Conventions}"
+                    : $"read {WorkUris.ItemBrief(owner)}"),
+                _ when !history => (owner ?? "—", owner is null ? null : $"work_get(refs:[\"{owner}\"])"),
+                _ => (owner ?? "—", owner is null ? "work_history()" : $"work_history(scope:\"{owner}\")"),
+            };
+
+            first ??= route;
+            lines.Add($"{Glyph.Pad(Glyph.Flat(handle), 18)}  "
+                      + $"{Glyph.Pad($"{hit.Source} · {hit.Tag}", 30)}  "
+                      + Glyph.Row(hit.Snippet, 40));
+            if (route is not null)
+            {
+                lines.Add($"{new string(' ', 20)}→ {route}");
+            }
+
+            if (hit.Source == "note" && !history)
+            {
+                lines.AddRange(BriefRenderer.Wrap($"{new string(' ', 20)}note: ", hit.Title, 26));
+            }
         }
 
-        lines.AddRange(hits.Select((hit, i) =>
-            $"{Glyph.Pad(Glyph.Flat(printed[i]), 18)}  "
-            + $"{Glyph.Pad(Glyph.Row(hit.Title, 30), 30)}  "
-            + Glyph.Row(hit.Snippet, 40)));
-
         lines.Add(string.Empty);
-        lines.Add($"Next: work_get(refs:[\"{printed[0]}\"]) on a hit.");
+        lines.Add(first is null ? "Next: nothing to open — each note is printed whole above." : $"Next: {first} on a hit.");
         return string.Join("\n", lines);
     }
 

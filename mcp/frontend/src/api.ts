@@ -8,6 +8,8 @@ export type ItemRef = {
   kind: string
   title: string
   status: string
+  /** `project/run/ref`: what every copy button copies. */
+  fullRef: string
 }
 
 export type Rollup = {

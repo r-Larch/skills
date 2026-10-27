@@ -5,9 +5,9 @@
  *
  *   node verify/state-cases.mjs
  */
-import { CLOSED, LEAF, independent, state, tally } from '../src/state.ts'
-import { plan } from '../src/plan.ts'
-import { boardHref, itemHref, routeReads } from '../src/nav.ts'
+import { CLOSED, LEAF, countTitle, counted, independent, progress, state, tally } from '../src/state.ts'
+import { DEFAULT_FILTER, FILTERS, asFilter, cancelledLines, plan, planQuery, withoutCancelled } from '../src/plan.ts'
+import { boardHref, copyValue, itemHref, pathCrumbs, routeReads } from '../src/nav.ts'
 
 let failures = 0
 
@@ -64,7 +64,7 @@ check('closed statuses', [...CLOSED].sort(), ['cancelled', 'done', 'superseded']
 
 // A board in the v1 shape: the run, a loose task, two phases. Pre-order, depth from the run.
 let n = 0
-const ref = (kind, status, title = kind) => ({ id: `id-${++n}`, ref: String(n), qualifiedRef: `r/${n}`, kind, title, status })
+const ref = (kind, status, title = kind) => ({ id: `id-${++n}`, ref: String(n), qualifiedRef: `r/${n}`, kind, title, status, fullRef: `p/r/${n}` })
 const row = (item, depth, over = {}) => ({
   item,
   parentId: null,
@@ -112,10 +112,55 @@ check('segments drawn', t.leaves.length, 6)
 
 console.log('\n── plan(): the filters ──────────────────────────────────────────────────────')
 const shape = (groups) => groups.map((g) => [g.head?.item.title ?? 'Tasks', g.rows.length, g.tally ? `${g.tally.done}/${g.tally.total}` : '-'])
-check('All', shape(plan(board, 'all')), [['Tasks', 1, '-'], ['P1', 3, '2/2'], ['P2', 4, '0/3']])
+check('All, cancelled shown', shape(plan(board, 'all', true)), [['Tasks', 1, '-'], ['P1', 3, '2/2'], ['P2', 4, '0/3']])
+check('All, cancelled hidden (the default)', shape(plan(board, 'all')), [['Tasks', 1, '-'], ['P1', 3, '2/2'], ['P2', 3, '0/3']])
 check('Open', shape(plan(board, 'open')), [['Tasks', 1, '-'], ['P2', 3, '0/3']])
+check('Open ignores the cancelled flag', shape(plan(board, 'open', true)), [['Tasks', 1, '-'], ['P2', 3, '0/3']])
 check('Needs attention (stop or claimed)', shape(plan(board, 'attention')), [['P1', 1, '2/2'], ['P2', 2, '0/3']])
-check('indent under a phase', plan(board, 'all')[2].rows.map((r) => r.indent), [0, 1, 0, 0])
+check('indent under a phase', plan(board, 'all', true)[2].rows.map((r) => r.indent), [0, 1, 0, 0])
+check('cancelled lines the toggle counts', cancelledLines(board), 1)
+
+console.log('\n── the run page opens on Open, and its links keep an explicit filter ───────')
+check('no filter in the URL is Open', asFilter(undefined), 'open')
+check('an unknown filter is Open', asFilter('bogus'), 'open')
+check('filter=all is All', asFilter('all'), 'all')
+check('the default filter', DEFAULT_FILTER, 'open')
+check('Open is the first filter in the nav', FILTERS[0], ['open', 'Open'])
+check('query for the default leaves the filter out', planQuery('open', 'overview'), '')
+check('query keeps an explicit All', planQuery('all', 'overview'), '?filter=all')
+check('query keeps All, a tab and shown cancelled', planQuery('all', 'evidence', true), '?filter=all&tab=evidence&cancelled=show')
+check('All survives a round trip through its own link', asFilter(new URLSearchParams(planQuery('all', 'overview')).get('filter') ?? undefined), 'all')
+
+console.log('\n── the run sub line names what it leaves out ───────────────────────────────')
+check('progress(), the sample board', progress(t), '2 of 6 done, 1 cancelled, 1 moved or superseded, 1 without independent proof, 2 blocked, 1 waiting on other tasks.')
+const backlogRows = [
+  row(ref('run', 'in_progress'), 0),
+  ...[1, 2, 3].map(() => row(ref('followup', 'done'), 1, { verification: proven })),
+  ...[1, 2, 3].map(() => row(ref('followup', 'open'), 1)),
+  ...Array.from({ length: 13 }, () => row(ref('followup', 'cancelled'), 1)),
+]
+check('progress(), backlog: 3 done, 3 open, 13 cancelled', progress(tally(backlogRows)), '3 of 6 done, 13 cancelled.')
+check('tally().cancelled', tally(backlogRows).cancelled, 13)
+const rollup = { total: 19, done: 3, inProgress: 0, review: 0, blocked: 0, open: 3, cancelled: 13, superseded: 0 }
+check('a rollup counted as tally() counts', counted(rollup), { done: 3, total: 6, cancelled: 13 })
+check('the compact count tooltip', countTitle(counted(rollup)), '3 of 6 done, 13 cancelled')
+check('the backlog toggle count, from its plan', cancelledLines({ rows: backlogRows }), 13)
+const kids = [{ item: ref('task', 'open') }, { item: ref('task', 'cancelled') }, { item: ref('task', 'done') }]
+check('child list, cancelled hidden', withoutCancelled(kids, false).shown.length, 2)
+check('child list, cancelled shown', withoutCancelled(kids, true).shown.length, 3)
+check('child list, count either way', [withoutCancelled(kids, false).count, withoutCancelled(kids, true).count], [1, 1])
+
+console.log('\n── copy puts the full path on the clipboard ────────────────────────────────')
+const shared = { id: 'S', ref: 'shared-server', qualifiedRef: 'shared-server', kind: 'followup', title: 't', status: 'open', fullRef: 'workstate/backlog/shared-server' }
+check('copyValue() is fullRef, not qualifiedRef', copyValue(shared), 'workstate/backlog/shared-server')
+const pj = { id: 'PJ', ref: 'workstate', qualifiedRef: 'workstate', kind: 'project', title: 'WorkState', status: 'open', fullRef: 'workstate' }
+const bl = { id: 'BL', ref: 'backlog', qualifiedRef: 'backlog', kind: 'run', title: 'Backlog', status: 'open', fullRef: 'workstate/backlog' }
+const ph = { id: 'PH', ref: '1', qualifiedRef: 'backlog/1', kind: 'phase', title: 'P', status: 'open', fullRef: 'workstate/backlog/1' }
+const crumbs = (item, path) => pathCrumbs(item, path).map((c) => [c.text, c.item?.id ?? null])
+check('item crumbs: the full path, each segment linked', crumbs(shared, [pj, bl, ph]), [['workstate', 'PJ'], ['backlog', 'BL'], ['shared-server', null]])
+check('run crumbs', crumbs(bl, [pj]), [['workstate', 'PJ'], ['backlog', null]])
+check('project crumbs', crumbs(pj, []), [['workstate', null]])
+check('a project and run of one name link in order', crumbs({ ...shared, fullRef: 'x/x/shared-server' }, [{ ...pj, ref: 'x' }, { ...bl, ref: 'x' }]), [['x', 'PJ'], ['x', 'BL'], ['shared-server', null]])
 
 console.log('\n── itemHref() / routeReads(): every link has a page ─────────────────────────')
 const run = { id: 'R', kind: 'run' }

@@ -97,7 +97,8 @@ public sealed partial class BoardReader
             // Several runs number their own A1, so a project prints each assumption's qualified ref.
             Assumptions: [.. assumptions.Take(BriefAssumptionCap)
                 .Select(a => ToAssumption(a) with { Ref = a.QualifiedRef ?? a.Ref })],
-            AssumptionTotal: assumptions.Count);
+            AssumptionTotal: assumptions.Count,
+            NotesConsumed: worker && shown.Any(n => n.ToItemId == project.Id));
 
         return (ProjectBriefRenderer.Render(model), [.. shown.Select(n => n.Id)]);
     }

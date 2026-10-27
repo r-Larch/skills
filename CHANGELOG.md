@@ -4,6 +4,95 @@ What changes for someone who has the `rlarch` plugin installed, newest first. Fo
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions are the `version` field in
 `plugins/rlarch/.claude-plugin/plugin.json`, which is what the updater gates on.
 
+## [Unreleased]
+
+## [2.5.0] - 2026-10-27
+
+### Added
+
+- **`work_brief(scope:"<phase>", for:"gate")`** — the phase's tasks with their status and last
+  verification, the seams computed from `work_link` (edges between two of its tasks, and edges that
+  cross its boundary), and the calls that record the verdict: `work_verify` + `work_status(done)` to
+  pass, `work_finding(source:"gate", severity:"blocker")` to fail. Read-only. The attention line
+  *"all N tasks done, gate not run"* now routes to it instead of to a plain resume brief.
+- **`work_search` finds assumptions, rules and notes, and takes an optional `scope`.** Until now it
+  searched item titles and intents only, so a rule (`C12`), an assumption (`A1`) or a note could be
+  found only by someone who already knew where it was. Each new hit names its kind and prints the
+  call that opens it: `work_get` for an assumption (qualified, `run-a/A1`), the item's worker brief
+  or the conventions for a rule, `work_history` on the note's item. `scope:"<run, project or item>"`
+  keeps only hits inside that subtree. Workspace-wide rules and assumptions are left out of a scoped
+  search, since they belong to no item. A search without `scope` prints its item rows exactly as
+  before. A new index (`note_search_idx`) keeps note matching off a sequential scan.
+- **The gate brief prints the phase's gate criterion.** When a phase records what must be true to
+  accept it (`gate_criterion`, today set by the importer), the gate brief's header shows it as a
+  `PASS IF` line. A phase without one shows nothing extra.
+- **The dashboard API serves the gate brief.** `GET /api/v1/items/{id}/brief?for=gate` returns the
+  same text as `work_brief(for:"gate")`. Any value other than `resume`, `worker` or `gate` is still a 400.
+- **`workspace/A1` names an assumption that sits on no item.** Its bare `A1` was ambiguous as soon as
+  a run had its own `A1`, and nothing else named it. `work_search` and `work_get` now print
+  `workspace/A1` in that case, and `work_get` and `work_assume` accept it.
+
+### Changed
+
+- **`tools/list` budgets raised, and four descriptions trimmed** (owner's decision, 2026-10-27). A
+  keyed orchestrator list had reached 6,395 of its 6,400 tokens, so the next tool would not fit.
+  The ceilings are now 2,600 for a worker and 7,200 for an orchestrator or controller. `work_brief`,
+  `work_get`, `work_threads` and `work_status` each lost one sentence that only repeated the server
+  instructions or another line of the same description. Lists now measure 1,963 for a worker and
+  6,155 for an orchestrator or controller (2,111 and 6,303 with `work_session`).
+
+### Fixed
+
+- **Dashboard: the run plan opens on Open, progress names cancelled work, copy copies the full
+  path.** A run page now opens with the Open filter; All and Needs attention stay one click away
+  and `filter=all` survives every link. The run's sub line counts what it leaves out ("3 of 6
+  done, 13 cancelled."), and the sidebar and overview counts use the same denominator. Cancelled
+  items are hidden in the plan, an item's children and the backlog page behind a "Show N
+  cancelled" link (`cancelled=show` in the URL). Every copy button copies the full path
+  `project/run/ref`, from a new additive v1 field `fullRef`; a crumb line has one copy button, for
+  the page's own path, and the item page shows that path above its title instead of a ref line
+  below it. The copy icon is centred on the text beside it and no longer makes its line taller.
+- **A worker can open a note that `work_search` finds.** A note hit routed to `work_history`, which a
+  worker cannot call. For a worker the hit now prints the note in full under its row and routes to
+  `work_get` on the item the note is about.
+- **Every retry an ambiguous or unknown `scope` prints is a complete call.** `work_search` printed
+  `work_search(scope:"run-a/1")` with no `q:`, so the retry was refused too. It now includes the
+  query, and the limit if one was given. `work_brief` and the `work://item/<ref>/brief` resource keep
+  `for:"worker"` (or `gate`) in their retries.
+- **`work://item/<ref>/brief` lists an ambiguous ref's candidates in the same order as `work_get`.**
+  It put the busiest run in the workspace first. Now both put the caller's own run first, and so does
+  `work_brief(scope:)`.
+
+- **`workstate-setup` now says when another registration hides the one it wrote.** A local-scope
+  `workstate` entry for a repo (in `~/.claude.json`), or a project-scope one in its `.mcp.json`,
+  wins over the user registration, so sessions there kept an old entry without the session helper
+  while the script printed success. A new `shadows` line lists each such entry - directory, url,
+  whether it has a helper, never a header or token - with the command that removes it
+  (`claude mcp remove workstate -s local`, run in that repo). The script removes nothing itself.
+  Checked by `find-shadows.mjs`, which needs `node`.
+- **`work_brief(for:)` no longer falls back silently.** Any value but `resume`, `worker` or `gate`
+  rendered a resume brief as if it were the one asked for; it is now refused, naming the legal values
+  and what to use instead (`work_audit` for an audit, `work_history` for a retro). `for:"gate"` on
+  anything but a phase is refused with the route to its phase.
+- **The remaining bare refs.** `work_get`'s head row, the suggestions a missing scope prints, and
+  the candidates `work://item/<ref>` lists for an ambiguous ref all call back as printed; the item
+  resource lists the caller's own project first, as the tools do.
+- **The `ADDRESSED TO YOU` header says who consumes.** It claimed every brief marks its notes
+  consumed; only `for:"worker"` does. A resume brief now names the call that consumes them, and a
+  worker brief says it did.
+- **Minting a session right after a server restart no longer fails.** If the first request was
+  `POST /api/agent-sessions`, the mint threw `InvalidCastException` reading its expiry, because the
+  database type handlers were registered only once some other query had run. They are now
+  registered when the server's core library loads.
+- **WorkState server: the board, the tree and the attention block are faster on a large workspace.**
+  Measured on a seeded 5,000-item workspace (docs/workstate/15-query-plans.md):
+  - The dashboard board went from 77 ms to 31 ms, and the facts behind attention from 67 ms to 1 ms.
+  - `work_tree`/`work_brief` subtrees went from 45 ms to 15 ms, and ref resolution from up to 14 ms to under 0.2 ms.
+  - The fixes: a new index on `lower(ref)` (migration `RefLookupIndex`, applied on start); the rollup
+    is counted per row instead of joining the `item_rollup` view; and the server's own database
+    connections run with `jit=off`.
+  - Results are unchanged.
+
 ## [2.4.0] - 2026-10-27
 
 ### Added

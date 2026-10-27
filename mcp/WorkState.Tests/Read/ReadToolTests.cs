@@ -221,11 +221,17 @@ public sealed class ReadToolTests(PostgresFixture fixture)
     /// argument as doc 04 §2 requires. Recorded as a finding rather than met: halving it means
     /// stripping the per-argument descriptions, which is the channel doc 04 §3 leans on hardest.
     /// </para>
+    /// <para>
+    /// <b>Raised 2026-10-27, René's decision</b> — "raise the budget and shorten tool descriptions
+    /// only where it does not hurt": 2,200 → 2,600 and 6,400 → 7,200, after a keyed orchestrator list
+    /// reached 6,395. Measured after the trim (doc 01 §6): worker 1,963 (keyed 2,111), orchestrator
+    /// and controller 6,155 (keyed 6,303).
+    /// </para>
     /// </summary>
     [Theory]
-    [InlineData(ReadServer.WorkerToken, 2200)]
-    [InlineData(ReadServer.OrchestratorToken, 6400)]
-    [InlineData(ReadServer.ControllerToken, 6400)]
+    [InlineData(ReadServer.WorkerToken, 2600)]
+    [InlineData(ReadServer.OrchestratorToken, 7200)]
+    [InlineData(ReadServer.ControllerToken, 7200)]
     public async Task The_tools_list_payload_stays_inside_the_budget_for_each_profile(string token, int budget)
     {
         await using var server = await StartAsync();

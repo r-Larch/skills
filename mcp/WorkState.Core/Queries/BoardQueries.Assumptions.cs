@@ -28,8 +28,16 @@ public sealed record AssumptionDetailRow(
 public sealed partial class BoardQueries
 {
     /// <summary>
+    /// The qualifier of an assumption that sits on no item: <c>workspace/A1</c>. Such an assumption
+    /// has no run or project to be qualified by, so without it a run's own <c>A1</c> left its bare ref
+    /// ambiguous and nothing named it alone. <c>WorkWriter.OpenAssumptionsAsync</c> reads it too.
+    /// </summary>
+    public const string WorkspaceQualifier = "workspace";
+
+    /// <summary>
     /// The read twin of <c>work_assume</c>'s lookup: <c>A1</c> anywhere in the workspace,
-    /// <c>run-a/A1</c> inside that run only. More than one row back is an ambiguous bare ref.
+    /// <c>run-a/A1</c> inside that run only, <c>workspace/A1</c> on no item. More than one row back
+    /// is an ambiguous bare ref.
     /// </summary>
     public async Task<IReadOnlyList<AssumptionDetailRow>> AssumptionByRefAsync(
         Guid workspaceId,
@@ -70,13 +78,35 @@ public sealed partial class BoardQueries
             LEFT   JOIN import_record ir ON ir.assumption_id = a.id
             WHERE  a.workspace_id = @workspace
               AND  lower(a.ref) = lower(@leaf)
-              AND  (@qualifier IS NULL OR lower(s.ref) = lower(@qualifier))
+              AND  (@qualifier IS NULL
+                    OR lower(s.ref) = lower(@qualifier)
+                    OR (a.ref_scope_id IS NULL AND lower(@qualifier) = @everywhere))
             ORDER  BY s.ref;
             """;
 
         return await ListAsync<AssumptionDetailRow>(
             sql,
-            new { workspace = workspaceId, leaf, qualifier },
+            new { workspace = workspaceId, leaf, qualifier, everywhere = WorkspaceQualifier },
             cancellationToken);
+    }
+
+    /// <summary>
+    /// The form of an assumption ref to print where it will be called back: <paramref name="reference"/>
+    /// while it names one assumption, else <c>workspace/A1</c> for one on no item when that names it
+    /// alone. A run-qualified ref is returned as it is.
+    /// </summary>
+    public async Task<string> CallableAssumptionRefAsync(
+        Guid workspaceId,
+        string reference,
+        CancellationToken cancellationToken = default)
+    {
+        if (reference.Contains('/', StringComparison.Ordinal)
+            || (await AssumptionByRefAsync(workspaceId, reference, cancellationToken)).Count < 2)
+        {
+            return reference;
+        }
+
+        var qualified = $"{WorkspaceQualifier}/{reference}";
+        return (await AssumptionByRefAsync(workspaceId, qualified, cancellationToken)).Count == 1 ? qualified : reference;
     }
 }

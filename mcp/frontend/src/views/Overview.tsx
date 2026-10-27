@@ -2,7 +2,7 @@ import { For, Index, Show, createSignal } from 'solid-js'
 import { A } from '@solidjs/router'
 import { setArchived, type Claim, type ProjectOverview, type RunOverview } from '../api.ts'
 import { boards, inbox, overview, refreshOverview } from '../store.ts'
-import { CLOSED, refState, tally } from '../state.ts'
+import { CLOSED, countTitle, counted, refState, tally } from '../state.ts'
 import { backlogHref, itemHref, projectHref, runHref } from '../nav.ts'
 import { honestyCells, openTasks } from '../inbox.ts'
 import { byActivity, runIsOpen } from '../projects.ts'
@@ -156,7 +156,7 @@ function ClaimRow(props: { claim: Claim; asOf: string }) {
       <div>
         <div class="row-t">{c().item.title}</div>
         <div class="row-m">
-          <span class="who">{claimHolder(c())}</span> · {c().item.qualifiedRef} <CopyRef value={c().item.qualifiedRef} />·{' '}
+          <span class="who">{claimHolder(c())}</span> · {c().item.qualifiedRef} <CopyRef item={c().item} />·{' '}
           {c().tree ? `${c().tree} · ` : ''}
           {lease()}
         </div>
@@ -181,7 +181,7 @@ export function ProjectPanel(props: { project: ProjectOverview }) {
             <A href={projectHref(props.project.item.id)}>
               <ProjectName project={props.project.item} />
             </A>{' '}
-            <CopyRef value={props.project.item.qualifiedRef} />
+            <CopyRef item={props.project.item} />
           </h2>
           <Show when={tagline()}>
             <div class="strip-m">{tagline()}</div>
@@ -288,7 +288,7 @@ function RunStrip(props: { run: RunOverview }) {
       return (
         <>
           <span class="who">{claimHolder(holding.claim)}</span> is on {holding.item.qualifiedRef}{' '}
-          <CopyRef value={holding.item.qualifiedRef} />
+          <CopyRef item={holding.item} />
         </>
       )
     }
@@ -310,16 +310,16 @@ function RunStrip(props: { run: RunOverview }) {
         </div>
         <div class="strip-m">
           <span class="item-ref">{props.run.item.qualifiedRef}</span>
-          <CopyRef value={props.run.item.qualifiedRef} />
+          <CopyRef item={props.run.item} />
           {meta()}
         </div>
       </div>
       <Show when={t()} fallback={<div class="segs" />}>
         {(tt) => <Segs leaves={tt().leaves} />}
       </Show>
-      <div class="strip-n">
-        <strong>{t()?.done ?? props.run.rollup.done}</strong>
-        <span> / {t()?.total ?? props.run.rollup.total}</span>
+      <div class="strip-n" title={countTitle(t() ?? counted(props.run.rollup))}>
+        <strong>{(t() ?? counted(props.run.rollup)).done}</strong>
+        <span> / {(t() ?? counted(props.run.rollup)).total}</span>
       </div>
     </A>
   )

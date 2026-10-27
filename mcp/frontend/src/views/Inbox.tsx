@@ -17,7 +17,7 @@ export function InboxRowView(props: { row: InboxRow; asOf: string }) {
       <div>
         <div class="row-t">{r().item.title}</div>
         <div class="row-m">
-          {kind().label} · {r().item.qualifiedRef} <CopyRef value={r().item.qualifiedRef} />· {r().what} ·{' '}
+          {kind().label} · {r().item.qualifiedRef} <CopyRef item={r().item} />· {r().what} ·{' '}
           {ago(r().since, props.asOf)}
         </div>
         <div class="row-call mono" title={r().call}>

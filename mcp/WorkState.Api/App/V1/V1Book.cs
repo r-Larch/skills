@@ -33,7 +33,8 @@ internal sealed class V1Book(ApiQueries api, BoardQueries board)
                 await board.CallableRefAsync(row.Scope, row.RefShared, cancellationToken),
                 row.Kind,
                 row.Title,
-                V1Text.Status(row.Status));
+                V1Text.Status(row.Status),
+                row.FullRef);
         }
     }
 

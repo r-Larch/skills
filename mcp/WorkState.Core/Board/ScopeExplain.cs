@@ -18,13 +18,17 @@ public static class ScopeExplain
     /// <summary>How many candidates a refusal lists before it stops being readable.</summary>
     private const int CandidateCap = 5;
 
-    public static string Text(ScopeResult result, string call, string? asked) => result switch
+    /// <param name="arguments">
+    /// The caller's other arguments, as they are written after <c>scope:</c> — <c>q:"…"</c> for
+    /// <c>work_search</c>, which refuses a call without one — so every retry printed is a whole call.
+    /// </param>
+    public static string Text(ScopeResult result, string call, string? asked, string? arguments = null) => result switch
     {
         ScopeResult.Empty => BriefRenderer.Onboarding(),
         ScopeResult.Unbound unbound => BriefRenderer.Unbound(unbound.Keys, unbound.Projects),
         ScopeResult.Unchosen unchosen => BriefRenderer.Unchosen(unchosen.Projects),
-        ScopeResult.Ambiguous ambiguous => Ambiguous(ambiguous, call),
-        ScopeResult.Missing missing => Missing(missing, call),
+        ScopeResult.Ambiguous ambiguous => Ambiguous(ambiguous, call, Rest(arguments)),
+        ScopeResult.Missing missing => Missing(missing, call, Rest(arguments)),
         _ => Refusal.Blocked(
             $"{call} — scope \"{asked}\" could not be resolved.",
             "nothing in this workspace answers to that scope",
@@ -37,10 +41,13 @@ public static class ScopeExplain
     /// sends a careful agent to another run's item, so the caller chooses from the list rather than
     /// trusting a guess the server had no grounds for.
     /// </summary>
-    private static string Ambiguous(ScopeResult.Ambiguous ambiguous, string call)
+    private static string Rest(string? arguments)
+        => string.IsNullOrWhiteSpace(arguments) ? string.Empty : $", {arguments.Trim()}";
+
+    private static string Ambiguous(ScopeResult.Ambiguous ambiguous, string call, string rest)
     {
         var shown = ambiguous.Candidates.Take(CandidateCap).ToList();
-        var routes = shown.Select(c => $"{call}(scope:\"{c}\")").ToList();
+        var routes = shown.Select(c => $"{call}(scope:\"{c}\"{rest})").ToList();
 
         if (ambiguous.Candidates.Count > shown.Count)
         {
@@ -57,10 +64,10 @@ public static class ScopeExplain
             [new Unmet($"\"{ambiguous.Asked}\" is ambiguous — qualify it with the run it belongs to", routes)]);
     }
 
-    private static string Missing(ScopeResult.Missing missing, string call)
+    private static string Missing(ScopeResult.Missing missing, string call, string rest)
     {
         var routes = new List<string>();
-        routes.AddRange(missing.Nearby.Select(n => $"{call}(scope:\"{n}\")"));
+        routes.AddRange(missing.Nearby.Select(n => $"{call}(scope:\"{n}\"{rest})"));
 
         if (routes.Count == 0)
         {

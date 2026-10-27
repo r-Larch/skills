@@ -24,10 +24,35 @@ public sealed partial class BoardReader(WorkStateQueries queries, BoardQueries b
     private const int BriefAssumptionCap = 5;
     private const int BriefNoteCap = 3;
 
-    public async Task<ScopeResult> ResolveAsync(
+    public Task<ScopeResult> ResolveAsync(
         string? workspaceSlug,
         string? scope,
         CancellationToken cancellationToken = default)
+        => ResolveAsync(workspaceSlug, scope, workspace => board.DefaultScopeAsync(workspace, cancellationToken), cancellationToken);
+
+    /// <summary>
+    /// <see cref="ResolveAsync(string?, string?, CancellationToken)"/> with an ambiguous ref's
+    /// candidates ordered around the caller's own default scope — the home <c>work_get</c>'s refusal
+    /// orders by — so a resource and the tool never list one ref's candidates differently.
+    /// </summary>
+    public Task<ScopeResult> ResolveForCallerAsync(
+        string? workspaceSlug,
+        string? scope,
+        Guid? sessionId,
+        CancellationToken cancellationToken = default)
+        => ResolveAsync(
+            workspaceSlug,
+            scope,
+            async _ => (await ResolveDefaultAsync(workspaceSlug, null, sessionId, cancellationToken)) is ScopeResult.Found home
+                ? home.Item
+                : null,
+            cancellationToken);
+
+    private async Task<ScopeResult> ResolveAsync(
+        string? workspaceSlug,
+        string? scope,
+        Func<Guid, Task<ScopeRef?>> homeOf,
+        CancellationToken cancellationToken)
     {
         var workspaceId = await board.WorkspaceAsync(workspaceSlug, cancellationToken);
         if (workspaceId is not { } workspace)
@@ -56,7 +81,7 @@ public sealed partial class BoardReader(WorkStateQueries queries, BoardQueries b
             return new ScopeResult.Missing(asked, await NearbyAsync(workspace, asked, cancellationToken));
         }
 
-        var home = await board.DefaultScopeAsync(workspace, cancellationToken);
+        var home = await homeOf(workspace);
         return new ScopeResult.Ambiguous(
             asked,
             await board.UniqueRefsAsync(workspace, Prefer(matches, home), cancellationToken),
@@ -193,7 +218,8 @@ public sealed partial class BoardReader(WorkStateQueries queries, BoardQueries b
         ScopeResult.Found scope,
         string variant,
         CancellationToken cancellationToken = default)
-        => (await RenderBriefAsync(scope, variant, cancellationToken)).Text;
+        => await RefuseVariantAsync(scope, variant, cancellationToken)
+           ?? (await RenderBriefAsync(scope, variant, cancellationToken)).Text;
 
     /// <summary>
     /// The brief and the ids of the notes it rendered — what <see cref="BriefSessionAsync"/> may
@@ -218,6 +244,11 @@ public sealed partial class BoardReader(WorkStateQueries queries, BoardQueries b
         CancellationToken cancellationToken)
     {
         var item = scope.Item;
+        if (IsGateVariant(variant))
+        {
+            return (await RenderGateBriefAsync(scope, cancellationToken), []);
+        }
+
         if (item.Kind == "project")
         {
             var (projectText, renderedIds) = await RenderProjectBriefAsync(scope, variant, cancellationToken);
@@ -263,7 +294,8 @@ public sealed partial class BoardReader(WorkStateQueries queries, BoardQueries b
                     verify.RunBy.ToString().ToLowerInvariant(),
                     Since(verify.At),
                     verify.Passed),
-            Attention: attention);
+            Attention: attention,
+            NotesConsumed: IsWorkerVariant(variant) && shown.Any(n => n.ToItemId == item.Id));
 
         var text = await MarkArchivedAsync(item.Id, BriefRenderer.Render(model, IsWorkerVariant(variant)), cancellationToken);
 
@@ -311,6 +343,11 @@ public sealed partial class BoardReader(WorkStateQueries queries, BoardQueries b
         bool signed = false,
         bool keyed = false)
     {
+        if (await RefuseVariantAsync(scope, variant, cancellationToken) is { } refused)
+        {
+            return refused;
+        }
+
         await housekeeping.SweepAsync(scope.WorkspaceId, cancellationToken);
 
         var (brief, rendered) = await RenderBriefAsync(scope, variant, cancellationToken);
@@ -387,7 +424,7 @@ public sealed partial class BoardReader(WorkStateQueries queries, BoardQueries b
             lines.Add(new AttentionLine(
                 AttentionRank.PhaseGateNotRun,
                 $"{gate.PhaseRef}: all {gate.TaskCount} tasks done, gate not run",
-                $"work_brief(scope:\"{gate.PhaseRef}\") to run it",
+                $"work_brief(scope:\"{gate.PhaseRef}\", for:\"gate\") to run it",
                 gate.PhaseRef,
                 gate.QualifiedRef));
         }
@@ -621,8 +658,14 @@ public sealed partial class BoardReader(WorkStateQueries queries, BoardQueries b
         string asked,
         CancellationToken cancellationToken)
     {
-        var hits = await queries.SearchAsync(workspaceId, asked, 3, cancellationToken);
-        return [.. hits.Select(h => h.Ref)];
+        var hits = await queries.SearchAsync(workspaceId, asked, 3, null, itemsOnly: true, cancellationToken);
+        var printed = new List<string>(hits.Count);
+        foreach (var hit in hits)
+        {
+            printed.Add(await board.PrintableRefAsync(workspaceId, hit.Id, hit.Ref, cancellationToken));
+        }
+
+        return printed;
     }
 
     private static TimeSpan Since(DateTimeOffset at)

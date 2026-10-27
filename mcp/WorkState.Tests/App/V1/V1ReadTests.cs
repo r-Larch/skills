@@ -235,6 +235,28 @@ public sealed class V1ReadTests(PostgresFixture fixture)
             (await reader.GetAsync($"/api/v1/items/{v1.World.RunId}/brief?for=nonsense", Ct)).StatusCode);
     }
 
+    /// <summary>gate-rest: the endpoint refused for=gate although work_brief renders it.</summary>
+    [Fact]
+    public async Task The_brief_takes_for_gate_and_renders_the_gate_brief_work_brief_gives()
+    {
+        var v1 = await V1World.CreateAsync(fixture);
+        await using var server = await v1.StartAsync(fixture);
+        var reader = Reader(server);
+
+        var response = await reader.GetAsync($"/api/v1/items/{v1.World.PhaseId}/brief?for=Gate", Ct);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        var expected = await v1.World.Reader.BriefSessionAsync(
+            await v1.World.ScopeAsync("1"), "gate", Write.WriteSeed.Keeper(fixture), Ct);
+        var body = await response.Content.ReadAsStringAsync(Ct);
+        Assert.StartsWith("GATE 1 — ", body, StringComparison.Ordinal);
+        Assert.Equal(expected, body);
+
+        var refused = await reader.GetAsync($"/api/v1/items/{v1.World.PhaseId}/brief?for=review", Ct);
+        Assert.Equal(HttpStatusCode.BadRequest, refused.StatusCode);
+        Assert.Contains("resume, worker, gate", await refused.Content.ReadAsStringAsync(Ct), StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task The_inbox_lists_what_waits_on_a_person_and_not_what_waits_on_work()
     {

@@ -1,0 +1,9 @@
+{
+    "mcpServers": {
+        "workstate": {
+            "type": "http",
+            "url": "http://127.0.0.1:5290/mcp",
+            "headers": { "Authorization": "Bearer SENTINEL-TOKEN-project-55b1" }
+        }
+    }
+}

@@ -289,6 +289,23 @@ else {
     Status 'register' "'$Name' -> $mcpUrl as $Role$(if ($Agent) { ", agent $Agent" })$(if ($node) { ', session helper' }) ($scope scope; token stored by Claude Code, not shown)"
 }
 
+# the shadow check - a local or project entry of the same name wins over the user one; removing it is the user's call
+if ($node) {
+    $here = (Get-Location).Path
+    $finderArgs = @((Join-Path $scriptDir 'find-shadows.mjs'), '--name', $Name, '--dir', $here)
+    if ($scope -eq 'local') { $finderArgs += @('--own', $here) }
+    $shadows = @(& node @finderArgs 2>$null | Where-Object { $_ })
+    $unchecked = @($shadows | Where-Object { $_.StartsWith('not checked') })
+    $found = @($shadows | Where-Object { -not $_.StartsWith('not checked') })
+    foreach ($line in $unchecked) { Status 'shadows' $line }
+    if ($found.Count -gt 0) {
+        Status 'shadows' "$($found.Count) '$Name' entry(s) win over the user registration (local > project > user), so sessions there miss it and its session helper; this script removes nothing - run the command shown yourself:"
+        foreach ($line in $found) { Write-Output "          $line" }
+    }
+    elseif ($unchecked.Count -eq 0) { Status 'shadows' "none: no local or project '$Name' entry overrides it" }
+}
+else { Status 'shadows' 'not checked (needs node)' }
+
 # e. prove - count what the server lists for that token
 $body = ''
 try {
