@@ -26,6 +26,10 @@ What changes for someone who has the `rlarch` plugin installed, newest first. Fo
 - **The `ADDRESSED TO YOU` header says who consumes.** It claimed every brief marks its notes
   consumed; only `for:"worker"` does. A resume brief now names the call that consumes them, and a
   worker brief says it did.
+- **Minting a session right after a server restart no longer fails.** If the first request was
+  `POST /api/agent-sessions`, the mint threw `InvalidCastException` reading its expiry, because the
+  database type handlers were registered only once some other query had run. They are now
+  registered when the server's core library loads.
 
 ## [2.4.0] - 2026-10-27
 
