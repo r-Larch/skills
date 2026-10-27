@@ -30,10 +30,11 @@ public sealed class ImportVisibilityTests(PostgresFixture fixture)
     /// the orchestrator list re-pinned when seven orchestrator-only descriptions were trimmed to make
     /// room for work_session (hidden here, listed only with X-WorkState-Client); both re-pinned when
     /// work_brief's scope stopped promising the busiest run, which several projects now answer with a
-    /// list (bare-brief).
+    /// list (bare-brief); both re-pinned when work_brief's for: named gate and stopped falling back
+    /// to resume for anything else (brief-variants).
     /// </summary>
-    private const string WorkerList = "02f5e6c1afbe2db33957fbabd624cecbe48236d9cce1fb34af69c1e6daf913f6";
-    private const string OrchestratorList = "1ce6db3d122522432ff500d0180b037d55075470149f99ca44f2e743fa4ece80";
+    private const string WorkerList = "e871692a052d9ded175ca7675f9b8d0efee4b1a3fc693906bbaab80a0ee55615";
+    private const string OrchestratorList = "1ef09a4188c5d356b83710360156bd04041791ec31c82dd9f3280d20db272a2c";
     private const string ControllerList = OrchestratorList;
 
     [Fact]

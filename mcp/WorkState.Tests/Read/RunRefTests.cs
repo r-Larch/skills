@@ -34,7 +34,7 @@ public sealed class RunRefTests(PostgresFixture fixture)
         var again = await world.Reader.GetAsync(home, [printed], [], Ct);
 
         Assert.DoesNotContain("✗", again, StringComparison.Ordinal);
-        Assert.StartsWith("backlog ", again, StringComparison.Ordinal);
+        Assert.StartsWith($"{project}/backlog ", again, StringComparison.Ordinal);
         Assert.Contains("The other run", again, StringComparison.Ordinal);
     }
 

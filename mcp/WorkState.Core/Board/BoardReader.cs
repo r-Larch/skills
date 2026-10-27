@@ -193,7 +193,8 @@ public sealed partial class BoardReader(WorkStateQueries queries, BoardQueries b
         ScopeResult.Found scope,
         string variant,
         CancellationToken cancellationToken = default)
-        => (await RenderBriefAsync(scope, variant, cancellationToken)).Text;
+        => await RefuseVariantAsync(scope, variant, cancellationToken)
+           ?? (await RenderBriefAsync(scope, variant, cancellationToken)).Text;
 
     /// <summary>
     /// The brief and the ids of the notes it rendered — what <see cref="BriefSessionAsync"/> may
@@ -218,6 +219,11 @@ public sealed partial class BoardReader(WorkStateQueries queries, BoardQueries b
         CancellationToken cancellationToken)
     {
         var item = scope.Item;
+        if (IsGateVariant(variant))
+        {
+            return (await RenderGateBriefAsync(scope, cancellationToken), []);
+        }
+
         if (item.Kind == "project")
         {
             var (projectText, renderedIds) = await RenderProjectBriefAsync(scope, variant, cancellationToken);
@@ -263,7 +269,8 @@ public sealed partial class BoardReader(WorkStateQueries queries, BoardQueries b
                     verify.RunBy.ToString().ToLowerInvariant(),
                     Since(verify.At),
                     verify.Passed),
-            Attention: attention);
+            Attention: attention,
+            NotesConsumed: IsWorkerVariant(variant) && shown.Any(n => n.ToItemId == item.Id));
 
         var text = await MarkArchivedAsync(item.Id, BriefRenderer.Render(model, IsWorkerVariant(variant)), cancellationToken);
 
@@ -311,6 +318,11 @@ public sealed partial class BoardReader(WorkStateQueries queries, BoardQueries b
         bool signed = false,
         bool keyed = false)
     {
+        if (await RefuseVariantAsync(scope, variant, cancellationToken) is { } refused)
+        {
+            return refused;
+        }
+
         await housekeeping.SweepAsync(scope.WorkspaceId, cancellationToken);
 
         var (brief, rendered) = await RenderBriefAsync(scope, variant, cancellationToken);
@@ -387,7 +399,7 @@ public sealed partial class BoardReader(WorkStateQueries queries, BoardQueries b
             lines.Add(new AttentionLine(
                 AttentionRank.PhaseGateNotRun,
                 $"{gate.PhaseRef}: all {gate.TaskCount} tasks done, gate not run",
-                $"work_brief(scope:\"{gate.PhaseRef}\") to run it",
+                $"work_brief(scope:\"{gate.PhaseRef}\", for:\"gate\") to run it",
                 gate.PhaseRef,
                 gate.QualifiedRef));
         }
@@ -622,7 +634,13 @@ public sealed partial class BoardReader(WorkStateQueries queries, BoardQueries b
         CancellationToken cancellationToken)
     {
         var hits = await queries.SearchAsync(workspaceId, asked, 3, cancellationToken);
-        return [.. hits.Select(h => h.Ref)];
+        var printed = new List<string>(hits.Count);
+        foreach (var hit in hits)
+        {
+            printed.Add(await board.PrintableRefAsync(workspaceId, hit.Id, hit.Ref, cancellationToken));
+        }
+
+        return printed;
     }
 
     private static TimeSpan Since(DateTimeOffset at)

@@ -45,7 +45,8 @@ public sealed record BriefModel(
     VerifyLine? LastVerify,
     IReadOnlyList<AttentionLine> Attention,
     string? ScopeKind = null,
-    string? ScopeRef = null);
+    string? ScopeRef = null,
+    bool NotesConsumed = false);
 
 public static class BriefRenderer
 {
@@ -105,7 +106,7 @@ public static class BriefRenderer
         AddBinding(lines, model.Binding, model.BindingTotal);
 
         AddAssumptions(lines, model.Assumptions, model.AssumptionTotal, handle);
-        AddNotes(lines, model.Notes, model.NoteTotal, model.AddressedTotal, model.AddressedTo, handle, "run");
+        AddNotes(lines, model.Notes, model.NoteTotal, model.AddressedTotal, model.AddressedTo, handle, "run", model.NotesConsumed);
         AddLastVerify(lines, model.LastVerify);
 
         return Attention.Append(string.Join("\n", lines), model.Attention);
@@ -167,7 +168,8 @@ public static class BriefRenderer
         int addressedTotal,
         string? addressedTo,
         string handle,
-        string carrier)
+        string carrier,
+        bool consumed = false)
     {
         if (total == 0)
         {
@@ -176,8 +178,10 @@ public static class BriefRenderer
 
         lines.Add(string.Empty);
         lines.Add(addressedTo is { Length: > 0 }
-            ? $"ADDRESSED TO YOU ({addressedTotal})   — these render into "
-              + $"{addressedTo}'s brief and are then marked consumed"
+            ? $"ADDRESSED TO YOU ({addressedTotal})   — "
+              + (consumed
+                  ? $"this worker brief marked those addressed to {handle} consumed"
+                  : $"only work_brief(scope:\"{addressedTo}\", for:\"worker\") consumes them; this brief did not")
             : $"NOTES IN SCOPE ({total})   — carried forward by this {carrier}; "
               + "none names an item, so none is consumed");
 

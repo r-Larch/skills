@@ -39,7 +39,7 @@ public sealed class WorkReadTools(
     public async Task<CallToolResult> BriefAsync(
         [Description("A run or item ref, e.g. \"entity-store\" or \"2.3\". Omit for your repo's project; with several projects and no repo, a list to choose from.")]
         string? scope = null,
-        [Description("\"resume\" (default) for the session payload, or \"worker\" to add the task's own criteria, verification and report format.")]
+        [Description("\"resume\" (default) for the session payload, \"worker\" to add the task's own criteria, verification and report format, or \"gate\" on a phase for its tasks, seams and the gate call. Anything else is refused.")]
         string? @for = null,
         [Description("Without scope: your repo, {remote: git remote get-url origin, root: main checkout root}, opens its project.")]
         RepoArg? repo = null,
