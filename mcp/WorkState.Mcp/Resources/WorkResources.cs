@@ -149,7 +149,7 @@ public sealed class WorkResources(BoardReader reader, WorkspaceOptions workspace
             return await ItemBriefAsync(@ref[..^WorkUris.BriefSuffix.Length], cancellationToken);
         }
 
-        var scope = await reader.ResolveAsync(workspace.Slug, null, cancellationToken);
+        var scope = await DefaultAsync(cancellationToken);
         return scope is ScopeResult.Found found
             ? await reader.GetAsync(found, [@ref], ["deps"], cancellationToken)
             : ScopeExplain.Text(scope, "work_get", @ref);

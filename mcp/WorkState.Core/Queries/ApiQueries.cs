@@ -17,8 +17,6 @@ public sealed class ApiQueries(NpgsqlDataSource dataSource)
 
     private const string Closed = "('done','cancelled','superseded')";
 
-    static ApiQueries() => SqlMapper.AddTypeHandler(new BoardQueries.TimestampHandler());
-
     /// <summary>The newest journal seq in the workspace: what a response read after it reflects.</summary>
     public async Task<long> SeqAsync(Guid workspaceId, CancellationToken cancellationToken = default)
         => await SingleAsync<long>(

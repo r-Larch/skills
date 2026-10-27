@@ -28,7 +28,7 @@ public sealed class AttentionRefTests(PostgresFixture fixture)
         "--- attention (5 of 8) ---",
         "⚠ 1.2 claim by worker-1 expired 1h ago — work_status(ref:\"1.2\", to:\"in_progress\") to retake it",
         "⚠ F-07 (BLOCKER) is open against 1.2: ContentHash written early — work_status(ref:\"F-07\", to:\"done\")",
-        "⚠ 2: all 1 tasks done, gate not run — work_brief(scope:\"2\") to run it",
+        "⚠ 2: all 1 tasks done, gate not run — work_brief(scope:\"2\", for:\"gate\") to run it",
         "⚠ 2.1 is done with no orchestrator verification — work_verify(ref:\"2.1\", result_line:\"…\", run_by:\"orchestrator\")",
         "⚠ 1.1 is done with no orchestrator verification — work_verify(ref:\"1.1\", result_line:\"…\", run_by:\"orchestrator\")",
         "+3 more — read work://attention/run-one with ReadMcpResourceTool",

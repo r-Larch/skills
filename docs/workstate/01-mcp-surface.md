@@ -126,7 +126,7 @@ Names are `work_*`-prefixed so they survive aggregation across servers.
 
 | Tool | Arguments | Returns | Replaces |
 |---|---|---|---|
-| **`work_brief`** | `scope` (workspace or item ref), `for` = `resume\|handoff\|phase` | The recovery payload: goal chain, current position, next action, branch/HEAD, mode, binding constraints in scope, open assumptions, unconsumed notes, deferred follow-ups, last verification. | The `LEDGER.md` header block — **generated, therefore never stale**. The first call of every session. |
+| **`work_brief`** | `scope` (workspace or item ref), `for` = `resume\|worker\|gate` (anything else refused, §9) | The recovery payload: goal chain, current position, next action, branch/HEAD, mode, binding constraints in scope, open assumptions, unconsumed notes, deferred follow-ups, last verification. | The `LEDGER.md` header block — **generated, therefore never stale**. The first call of every session. |
 | **`work_next`** | `scope`, `limit`, `kind?` | The ready frontier: items whose blocking dependencies are all `done`, in `seq` order, with their `verify_cmd` and risk flags. | "read PLAN.md and work out what's next" |
 | **`work_tree`** | `scope`, `depth`, `status in[]`, `include_counts` | Indented tree with per-node rollups (`open/doing/blocked/review/done`). | `PLAN.md` § Phases, and the checkbox list that never gets checked |
 | **`work_get`** | `refs[]` (batch), `include` = `body\|criteria\|deps\|attempts\|findings\|notes` | Full item(s). Body returned as `resource_link` unless `include: body` is asked for. | reading a section of the ledger |
@@ -318,8 +318,17 @@ Per-request bearer token; `tools/list` varies by the token's grants. Three profi
 | Profile | Tools | Scope | Rationale |
 |---|---|---|---|
 | **worker** | `work_get`, `work_brief`, `work_search`, `work_report`, `work_verify` (`run_by` forced to `worker`), `work_note` | one item subtree | A worker **structurally cannot** close its own task, create tasks, or record an orchestrator verification. The brief no longer has to ask. |
-| **orchestrator** | everything except `work_init`, and no cross-run links | **its own run subtree** | Judges, transitions, commits. Many run in parallel; each sees its own run by default. |
-| **controller** | everything, every project | global | Owns the queue tier, and is the only role that may create `blocks` edges **across runs** — the integration ordering in `controller` §2. |
+| **orchestrator** | everything except `work_init` | **reads default to its own project's run; writes reach every project** (below) | Judges, transitions, commits. Many run in parallel; each sees its own run by default. |
+| **controller** | everything, every project | global | Owns the queue tier and the integration ordering across runs in `controller` §2. |
+
+**Cross-project writes are intended — owner's decision, 2026-10-27.** No token is fenced to a run or
+a project: an unscoped read lands on the caller's own project (a minted session's repo, else the
+workspace default), but a qualified ref reaches any item, and any orchestrator may transition, link
+or annotate another run's or another project's items. In the owner's words: *"so any orchestrator can
+change another run's items - not to bad, because reading another projects data should be allowed like
+nomos project reading and maybe writing nomos-spiders (related repos)"*. On a single-user server that
+is the point — related repos are worked together. A shared multi-user server (`backlog/shared-server`)
+would revisit it; until then, a missing token scope is a design choice, not a defect.
 
 **Grants — capabilities beside the role.** A minted session may carry `grants` (doc 14 §2); `import`
 is the one there is. The `importer` policy needs the orchestrator role **and** the `import` grant
@@ -488,18 +497,20 @@ per-item detail). `orchestrate/references/briefs.md`'s 311 lines land in the thi
 
 ### What each `work_brief` rendering must contain
 
-`work_brief(ref, for: …)` — one tool, one description, six renderings. The content below is unchanged
-from the prompt design; only the delivery moved.
+`work_brief(ref, for: …)` — one tool, one description. Three renderings are built; any other `for:`
+value is **refused** with the legal list (doc 06 §6), never silently rendered as resume. The four
+not built are listed with what to use today: building renderings nobody calls is speculative, and a
+silent fallback was a confident wrong answer.
 
 | `for:` | Renders |
 |---|---|
 | `resume` *(default)* | Goal chain · current position · **the literal next action** · branch/HEAD · binding constraints in scope · open assumptions · unconsumed notes · deferred follow-ups · last verification. The recovery payload, generated so it cannot be stale. |
 | `worker` | Context (goal chain + what previous tasks delivered, from the DB) · binding constraints **in scope** · **every unconsumed note addressed to this item** · in/out of scope · done-criteria · `verify_cmd` · the red-check demand · the report format. **Marks the notes consumed.** |
-| `review` | Scoped diff range, done-criteria, goal paragraph, the 5-finding cap, the bar for a finding. |
-| `gate` | The phase's tasks, **the recorded seams** (`work_link` edges crossing task boundaries — computed, not remembered), the seam classes. |
-| `audit` | Pre-loaded with `work_audit`'s mechanical results marked *established, do not re-verify*, so the agent's budget goes to shape. |
-| `handoff` | The stranger-continues document. |
-| `retro` | Built from the events, verdicts and forced transitions already stored. |
+| `gate` | **A phase only** — refused on any other scope with the route to its phase. The phase's tasks, each with its status and last verification; **the recorded seams**, computed from `item_link` on every read: `inner` (both ends are tasks of this phase) and `crossing` (one end outside it); and the calls that record the verdict — `work_verify(phase, run_by:"orchestrator")` then `work_status(phase, "done")` to pass, `work_finding(source:"gate", severity:"blocker", target: phase)` to fail. Read-only: consumes no notes. The attention line *"all N tasks done, gate not run"* routes here. |
+| `review` | **Not built** — refused. Today: `work_get` on the item for its criteria and evidence, then `work_finding(source:"review")`. |
+| `audit` | **Not built** — refused. Today: `work_audit(scope)`, whose results are the established mechanical half. |
+| `handoff` | **Not built** — refused. Today: the `work://workspace/handoff` resource (§8), or `work_brief` + `work_threads`. |
+| `retro` | **Not built** — refused. Today: `work_history(scope)` for the events, verdicts and forced transitions. |
 
 What stays in `SKILL.md` is the judgment: the cost table, the risk dial, red-checks, verification
 doctrine, escalation triggers, the critical-thinking ceiling. That is the half worth a model's

@@ -190,7 +190,10 @@ public sealed class RendererTests
     {
         var addressed = BriefRenderer.Render(Sample([]) with { NoteTotal = 5, AddressedTotal = 2 });
 
-        Assert.Contains("ADDRESSED TO YOU (2)   — these render into 2.8's brief", addressed, StringComparison.Ordinal);
+        Assert.Contains(
+            "ADDRESSED TO YOU (2)   — only work_brief(scope:\"2.8\", for:\"worker\") consumes them; this brief did not",
+            addressed,
+            StringComparison.Ordinal);
         Assert.Contains("+4 more unconsumed in scope — work_threads(", addressed, StringComparison.Ordinal);
 
         var broadcast = BriefRenderer.Render(Sample([]) with

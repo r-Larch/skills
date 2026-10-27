@@ -351,8 +351,12 @@ run** → items done-but-unverified → assumptions past revisit → unconsumed 
 → stale `in_progress`.
 
 ```
-⚠ phase-2: all 8 tasks done, gate not run — work_brief(scope:"phase-2") to run it
+⚠ phase-2: all 8 tasks done, gate not run — work_brief(scope:"phase-2", for:"gate") to run it
 ```
+
+> **Changed 2026-10-27 (brief-variants).** The route named `work_brief(scope:"phase-2")`, which
+> rendered a resume brief — there was no gate rendering, and `for:` fell back to resume for any
+> value. It now opens the gate brief of doc 01 §9.
 
 > **Why that line exists, 2026-09-20 (FINDINGS-live F-L1b).** Nothing promotes a phase when its last
 > child closes, on purpose: a write triggered by another write is invisible and untestable, and a

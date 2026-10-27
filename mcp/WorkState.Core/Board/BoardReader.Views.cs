@@ -226,7 +226,7 @@ public sealed partial class BoardReader
             var callable = await CallableAsync(item, fact, cancellationToken);
 
             lines.Add(BoardRenderer.Row(new BoardItem(
-                item.Ref,
+                await board.PrintableRefAsync(workspaceId, item.Id, item.Ref, cancellationToken),
                 item.Kind,
                 item.Status,
                 item.Title,

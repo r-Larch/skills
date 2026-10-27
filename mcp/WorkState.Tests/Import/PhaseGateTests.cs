@@ -103,7 +103,7 @@ public sealed class PhaseGateTests(PostgresFixture fixture)
 
         var only = Assert.Single(gates);
         Assert.Equal("phase-2: all 3 tasks done, gate not run", only.What);
-        Assert.Contains("work_brief(scope:\"phase-2\")", only.Call, StringComparison.Ordinal);
+        Assert.Contains("work_brief(scope:\"phase-2\", for:\"gate\")", only.Call, StringComparison.Ordinal);
 
         // Nothing transitioned: the phase is still whatever the importer said it was, and the line is
         // the only thing that moved (FINDINGS-live F-L1b).

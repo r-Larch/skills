@@ -26,8 +26,6 @@ public sealed class WorkStateQueries(NpgsqlDataSource dataSource)
         ) p
         """;
 
-    static WorkStateQueries() => SqlMapper.AddTypeHandler(new TextArrayHandler());
-
     /// <summary>
     /// Remaining work under <paramref name="scopeItemId"/> that nothing unfinished blocks and that
     /// has no open children of its own. doc 02 §4 — the single hottest query.
@@ -214,7 +212,7 @@ public sealed class WorkStateQueries(NpgsqlDataSource dataSource)
     /// Npgsql reports a <c>text[]</c> column as <see cref="Array"/>, which Dapper will not match
     /// against a <c>string[]</c> constructor parameter without a handler for the type.
     /// </summary>
-    private sealed class TextArrayHandler : SqlMapper.TypeHandler<string[]>
+    internal sealed class TextArrayHandler : SqlMapper.TypeHandler<string[]>
     {
         public override string[] Parse(object value) => (string[])value;
 

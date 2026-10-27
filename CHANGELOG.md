@@ -6,6 +6,14 @@ What changes for someone who has the `rlarch` plugin installed, newest first. Fo
 
 ## [Unreleased]
 
+### Added
+
+- **`work_brief(scope:"<phase>", for:"gate")`** — the phase's tasks with their status and last
+  verification, the seams computed from `work_link` (edges between two of its tasks, and edges that
+  cross its boundary), and the calls that record the verdict: `work_verify` + `work_status(done)` to
+  pass, `work_finding(source:"gate", severity:"blocker")` to fail. Read-only. The attention line
+  *"all N tasks done, gate not run"* now routes to it instead of to a plain resume brief.
+
 ### Fixed
 
 - **`workstate-setup` now says when another registration hides the one it wrote.** A local-scope
@@ -15,6 +23,20 @@ What changes for someone who has the `rlarch` plugin installed, newest first. Fo
   whether it has a helper, never a header or token - with the command that removes it
   (`claude mcp remove workstate -s local`, run in that repo). The script removes nothing itself.
   Checked by `find-shadows.mjs`, which needs `node`.
+- **`work_brief(for:)` no longer falls back silently.** Any value but `resume`, `worker` or `gate`
+  rendered a resume brief as if it were the one asked for; it is now refused, naming the legal values
+  and what to use instead (`work_audit` for an audit, `work_history` for a retro). `for:"gate"` on
+  anything but a phase is refused with the route to its phase.
+- **The remaining bare refs.** `work_get`'s head row, the suggestions a missing scope prints, and
+  the candidates `work://item/<ref>` lists for an ambiguous ref all call back as printed; the item
+  resource lists the caller's own project first, as the tools do.
+- **The `ADDRESSED TO YOU` header says who consumes.** It claimed every brief marks its notes
+  consumed; only `for:"worker"` does. A resume brief now names the call that consumes them, and a
+  worker brief says it did.
+- **Minting a session right after a server restart no longer fails.** If the first request was
+  `POST /api/agent-sessions`, the mint threw `InvalidCastException` reading its expiry, because the
+  database type handlers were registered only once some other query had run. They are now
+  registered when the server's core library loads.
 
 ## [2.4.0] - 2026-10-27
 
