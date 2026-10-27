@@ -6,6 +6,22 @@ What changes for someone who has the `rlarch` plugin installed, newest first. Fo
 
 ## [Unreleased]
 
+## [2.6.0] - 2026-10-27
+
+### Added
+
+- **`/rlarch:workstate`**: the planning skill. "Use /rlarch:workstate to plan feature XY" writes a
+  run into WorkState (units or phases with done-criteria and a verify command each, binding rules,
+  assumptions, ordering, open questions), shows it and stops. "Propose what we should build next"
+  ranks 3 to 5 candidates from the board and the repo. "Triage" proposes closes, defers, merges
+  and reorders and applies only the ones you approve. It never writes code or starts an agent.
+
+### Changed
+
+- **`controller` and `orchestrate` take an approved plan as approved.** After "approved, execute as
+  /rlarch:controller" (or orchestrate), they record the approval on the run, skip their own planning
+  and approval gate, and start. The plan audit and unit classification still run.
+
 ## [2.5.1] - 2026-10-27
 
 ### Added
