@@ -42,6 +42,29 @@ export type AppInfo = {
   loopbackOnly: boolean
 }
 
+/**
+ * `GET /connect/app-icon`: the client's own icon, resolved and served by this server
+ * (`WorkState.Api/Auth/OAuth/ClientIcons.cs`), so the page asks no third party about the client and its
+ * CSP allows images from this origin only. Null without a client id.
+ */
+export function appIconHref(search: string): string | null {
+  const clientId = new URLSearchParams(search).get('client_id')
+  return clientId ? `/connect/app-icon?client_id=${encodeURIComponent(clientId)}` : null
+}
+
+/** What the client's tile shows: a placeholder until the image answers, then the image or the initials. */
+export type IconState = 'loading' | 'image' | 'initials'
+
+export const iconStep = (state: IconState, event: 'load' | 'error'): IconState =>
+  state === 'loading' ? (event === 'load' ? 'image' : 'initials') : state
+
+/** Two words give their first letters, one word its first two; never empty. */
+export function initials(name: string): string {
+  const words = name.trim().split(/\s+/).filter(Boolean).map((word) => [...word])
+  const letters = words.length >= 2 ? words.slice(0, 2).map((word) => word[0]) : (words[0] ?? []).slice(0, 2)
+  return letters.join('').toUpperCase() || '?'
+}
+
 export type Answer = 'granted' | 'denied'
 
 export type ConsentState =

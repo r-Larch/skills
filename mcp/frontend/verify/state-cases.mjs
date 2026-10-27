@@ -8,7 +8,7 @@
 import { CLOSED, LEAF, countTitle, counted, independent, progress, state, tally } from '../src/state.ts'
 import { DEFAULT_FILTER, FILTERS, asFilter, cancelledLines, plan, planQuery, withoutCancelled } from '../src/plan.ts'
 import { boardHref, copyValue, itemHref, pathCrumbs, routeReads } from '../src/nav.ts'
-import { consentForm, consentStep, consentView, hiddenFields, isConnectPath, returnTarget, scopeLines, signInHref, signInStart, signInStep } from '../src/connect.ts'
+import { appIconHref, consentForm, consentStep, consentView, hiddenFields, iconStep, initials, isConnectPath, returnTarget, scopeLines, signInHref, signInStart, signInStep } from '../src/connect.ts'
 import { HANDLE, LIST_MIN, PANEL_MIN, PANEL_SHARE, WIDTH_KEY, clampWidth, docks, panelWidth, rememberWidth, rememberedWidth } from '../src/split.ts'
 
 let failures = 0
@@ -247,6 +247,18 @@ check('a late failure does not replace a shown client', consentStep(shown, { t: 
 check('a stale consent field is never forwarded twice', hiddenFields('?client_id=c1&consent=granted'), [['client_id', 'c1']])
 check('what it gets: openid is not a line', scopeLines(search).map((l) => l.scope), ['mcp', 'offline_access'])
 check('what it gets: mcp is controller access', scopeLines(search)[0].label, 'Full access to your WorkState as controller')
+
+console.log('\n── the consent page: the client\'s icon, or its initials ────────────────────')
+check('the icon is asked of this origin, for this client', appIconHref('?client_id=https%3A%2F%2Fclaude.ai%2Foauth%2Fm&x=1'), '/connect/app-icon?client_id=https%3A%2F%2Fclaude.ai%2Foauth%2Fm')
+check('no client id, no icon request', appIconHref('?scope=mcp'), null)
+check('an icon that loads is shown', iconStep('loading', 'load'), 'image')
+check('no icon (404 or broken): the initials', iconStep('loading', 'error'), 'initials')
+check('a late load does not replace the initials', iconStep('initials', 'load'), 'initials')
+check('initials: two words', initials('Claude Code'), 'CC')
+check('initials: one word', initials('cursor'), 'CU')
+check('initials: three words take the first two', initials('  my mcp   client '), 'MM')
+check('initials: never empty', initials('   '), '?')
+check('initials: a surrogate pair stays whole', initials('🦀 rust'), '🦀R')
 check('an unknown scope is shown by name', scopeLines('?scope=mystery').map((l) => [l.scope, l.label]), [['mystery', 'mystery']])
 check('a lapsed session goes back through sign-in', signInHref('?client_id=c1&state=s'), '/connect/signin?returnUrl=%2Fconnect%2Fauthorize%3Fclient_id%3Dc1%26state%3Ds')
 

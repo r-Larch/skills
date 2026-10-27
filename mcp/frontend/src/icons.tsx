@@ -36,6 +36,13 @@ export const CopyIcon = () => (
   </svg>
 )
 
+export const LinkIcon = () => (
+  <svg viewBox="0 0 24 24" width="16" height="16" {...stroke} aria-hidden="true">
+    <path d="M10 14a4 4 0 0 0 5.66 0l3-3a4 4 0 0 0-5.66-5.66l-1 1" />
+    <path d="M14 10a4 4 0 0 0-5.66 0l-3 3a4 4 0 0 0 5.66 5.66l1-1" />
+  </svg>
+)
+
 export const CheckIcon =(props: { size?: number; weight?: number }) => (
   <svg
     viewBox="0 0 24 24"

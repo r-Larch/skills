@@ -6,18 +6,22 @@ import {
   SIGN_IN,
   type ConsentEvent,
   type ConsentState,
+  type IconState,
   type SignInEvent,
   type SignInState,
+  appIconHref,
   consentStep,
   consentView,
   hiddenFields,
+  iconStep,
+  initials,
   scopeLines,
   signInHref,
   signInStart,
   signInStep,
 } from './connect.ts'
 import Gate from './Gate.tsx'
-import { CheckIcon } from './icons.tsx'
+import { CheckIcon, LinkIcon } from './icons.tsx'
 
 /**
  * The OAuth authorize step's two pages, outside the dashboard's router and store: an MCP client sent the
@@ -94,7 +98,7 @@ function Consent() {
             step({ t: 'answer', answer })
           }}
         >
-          <Brand />
+          <Peers client={view().client} />
 
           <Show when={view().client} fallback={<p class="consent-title muted">Loading the client…</p>}>
             {(client) => (
@@ -163,6 +167,45 @@ function Consent() {
         </form>
       </div>
     </Show>
+  )
+}
+
+/**
+ * The client's tile, a connector, WorkState's mark. The image is in the page from the start, hidden, so it
+ * loads alongside app-info; the tile stays a placeholder until both have answered.
+ */
+function Peers(props: { client: string | null }) {
+  const href = appIconHref(location.search)
+  const [icon, setIcon] = createSignal<IconState>(href === null ? 'initials' : 'loading')
+  const shown = () => (props.client === null ? 'loading' : icon())
+
+  return (
+    <div class="peers" aria-hidden="true">
+      <span class="peer" classList={{ 'peer-wait': shown() === 'loading' }}>
+        <Show when={href}>
+          {(src) => (
+            <img
+              src={src()}
+              alt=""
+              hidden={shown() !== 'image'}
+              onLoad={() => setIcon(iconStep(icon(), 'load'))}
+              onError={() => setIcon(iconStep(icon(), 'error'))}
+            />
+          )}
+        </Show>
+        <Show when={shown() === 'initials'}>
+          <span class="peer-initials">{initials(props.client ?? '')}</span>
+        </Show>
+      </span>
+      <span class="peer-link">
+        <i />
+        <LinkIcon />
+        <i />
+      </span>
+      <span class="peer peer-self">
+        <CheckIcon size={24} weight={2.6} />
+      </span>
+    </div>
   )
 }
 
