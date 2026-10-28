@@ -6,9 +6,10 @@ using Microsoft.AspNetCore.Authentication.Cookies;
 namespace WorkState.Api.Auth;
 
 /// <summary>
-/// The operator's credentials, from configuration only (doc 08 §4). Blank in
-/// <c>appsettings.json</c>: a password committed to a public repository is a password on the
-/// internet, and the throwaway bearer tokens are already as far as that goes.
+/// The bootstrap credential (doc 08 §4): the first sign-in that presents it while <c>app_user</c> is empty
+/// creates the first user from it (<see cref="UserStore"/>), and after that the table decides and this
+/// password is never read again. Blank in <c>appsettings.json</c>: a password committed to a public
+/// repository is a password on the internet, and the throwaway bearer tokens are already as far as that goes.
 /// </summary>
 public sealed class DashboardOptions
 {
@@ -19,9 +20,10 @@ public sealed class DashboardOptions
     public string? Password { get; set; }
 
     /// <summary>
-    /// No credential configured means no login and no <c>/api</c>, exactly as an unconfigured
+    /// No credential configured and no user yet means no login and no <c>/api</c>, exactly as an unconfigured
     /// bearer token means no <c>/mcp</c>. The dashboard is off until someone turns it on, rather
-    /// than open until someone secures it.
+    /// than open until someone secures it. The OAuth server still requires it, and still names its subject
+    /// after <see cref="Username"/>, which is also the first user's name.
     /// </summary>
     public bool Configured
         => !string.IsNullOrWhiteSpace(Username) && !string.IsNullOrWhiteSpace(Password);
@@ -65,11 +67,18 @@ public static class DashboardAuth
 
     public const string Role = "dashboard-operator";
 
-    public static ClaimsPrincipal Principal(string username)
+    /// <summary>The <c>app_user</c> id, which is what <see cref="Configure"/> re-checks on every request.</summary>
+    public const string UserIdClaim = "sub";
+
+    public const string SystemAdminClaim = "workstate:system_admin";
+
+    public static ClaimsPrincipal Principal(DashboardUser user)
     {
         var identity = new ClaimsIdentity(SchemeName);
-        identity.AddClaim(new Claim(ClaimTypes.Name, username));
+        identity.AddClaim(new Claim(UserIdClaim, user.Id.ToString()));
+        identity.AddClaim(new Claim(ClaimTypes.Name, user.Name));
         identity.AddClaim(new Claim(ClaimTypes.Role, Role));
+        identity.AddClaim(new Claim(SystemAdminClaim, user.IsSystemAdmin ? "true" : "false", ClaimValueTypes.Boolean));
         return new ClaimsPrincipal(identity);
     }
 
@@ -77,7 +86,7 @@ public static class DashboardAuth
     /// An API is not a login page: an unauthenticated <c>/api</c> call gets 401 and a forbidden one
     /// 403, never a 302 to HTML the SPA would have to parse to discover it was signed out.
     /// </summary>
-    public static void Configure(CookieAuthenticationOptions options, DashboardOptions dashboard, string? publicUrl = null)
+    public static void Configure(CookieAuthenticationOptions options, string? publicUrl = null)
     {
         options.Cookie.Name = CookieName;
         options.Cookie.HttpOnly = true;
@@ -92,17 +101,30 @@ public static class DashboardAuth
         options.SlidingExpiration = true;
         options.ExpireTimeSpan = TimeSpan.FromDays(7);
 
-        // Fail closed even against a cookie issued while a credential *was* configured: removing
-        // the credential is how an operator turns the dashboard off, and a surviving session would
-        // make that switch a no-op until the cookie happened to expire.
-        options.Events.OnValidatePrincipal = context =>
+        // Every request asks the table, so disabling or deleting a user ends the sessions they hold rather than
+        // leaving them open until the cookie expires. A cookie with no user id predates app_user and signs in
+        // again. The configured credential is not asked: once a user exists it no longer decides anything.
+        options.Events.OnValidatePrincipal = async context =>
         {
-            if (!dashboard.Configured)
+            var users = context.HttpContext.RequestServices.GetService<UserStore>();
+            var user = users is not null && Guid.TryParse(context.Principal?.FindFirstValue(UserIdClaim), out var id)
+                ? await users.FindActiveAsync(id, context.HttpContext.RequestAborted)
+                : null;
+
+            if (user is null)
             {
                 context.RejectPrincipal();
+                return;
             }
 
-            return Task.CompletedTask;
+            // A rename or a changed administrator flag reaches the session on its next request.
+            var current = Principal(user);
+            if (current.Identity?.Name != context.Principal!.Identity?.Name
+                || current.FindFirstValue(SystemAdminClaim) != context.Principal.FindFirstValue(SystemAdminClaim))
+            {
+                context.ReplacePrincipal(current);
+                context.ShouldRenew = true;
+            }
         };
 
         options.Events.OnRedirectToLogin = context =>

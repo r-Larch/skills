@@ -825,6 +825,32 @@ The token determines the **tool list** (§6 of the MCP surface doc), the **scope
 the `actor` on every event — so attribution is not self-declared. Compare with
 `FixedTimeEquals`, per the workspace's service standard.
 
+### 12a. Users — `app_user`, `tenant_membership`
+
+```sql
+CREATE TABLE app_user (                -- `user` is reserved
+  id              uuid PRIMARY KEY,
+  name            text NOT NULL,
+  password_hash   text NOT NULL,       -- ASP.NET Core PasswordHasher; never the password (C64)
+  is_system_admin boolean NOT NULL DEFAULT false,
+  created_at      timestamptz NOT NULL DEFAULT now(),
+  disabled_at     timestamptz          -- set: cannot sign in, and held cookies stop working
+);
+CREATE UNIQUE INDEX app_user_name_unique ON app_user (lower(name));
+
+CREATE TABLE tenant_membership (       -- a tenant is a workspace
+  user_id      uuid NOT NULL REFERENCES app_user ON DELETE CASCADE,
+  workspace_id uuid NOT NULL REFERENCES workspace ON DELETE CASCADE,
+  role         text NOT NULL CHECK (role IN ('admin', 'member')),
+  created_at   timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (user_id, workspace_id)
+);
+```
+
+The people who sign in to the dashboard (doc 08 §4). The first row is created from the configured
+dashboard credential on the first sign-in, and is the only row anything creates so far. Memberships
+are recorded but not yet enforced: every request still acts in the configured workspace.
+
 ---
 
 ## 13. Views the server leans on

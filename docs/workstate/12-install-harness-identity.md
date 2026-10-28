@@ -352,6 +352,10 @@ only *which* keys it wrote. §6's `curl` proof becomes `work_brief` in the next 
 itself (`workstate-headers --check` prints the tool count, not the token). The dashboard password is
 for the human: setup tells them where to read it (`mcp/.env`), it does not print it.
 
+> **Changed 2026-10-28 (m48).** The dashboard password in the `.env` is a bootstrap credential: the
+> first sign-in with it creates the first user (doc 08 §4), and after that the user's own stored hash
+> is what signs in. Editing the `.env` password afterwards does not change the dashboard password.
+
 ### 7.5 Later, if WorkState ever leaves localhost
 
 Option F — WorkState as an OAuth 2.1 authorization server with **scopes = roles**

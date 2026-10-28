@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Mvc;
 using WorkState.Api.App.V1;
 using WorkState.Api.Auth;
 
@@ -35,6 +36,7 @@ public static class AppEndpoints
         api.MapPost("/session", async (
             SessionRequest request,
             DashboardOptions dashboard,
+            [FromServices] UserStore? users,
             HttpContext context) =>
         {
             if (ApiV1.IsReader(context.User))
@@ -42,14 +44,17 @@ public static class AppEndpoints
                 return Results.Forbid();
             }
 
-            if (!dashboard.Matches(request.Username, request.Password))
+            // Without a store there is no user table to sign in against or to create the first user in.
+            var user = users is null
+                ? null
+                : await users.SignInAsync(request.Username, request.Password, dashboard, context.RequestAborted);
+
+            if (user is null)
             {
                 return Results.Unauthorized();
             }
 
-            await context.SignInAsync(
-                DashboardAuth.SchemeName,
-                DashboardAuth.Principal(request.Username!));
+            await context.SignInAsync(DashboardAuth.SchemeName, DashboardAuth.Principal(user));
 
             return Results.NoContent();
         }).AllowAnonymous().RequireRateLimiting(RateLimits.SignIn);

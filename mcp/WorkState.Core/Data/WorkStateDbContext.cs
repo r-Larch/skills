@@ -31,6 +31,8 @@ public class WorkStateDbContext(DbContextOptions<WorkStateDbContext> options) : 
     public DbSet<AgentSession> AgentSessions => Set<AgentSession>();
     public DbSet<ImportRecord> ImportRecords => Set<ImportRecord>();
     public DbSet<OAuthKey> OAuthKeys => Set<OAuthKey>();
+    public DbSet<AppUser> Users => Set<AppUser>();
+    public DbSet<TenantMembership> TenantMemberships => Set<TenantMembership>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -55,6 +57,32 @@ public class WorkStateDbContext(DbContextOptions<WorkStateDbContext> options) : 
         MapDataProtection(b);
         MapSessions(b);
         MapOAuth(b);
+        MapUsers(b);
+    }
+
+    private static void MapUsers(ModelBuilder b)
+    {
+        // app_user_name_unique, on lower(name), is raw SQL in the Users migration: the model cannot
+        // express an expression index.
+        b.Entity<AppUser>(e =>
+        {
+            e.ToTable("app_user");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).ValueGeneratedNever();
+            e.Property(x => x.IsSystemAdmin).HasDefaultValue(false);
+            e.Property(x => x.CreatedAt).HasDefaultValueSql("now()");
+        });
+
+        b.Entity<TenantMembership>(e =>
+        {
+            e.ToTable("tenant_membership");
+            e.HasKey(x => new { x.UserId, x.WorkspaceId });
+            e.HasOne<AppUser>().WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne<Workspace>().WithMany().HasForeignKey(x => x.WorkspaceId).OnDelete(DeleteBehavior.Cascade);
+            e.HasIndex(x => x.WorkspaceId).HasDatabaseName("tenant_membership_workspace_idx");
+            e.Property(x => x.CreatedAt).HasDefaultValueSql("now()");
+            e.ToTable(t => t.HasCheckConstraint("tenant_membership_role_known", "role IN ('admin', 'member')"));
+        });
     }
 
     /// <summary>
