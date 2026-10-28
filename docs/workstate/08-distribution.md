@@ -225,7 +225,7 @@ routes.
 
 | Token | Config / env | Reaches |
 |---|---|---|
-| worker · orchestrator · controller | `WorkState:Auth:{Worker,Orchestrator,Controller}Token` · `WORKSTATE_{WORKER,ORCHESTRATOR,CONTROLLER}_TOKEN` (required in compose) | `/mcp` by role, and `GET /api/v1/*` + `/api/stream`; orchestrator and controller also `/api/agent-sessions` |
+| worker · orchestrator · controller | `WorkState:Auth:{Worker,Orchestrator,Controller}Token` · `WORKSTATE_{WORKER,ORCHESTRATOR,CONTROLLER}_TOKEN` — **local install only** (required in `mcp/compose.yml`; the server deploy `deploy/multi-deploy` sets none, so a server accepts none) | `/mcp` by role, and `GET /api/v1/*` + `/api/stream`; orchestrator and controller also `/api/agent-sessions` |
 | reader | `WorkState:Auth:ReaderToken` · `WORKSTATE_READER_TOKEN` (**optional**: compose passes `${WORKSTATE_READER_TOKEN:-}`, and empty means no reader token exists) | `GET /api/v1/*` and `/api/stream` only — `/mcp` refuses it (403), and so does `/api/session` |
 | minted `wss_…` (per session) | none — `POST /api/agent-sessions` with an orchestrator or controller bearer returns it once; the store keeps only its SHA-256. Expires after `ttlHours` (default 72, max 720) **unused** — an idle window each use renews, no hard cap — revoked by `DELETE` | exactly what a static token of its granted role reaches (never above its minter's role), and its calls are that session's: `X-WorkState-Agent` is ignored |
 
@@ -285,9 +285,12 @@ authentication path puts it on the principal as the claim `workstate:tenant`:
   that refreshes within the refresh token's 30 days holds a new-style token from then on.
 - **Static role tokens and the reader token** — bound to the workspace `WorkState:Workspace` names,
   or, unset, the oldest workspace. That slug is these credentials' own configured binding, not a
-  default for anyone else: only their handler reads it, and it goes when static tokens are retired
-  (unit static-tokens). A configured workspace that does not exist yet is created at the token's
-  first use, so a fresh install's first `work_create` has somewhere to write.
+  default for anyone else: only their handler reads it. A configured workspace that does not exist
+  yet is created at the token's first use, so a fresh install's first `work_create` has somewhere to
+  write. **Static role tokens are for a local single-user install only** (René, shared-v2): the server
+  deploy configures none, so on a shared server every client signs in with OAuth and `agent_launch`
+  mints with the `agent_signin` grant (doc 14). A token string a machine still holds from before is a
+  credential the server no longer accepts (401). The reader token stays optional on both.
 
 A principal with no tenant — including a request carrying two credentials that name different
 workspaces — gets `403 {"error": "…"}` saying what to do. No request creates its own tenant:
