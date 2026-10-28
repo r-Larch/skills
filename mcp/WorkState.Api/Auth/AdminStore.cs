@@ -249,6 +249,39 @@ public sealed class AdminStore(NpgsqlDataSource dataSource)
         ];
     }
 
+    /// <summary>One user with their memberships; null for an unknown id.</summary>
+    public async Task<AdminUser?> UserAsync(Guid id, CancellationToken cancellationToken)
+    {
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        var user = await connection.QuerySingleOrDefaultAsync<UserRow>(new CommandDefinition(
+            """
+            SELECT id AS "Id", name AS "Name", is_system_admin AS "IsSystemAdmin", created_at AS "CreatedAt",
+                   disabled_at AS "DisabledAt"
+            FROM app_user
+            WHERE id = @id;
+            """,
+            new { id },
+            cancellationToken: cancellationToken));
+
+        if (user is null)
+        {
+            return null;
+        }
+
+        var tenants = await connection.QueryAsync<UserTenant>(new CommandDefinition(
+            """
+            SELECT w.id AS "Id", w.slug AS "Slug", m.role AS "Role"
+            FROM tenant_membership m
+            JOIN workspace w ON w.id = m.workspace_id
+            WHERE m.user_id = @id
+            ORDER BY m.created_at, w.slug;
+            """,
+            new { id },
+            cancellationToken: cancellationToken));
+
+        return new AdminUser(user.Id, user.Name, user.IsSystemAdmin, user.CreatedAt, user.DisabledAt, tenants.AsList());
+    }
+
     /// <summary>
     /// Disables or re-enables a user; false for an unknown id. Disabling ends their cookies, their OAuth tokens and
     /// the sessions they minted at the next request each makes, because every one of those re-reads the row.

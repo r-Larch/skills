@@ -14,6 +14,9 @@ public sealed record PendingInvite(Guid Id, string Role, string? CreatedBy, Date
 /// <summary>What an invite link joins, for the page that opens it.</summary>
 public sealed record InviteInfo(Guid WorkspaceId, string Slug, string Role, DateTimeOffset ExpiresAt);
 
+/// <summary>Whose password a reset link sets, for the page that opens it.</summary>
+public sealed record ResetInfo(Guid UserId, string Name, DateTimeOffset ExpiresAt);
+
 public enum InviteOutcomeKind
 {
     Accepted,
@@ -35,11 +38,15 @@ public sealed class UserLinkStore(NpgsqlDataSource dataSource)
 {
     public static readonly TimeSpan InviteLifetime = TimeSpan.FromDays(14);
 
+    public static readonly TimeSpan ResetLifetime = TimeSpan.FromHours(24);
+
     private static readonly PasswordHasher<AppUser> Hasher = new();
 
     private static readonly AppUser Nobody = new();
 
     private sealed record UsedInvite(Guid WorkspaceId, string Role);
+
+    private sealed record UsedReset(Guid UserId, string Name);
 
     /// <summary>A new invite into <paramref name="tenant"/> with <paramref name="role"/>, valid for <see cref="InviteLifetime"/>.</summary>
     public async Task<CreatedLink> InviteAsync(Guid tenant, string role, Guid createdBy, CancellationToken cancellationToken)
@@ -177,5 +184,98 @@ public sealed class UserLinkStore(NpgsqlDataSource dataSource)
 
         await transaction.CommitAsync(cancellationToken);
         return new InviteOutcome(InviteOutcomeKind.Accepted, user, used.WorkspaceId);
+    }
+
+    /// <summary>
+    /// A new reset link for <paramref name="user"/>, valid for <see cref="ResetLifetime"/>. It replaces any the
+    /// user has not used yet, so only the newest one works.
+    /// </summary>
+    public async Task<CreatedLink> ResetAsync(Guid user, Guid createdBy, CancellationToken cancellationToken)
+    {
+        var token = LinkToken.New();
+        var id = Guid.CreateVersion7();
+
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+
+        await connection.ExecuteAsync(new CommandDefinition(
+            "DELETE FROM user_link WHERE kind = @kind AND user_id = @user AND used_at IS NULL;",
+            new { kind = UserLink.Reset, user },
+            transaction,
+            cancellationToken: cancellationToken));
+
+        var expiresAt = await connection.ExecuteScalarAsync<DateTimeOffset>(new CommandDefinition(
+            """
+            INSERT INTO user_link (id, kind, token_hash, user_id, created_by, expires_at)
+            VALUES (@id, @kind, @hash, @user, @createdBy, now() + @lifetime)
+            RETURNING expires_at;
+            """,
+            new { id, kind = UserLink.Reset, hash = LinkToken.Hash(token), user, createdBy, lifetime = ResetLifetime },
+            transaction,
+            cancellationToken: cancellationToken));
+
+        await transaction.CommitAsync(cancellationToken);
+        return new CreatedLink(id, token, expiresAt);
+    }
+
+    /// <summary>Whose password a usable reset link sets; null for any token that is not one.</summary>
+    public async Task<ResetInfo?> DescribeResetAsync(string token, CancellationToken cancellationToken)
+    {
+        if (!LinkToken.Plausible(token))
+        {
+            return null;
+        }
+
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        return await connection.QuerySingleOrDefaultAsync<ResetInfo>(new CommandDefinition(
+            """
+            SELECT u.id AS "UserId", u.name AS "Name", l.expires_at AS "ExpiresAt"
+            FROM user_link l
+            JOIN app_user u ON u.id = l.user_id
+            WHERE l.token_hash = @hash AND l.kind = @kind AND l.used_at IS NULL AND l.expires_at > now();
+            """,
+            new { hash = LinkToken.Hash(token), kind = UserLink.Reset },
+            cancellationToken: cancellationToken));
+    }
+
+    /// <summary>
+    /// Uses the reset link: the user's password becomes <paramref name="password"/> (already judged, see
+    /// <see cref="AccountRules"/>) and their security stamp a new one, which signs out every cookie they hold.
+    /// OAuth tokens and minted sessions stay. Null when the token is not a usable reset link.
+    /// </summary>
+    public async Task<string?> UseResetAsync(string token, string password, CancellationToken cancellationToken)
+    {
+        if (!LinkToken.Plausible(token))
+        {
+            return null;
+        }
+
+        var hash = Hasher.HashPassword(Nobody, password);
+
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+
+        var used = await connection.QuerySingleOrDefaultAsync<UsedReset>(new CommandDefinition(
+            """
+            WITH link AS (
+                UPDATE user_link SET used_at = now()
+                WHERE token_hash = @token AND kind = @kind AND used_at IS NULL AND expires_at > now()
+                RETURNING user_id)
+            UPDATE app_user u SET password_hash = @hash, security_stamp = gen_random_uuid()
+            FROM link
+            WHERE u.id = link.user_id
+            RETURNING u.id AS "UserId", u.name AS "Name";
+            """,
+            new { token = LinkToken.Hash(token), kind = UserLink.Reset, hash },
+            transaction,
+            cancellationToken: cancellationToken));
+
+        if (used is null)
+        {
+            return null;
+        }
+
+        await transaction.CommitAsync(cancellationToken);
+        return used.Name;
     }
 }

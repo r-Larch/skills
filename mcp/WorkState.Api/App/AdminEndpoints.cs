@@ -183,6 +183,26 @@ public static class AdminEndpoints
                 [.. u.Tenants.Select(t => new AdminUserTenantView(t.Id, t.Slug, t.Role))])));
         });
 
+        writes.MapPost("/users/{id:guid}/reset-link", async (
+            Guid id,
+            HttpContext context,
+            [FromServices] AdminStore admins,
+            [FromServices] UserLinkStore links,
+            [FromServices] WebBase web) =>
+        {
+            var rights = Rights(context);
+            var target = await admins.UserAsync(id, context.RequestAborted);
+            if (ResetRefusal(rights, target) is { } refused)
+            {
+                return refused;
+            }
+
+            var created = await links.ResetAsync(id, rights.UserId, context.RequestAborted);
+            return Results.Created(
+                $"/api/admin/users/{id}",
+                new CreatedResetView(id, target!.Name, created.Token, $"{web.Current}/reset/{created.Token}", created.ExpiresAt));
+        });
+
         writes.MapPost("/users/{id:guid}/disable", (Guid id, HttpContext context, [FromServices] AdminStore admins)
             => SetDisabledAsync(id, true, context, admins));
 
@@ -236,6 +256,29 @@ public static class AdminEndpoints
         => rights.IsSystemAdmin
             ? null
             : Error(StatusCodes.Status403Forbidden, $"Only a system administrator {what}, and {rights.Name} is not one.");
+
+    /// <summary>
+    /// A reset link hands its holder the whole account, every workspace of it. So a system administrator may make
+    /// one for anyone, and a tenant admin only for a user who is no system administrator and every one of whose
+    /// workspaces they administer — never one with a foot in a workspace that is not theirs (C63). Every refusal,
+    /// an unknown id included, is the same 403, so it says nothing about the user's other workspaces.
+    /// </summary>
+    private static IResult? ResetRefusal(AdminRights rights, AdminUser? target)
+    {
+        if (rights.IsSystemAdmin)
+        {
+            return target is null
+                ? Error(StatusCodes.Status404NotFound, "No user has that id; GET /api/admin/users lists them.")
+                : null;
+        }
+
+        return target is { IsSystemAdmin: false, Tenants.Count: > 0 } && target.Tenants.All(t => rights.Administers.Contains(t.Id))
+            ? null
+            : Error(
+                StatusCodes.Status403Forbidden,
+                $"{rights.Name} may create a reset link only for a user every one of whose workspaces they administer: "
+                + "a reset hands over the whole account. Ask a system administrator to create this one.");
+    }
 
     private static async Task<IResult> SetDisabledAsync(Guid id, bool disabled, HttpContext context, AdminStore admins)
     {

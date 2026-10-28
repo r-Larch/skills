@@ -72,6 +72,7 @@ public class WorkStateDbContext(DbContextOptions<WorkStateDbContext> options) : 
             e.Property(x => x.Id).ValueGeneratedNever();
             e.Property(x => x.IsSystemAdmin).HasDefaultValue(false);
             e.Property(x => x.CreatedAt).HasDefaultValueSql("now()");
+            e.Property(x => x.SecurityStamp).HasDefaultValueSql("gen_random_uuid()");
         });
 
         b.Entity<TenantMembership>(e =>

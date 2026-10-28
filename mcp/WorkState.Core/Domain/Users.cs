@@ -21,6 +21,12 @@ public class AppUser
 
     /// <summary>Set means the user can no longer sign in, and a cookie they hold stops working.</summary>
     public DateTimeOffset? DisabledAt { get; set; }
+
+    /// <summary>
+    /// Every dashboard cookie carries the value it was issued with, and a cookie whose value is no longer this one
+    /// is signed out. A password change or reset draws a new one, which is what ends the user's other sessions.
+    /// </summary>
+    public Guid SecurityStamp { get; set; }
 }
 
 /// <summary>A user's role in one workspace (tenant).</summary>

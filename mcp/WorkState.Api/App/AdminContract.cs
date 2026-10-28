@@ -36,6 +36,14 @@ public sealed record PendingInviteView(Guid Id, string Role, string? CreatedBy, 
 /// <summary>The one response that carries the token: it is not stored, so it cannot be shown again.</summary>
 public sealed record CreatedInviteView(Guid Id, string Token, string Url, string Role, string Tenant, DateTimeOffset ExpiresAt);
 
+/// <summary>The one response that carries a reset token: only its hash is kept.</summary>
+public sealed record CreatedResetView(Guid UserId, string Name, string Token, string Url, DateTimeOffset ExpiresAt);
+
+/// <summary><c>GET /api/reset/{token}</c>: whose password the link sets, and until when it works.</summary>
+public sealed record ResetView(string Name, DateTimeOffset ExpiresAt);
+
+public sealed record ResetDoneView(string Name);
+
 public sealed record MemberRoleView(Guid UserId, string Role, bool Changed);
 
 public sealed record UserStateView(Guid Id, DateTimeOffset? DisabledAt);
@@ -50,3 +58,5 @@ public sealed record CreateTenantRequest(string? Slug);
 public sealed record RoleRequest(string? Role);
 
 public sealed record AcceptInviteRequest(string? Name, string? Password);
+
+public sealed record ResetRequest(string? Password);

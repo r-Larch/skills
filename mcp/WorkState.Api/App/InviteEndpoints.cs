@@ -62,7 +62,7 @@ public static class InviteEndpoints
                         + "otherwise choose another name.");
             }
 
-            await context.SignInAsync(DashboardAuth.SchemeName, DashboardAuth.Principal(outcome.User!, outcome.Tenant));
+            await DashboardAuth.SignInAsync(context, outcome.User!, outcome.Tenant);
             return Results.Ok(new InviteAcceptedView(outcome.User!.Name, outcome.Tenant));
         }).AllowAnonymous().RequireWriteHeader().RequireRateLimiting(RateLimits.Link);
     }
