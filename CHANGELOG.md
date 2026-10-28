@@ -8,6 +8,10 @@ What changes for someone who has the `rlarch` plugin installed, newest first. Fo
 
 ### Changed
 
+- WorkState server **0.9.1** (no plugin change, no migration): an app that registers itself with a
+  `http://127.0.0.1/callback` (or `localhost`) callback may sign in on any port of that host, as RFC
+  8252 §7.3 requires. Foreman and `agent_signin` were refused with `ID2043` before; Claude Code was
+  not affected.
 - WorkState server **0.9.0** (no plugin change): OAuth on the read API, the stream and the
   agent-session mint for apps like Foreman (scopes `workstate.read`, `workstate.sessions`), signing
   an app out ends the sessions it minted, a launcher can take over a session name with the same

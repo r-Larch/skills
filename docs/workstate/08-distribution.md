@@ -136,6 +136,10 @@ cascade that ends `wss_` sessions minted under a revoked authorization, the laun
 name by Claude session id, the name release (dashboard Sessions page and
 `POST /api/agent-sessions/{id}/release`), and one additive migration (`OAuthMintedSession`).
 
+`0.9.1` (no plugin change, no migration) lets a registered client sign in on any port of a
+registered `http` loopback callback (RFC 8252 §7.3), for dynamically registered clients as well as
+metadata-document ones; until then only the latter had it.
+
 ---
 
 ## 3. Should the skills use it? — Yes, and as a **hard** dependency
