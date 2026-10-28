@@ -157,7 +157,8 @@ user, under whose name their tokens carry over.
 siblings (doc 02 "Ref scoping"): a ref-less run is `1`, `2`, … under its parent, a ref-less project
 `project-1`, `project-2`, … in its workspace, and a duplicate is refused. Its one migration
 (`ScopeRefUnique`) first renames each stored duplicate but the oldest to `<ref>-2`, `<ref>-3`, …,
-journalled as `updated`, then adds the index `item_sibling_ref_unique`.
+journalled as `updated`, then adds the index `item_sibling_ref_unique`. It also issues refresh
+tokens as opaque reference handles (§4), so a Windows client can keep one in Credential Manager.
 
 ---
 
