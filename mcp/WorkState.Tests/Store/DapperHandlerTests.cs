@@ -46,9 +46,14 @@ public sealed class DapperHandlerTests(PostgresFixture fixture)
                 args[2] = 1;
                 args[3] = false;
 
-                var task = (Task)storeType.GetMethod("MintAsync")!
-                    .Invoke(store, [world.WorkspaceId, requestCtor.Invoke(args), Ct])!;
-                await task;
+                // As the server's request would: the copy's own TenantScope, entered for the request's tenant.
+                Task task;
+                using (Type(core, "WorkState.Core.Data.TenantScope").GetMethod("Enter")!.Invoke(null, [world.WorkspaceId]) as IDisposable)
+                {
+                    task = (Task)storeType.GetMethod("MintAsync")!
+                        .Invoke(store, [world.WorkspaceId, requestCtor.Invoke(args), Ct])!;
+                    await task;
+                }
 
                 var result = task.GetType().GetProperty("Result")!.GetValue(task)!;
                 var minted = result.GetType().GetProperty("Minted")!.GetValue(result);

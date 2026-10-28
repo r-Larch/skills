@@ -1,6 +1,7 @@
 using System.Text.Json.Serialization;
 using Dapper;
 using Npgsql;
+using WorkState.Core.Data;
 using WorkState.Core.Domain;
 using WorkState.Core.Rendering;
 
@@ -56,7 +57,7 @@ public sealed partial class WorkWriter
             SELECT id FROM workspace WHERE slug = @slug;
             """;
 
-        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        await using var connection = await _connections.OwnerBypassAsync(Bypass.WorkspaceBinding, cancellationToken);
         return await connection.ExecuteScalarAsync<Guid>(new CommandDefinition(
             sql,
             new { id = Guid.CreateVersion7(), slug = string.IsNullOrWhiteSpace(slug) ? "default" : slug.Trim() },
@@ -83,8 +84,8 @@ public sealed partial class WorkWriter
                 + "criteria:[\"…\"]}])"));
         }
 
-        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
-        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+        await using var tenant = await _connections.TenantAsync(cancellationToken);
+        var (connection, transaction) = tenant;
 
         var ladder = await LadderAsync(connection, transaction, cancellationToken);
         var written = new List<string>();
@@ -275,8 +276,8 @@ public sealed partial class WorkWriter
                 $"work_update(ref:\"{reference}\", title:\"…\") — or intent, verify_cmd, risk_tags, priority"));
         }
 
-        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
-        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+        await using var tenant = await _connections.TenantAsync(cancellationToken);
+        var (connection, transaction) = tenant;
 
         var item = await LoadAsync(connection, transaction, scope.Id, cancellationToken);
 
@@ -432,8 +433,8 @@ public sealed partial class WorkWriter
                 $"work_move(ref:\"{scope.Ref}\", before:\"<a sibling ref>\")"));
         }
 
-        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
-        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+        await using var tenant = await _connections.TenantAsync(cancellationToken);
+        var (connection, transaction) = tenant;
 
         var item = await LoadAsync(connection, transaction, scope.Id, cancellationToken);
         var anchorRef = Blank(before) ? after : before;
@@ -530,8 +531,8 @@ public sealed partial class WorkWriter
             return WriteResult.No(targetRefusal!);
         }
 
-        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
-        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+        await using var tenant = await _connections.TenantAsync(cancellationToken);
+        var (connection, transaction) = tenant;
 
         if (remove)
         {

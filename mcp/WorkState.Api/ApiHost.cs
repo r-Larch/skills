@@ -183,6 +183,16 @@ public static class ApiHost
         app.UseAuthentication();
         app.UseAuthorization();
 
+        // doc 02 §15. After authorization, which is where an endpoint policy's schemes (the cookie, OAuth) put
+        // their principal on the request: from here on a tenant connection acts in its workspace, or in none.
+        app.Use(async (context, next) =>
+        {
+            using (TenantScope.Enter(RequestTenant.Of(context.User)))
+            {
+                await next(context);
+            }
+        });
+
         app.MapGet("/health", () => Results.Ok(new { status = "ok" })).AllowAnonymous();
 
         app.MapMcp(OAuthServer.McpPath).RequireAuthorization(WorkStatePolicies.Any);

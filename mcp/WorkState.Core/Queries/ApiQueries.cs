@@ -1,5 +1,6 @@
 using Dapper;
 using Npgsql;
+using WorkState.Core.Data;
 
 namespace WorkState.Core.Queries;
 
@@ -11,6 +12,8 @@ namespace WorkState.Core.Queries;
 /// </summary>
 public sealed class ApiQueries(NpgsqlDataSource dataSource)
 {
+    private readonly WorkStateConnections _connections = new(dataSource);
+
     private const string InScope = "(i.id = @scope OR i.ancestors @> ARRAY[@scope]::uuid[])";
 
     private const string LeafKinds = "('task','followup','subtask','spike','question','incident')";
@@ -656,14 +659,16 @@ public sealed class ApiQueries(NpgsqlDataSource dataSource)
 
     private async Task<T?> SingleAsync<T>(string sql, object parameters, CancellationToken cancellationToken)
     {
-        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        await using var tenant = await _connections.TenantAsync(cancellationToken);
+        var connection = tenant.Connection;
         return await connection.QuerySingleOrDefaultAsync<T>(
             new CommandDefinition(sql, parameters, cancellationToken: cancellationToken));
     }
 
     private async Task<IReadOnlyList<T>> ListAsync<T>(string sql, object parameters, CancellationToken cancellationToken)
     {
-        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        await using var tenant = await _connections.TenantAsync(cancellationToken);
+        var connection = tenant.Connection;
         var rows = await connection.QueryAsync<T>(
             new CommandDefinition(sql, parameters, cancellationToken: cancellationToken));
         return rows.AsList();

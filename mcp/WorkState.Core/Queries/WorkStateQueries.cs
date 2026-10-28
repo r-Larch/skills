@@ -1,6 +1,7 @@
 using System.Data;
 using Dapper;
 using Npgsql;
+using WorkState.Core.Data;
 
 namespace WorkState.Core.Queries;
 
@@ -11,6 +12,8 @@ namespace WorkState.Core.Queries;
 /// </summary>
 public sealed class WorkStateQueries(NpgsqlDataSource dataSource)
 {
+    private readonly WorkStateConnections _connections = new(dataSource);
+
     /// <summary>
     /// The document path of <c>i</c> — every ancestor's <c>seq</c> in tree order — exposed as
     /// <c>p.path</c>, so <c>p.path || i.seq</c> sorts a whole subtree the way the plan reads.
@@ -122,7 +125,8 @@ public sealed class WorkStateQueries(NpgsqlDataSource dataSource)
             FROM   item_rollup WHERE id = @item;
             """;
 
-        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        await using var tenant = await _connections.TenantAsync(cancellationToken);
+        var connection = tenant.Connection;
         return await connection.QuerySingleOrDefaultAsync<ItemRollup>(
             new CommandDefinition(sql, new { item = itemId }, cancellationToken: cancellationToken));
     }
@@ -310,7 +314,8 @@ public sealed class WorkStateQueries(NpgsqlDataSource dataSource)
         object parameters,
         CancellationToken cancellationToken)
     {
-        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        await using var tenant = await _connections.TenantAsync(cancellationToken);
+        var connection = tenant.Connection;
         var rows = await connection.QueryAsync<T>(
             new CommandDefinition(sql, parameters, cancellationToken: cancellationToken));
         return rows.AsList();

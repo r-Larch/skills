@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Dapper;
 using Npgsql;
+using WorkState.Core.Data;
 using WorkState.Core.Domain;
 using WorkState.Core.Rendering;
 
@@ -37,6 +38,8 @@ public sealed record SessionResolution(SessionRef? Session, string? Refused);
 /// </summary>
 public sealed partial class SessionStore(NpgsqlDataSource dataSource)
 {
+    private readonly WorkStateConnections _connections = new(dataSource);
+
     private sealed record Row(Guid Id, string? ClaudeSessionId, string? LaunchedBy);
 
     /// <summary>A caller with no user — a static token — names its sessions in the workspace's shared namespace.</summary>
@@ -63,8 +66,8 @@ public sealed partial class SessionStore(NpgsqlDataSource dataSource)
         var launchedBy = SessionFacts.Clean(facts.LaunchedBy);
         var claudeId = SessionFacts.Clean(facts.ClaudeSessionId);
 
-        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
-        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+        await using var tenant = await _connections.TenantAsync(cancellationToken);
+        var (connection, transaction) = tenant;
 
         // The first calls of one session can arrive together; the insert must not race itself.
         const string upsert =

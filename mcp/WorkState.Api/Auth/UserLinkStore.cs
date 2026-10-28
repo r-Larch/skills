@@ -1,6 +1,7 @@
 using Dapper;
 using Microsoft.AspNetCore.Identity;
 using Npgsql;
+using WorkState.Core.Data;
 using WorkState.Core.Domain;
 
 namespace WorkState.Api.Auth;
@@ -36,6 +37,8 @@ public sealed record InviteOutcome(InviteOutcomeKind Kind, DashboardUser? User =
 /// </summary>
 public sealed class UserLinkStore(NpgsqlDataSource dataSource)
 {
+    private readonly WorkStateConnections _connections = new(dataSource);
+
     public static readonly TimeSpan InviteLifetime = TimeSpan.FromDays(14);
 
     public static readonly TimeSpan ResetLifetime = TimeSpan.FromHours(24);
@@ -54,7 +57,7 @@ public sealed class UserLinkStore(NpgsqlDataSource dataSource)
         var token = LinkToken.New();
         var id = Guid.CreateVersion7();
 
-        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        await using var connection = await _connections.OwnerBypassAsync(Bypass.Links, cancellationToken);
         var expiresAt = await connection.ExecuteScalarAsync<DateTimeOffset>(new CommandDefinition(
             """
             INSERT INTO user_link (id, kind, token_hash, workspace_id, role, created_by, expires_at)
@@ -70,7 +73,7 @@ public sealed class UserLinkStore(NpgsqlDataSource dataSource)
     /// <summary>The invites into <paramref name="tenant"/> nobody has used yet and that have not expired, newest first.</summary>
     public async Task<IReadOnlyList<PendingInvite>> PendingInvitesAsync(Guid tenant, CancellationToken cancellationToken)
     {
-        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        await using var connection = await _connections.OwnerBypassAsync(Bypass.Links, cancellationToken);
         return (await connection.QueryAsync<PendingInvite>(new CommandDefinition(
             """
             SELECT l.id AS "Id", l.role AS "Role", u.name AS "CreatedBy", l.created_at AS "CreatedAt",
@@ -87,7 +90,7 @@ public sealed class UserLinkStore(NpgsqlDataSource dataSource)
     /// <summary>Deletes an unused invite of <paramref name="tenant"/>; false when that workspace has no such invite.</summary>
     public async Task<bool> RevokeInviteAsync(Guid tenant, Guid id, CancellationToken cancellationToken)
     {
-        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        await using var connection = await _connections.OwnerBypassAsync(Bypass.Links, cancellationToken);
         return await connection.ExecuteAsync(new CommandDefinition(
             "DELETE FROM user_link WHERE id = @id AND workspace_id = @tenant AND kind = @kind AND used_at IS NULL;",
             new { id, tenant, kind = UserLink.Invite },
@@ -102,7 +105,7 @@ public sealed class UserLinkStore(NpgsqlDataSource dataSource)
             return null;
         }
 
-        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        await using var connection = await _connections.OwnerBypassAsync(Bypass.Links, cancellationToken);
         return await connection.QuerySingleOrDefaultAsync<InviteInfo>(new CommandDefinition(
             """
             SELECT w.id AS "WorkspaceId", w.slug AS "Slug", l.role AS "Role", l.expires_at AS "ExpiresAt"
@@ -135,8 +138,8 @@ public sealed class UserLinkStore(NpgsqlDataSource dataSource)
         // Before the transaction: a hash takes as long as a sign-in does, and no row needs to wait on it.
         var hash = signedIn is null ? Hasher.HashPassword(Nobody, password!) : null;
 
-        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
-        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+        await using var bypass = await _connections.OwnerBypassTransactionAsync(Bypass.Links, cancellationToken);
+        var (connection, transaction) = bypass;
 
         var used = await connection.QuerySingleOrDefaultAsync<UsedInvite>(new CommandDefinition(
             """
@@ -195,8 +198,8 @@ public sealed class UserLinkStore(NpgsqlDataSource dataSource)
         var token = LinkToken.New();
         var id = Guid.CreateVersion7();
 
-        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
-        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+        await using var bypass = await _connections.OwnerBypassTransactionAsync(Bypass.Links, cancellationToken);
+        var (connection, transaction) = bypass;
 
         await connection.ExecuteAsync(new CommandDefinition(
             "DELETE FROM user_link WHERE kind = @kind AND user_id = @user AND used_at IS NULL;",
@@ -226,7 +229,7 @@ public sealed class UserLinkStore(NpgsqlDataSource dataSource)
             return null;
         }
 
-        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        await using var connection = await _connections.OwnerBypassAsync(Bypass.Links, cancellationToken);
         return await connection.QuerySingleOrDefaultAsync<ResetInfo>(new CommandDefinition(
             """
             SELECT u.id AS "UserId", u.name AS "Name", l.expires_at AS "ExpiresAt"
@@ -252,8 +255,8 @@ public sealed class UserLinkStore(NpgsqlDataSource dataSource)
 
         var hash = Hasher.HashPassword(Nobody, password);
 
-        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
-        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+        await using var bypass = await _connections.OwnerBypassTransactionAsync(Bypass.Links, cancellationToken);
+        var (connection, transaction) = bypass;
 
         var used = await connection.QuerySingleOrDefaultAsync<UsedReset>(new CommandDefinition(
             """

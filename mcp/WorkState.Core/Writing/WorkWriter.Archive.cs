@@ -21,8 +21,8 @@ public sealed partial class WorkWriter
         bool archived,
         CancellationToken cancellationToken = default)
     {
-        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
-        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+        await using var tenant = await _connections.TenantAsync(cancellationToken);
+        var (connection, transaction) = tenant;
 
         var item = await connection.QuerySingleOrDefaultAsync<(Guid Id, Guid WorkspaceId, string Ref, string Kind)>(
             new CommandDefinition(

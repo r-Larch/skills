@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Text.Json;
 using System.Threading.Channels;
 using Npgsql;
+using WorkState.Core.Data;
 using WorkState.Core.Queries;
 using WorkState.Mcp;
 
@@ -47,6 +48,8 @@ public sealed class EventStream(NpgsqlDataSource dataSource, StreamOptions optio
 
     private static readonly JsonSerializerOptions FrameJson = new(JsonSerializerDefaults.Web);
 
+    private readonly WorkStateConnections _connections = new(dataSource);
+
     private readonly TimeSpan _heartbeat = options.Heartbeat;
 
     private readonly ConcurrentDictionary<Guid, Subscriber> _subscribers = new();
@@ -86,7 +89,7 @@ public sealed class EventStream(NpgsqlDataSource dataSource, StreamOptions optio
 
     private async Task ListenAsync(CancellationToken cancellationToken)
     {
-        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        await using var connection = await _connections.OwnerBypassAsync(Bypass.Journal, cancellationToken);
 
         connection.Notification += OnNotification;
 

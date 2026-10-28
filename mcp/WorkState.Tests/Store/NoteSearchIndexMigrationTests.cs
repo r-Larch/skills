@@ -58,6 +58,7 @@ public sealed class NoteSearchIndexMigrationTests(PostgresFixture fixture)
             }
 
             await using (var source = WorkStateDataSource.Create(connectionString))
+            using (TenantScope.Enter(workspace))
             {
                 var hit = Assert.Single(await new WorkStateQueries(source).SearchAsync(workspace, "wombat", cancellationToken: Ct));
                 Assert.Equal("note", hit.Source);

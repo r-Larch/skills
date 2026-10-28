@@ -1,6 +1,7 @@
 using System.Data;
 using Dapper;
 using Npgsql;
+using WorkState.Core.Data;
 
 namespace WorkState.Core.Queries;
 
@@ -12,6 +13,8 @@ namespace WorkState.Core.Queries;
 /// </summary>
 public sealed partial class BoardQueries(NpgsqlDataSource dataSource)
 {
+    private readonly WorkStateConnections _connections = new(dataSource);
+
     /// <summary>Self or anything beneath it. The subtree predicate every query below repeats.</summary>
     private const string InScope = "(i.id = @scope OR i.ancestors @> ARRAY[@scope]::uuid[])";
 
@@ -25,7 +28,7 @@ public sealed partial class BoardQueries(NpgsqlDataSource dataSource)
             LIMIT 1;
             """;
 
-        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        await using var connection = await _connections.OwnerBypassAsync(Bypass.WorkspaceBinding, cancellationToken);
         return await connection.QuerySingleOrDefaultAsync<Guid?>(
             new CommandDefinition(sql, new { slug }, cancellationToken: cancellationToken));
     }
@@ -1191,7 +1194,8 @@ public sealed partial class BoardQueries(NpgsqlDataSource dataSource)
 
     private async Task<T?> SingleAsync<T>(string sql, object parameters, CancellationToken cancellationToken)
     {
-        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        await using var tenant = await _connections.TenantAsync(cancellationToken);
+        var connection = tenant.Connection;
         return await connection.QuerySingleOrDefaultAsync<T>(
             new CommandDefinition(sql, parameters, cancellationToken: cancellationToken));
     }
@@ -1201,7 +1205,8 @@ public sealed partial class BoardQueries(NpgsqlDataSource dataSource)
         object parameters,
         CancellationToken cancellationToken)
     {
-        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        await using var tenant = await _connections.TenantAsync(cancellationToken);
+        var connection = tenant.Connection;
         var rows = await connection.QueryAsync<T>(
             new CommandDefinition(sql, parameters, cancellationToken: cancellationToken));
         return rows.AsList();

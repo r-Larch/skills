@@ -4,6 +4,7 @@ using System.Text;
 using Microsoft.AspNetCore.Authentication;
 using WorkState.Api.Auth;
 using WorkState.Core.Board;
+using WorkState.Core.Data;
 using WorkState.Core.Queries;
 using WorkState.Core.Rendering;
 using WorkState.Mcp;
@@ -45,6 +46,9 @@ internal static class RefLinks
         {
             return Html(StatusCodes.Status401Unauthorized, SignIn);
         }
+
+        // Anonymous to the pipeline, so its scope is entered here, for the tenant the cookie just named.
+        using var scope = TenantScope.Enter(tenant);
 
         var asked = (path ?? string.Empty).Trim('/');
         if (asked.Length == 0)
@@ -90,10 +94,17 @@ internal static class RefLinks
         var found = new List<UserTenant>();
         foreach (var other in await users.TenantsAsync(user, cancellationToken))
         {
-            if (other.Id != current
-                && await reader.ResolveAsync(other.Id, asked, cancellationToken) is ScopeResult.Found or ScopeResult.Ambiguous)
+            if (other.Id == current)
             {
-                found.Add(other);
+                continue;
+            }
+
+            using (TenantScope.Enter(other.Id))
+            {
+                if (await reader.ResolveAsync(other.Id, asked, cancellationToken) is ScopeResult.Found or ScopeResult.Ambiguous)
+                {
+                    found.Add(other);
+                }
             }
         }
 

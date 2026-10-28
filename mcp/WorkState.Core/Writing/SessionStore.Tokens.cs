@@ -4,6 +4,7 @@ using System.Text;
 using System.Text.Json;
 using Dapper;
 using Npgsql;
+using WorkState.Core.Data;
 using WorkState.Core.Domain;
 using WorkState.Core.Rendering;
 
@@ -91,8 +92,8 @@ public sealed partial class SessionStore
         var launchedBy = SessionFacts.Clean(request.LaunchedBy);
         var claudeId = SessionFacts.Clean(request.ClaudeSessionId);
 
-        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
-        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+        await using var tenant = await _connections.TenantAsync(cancellationToken);
+        var (connection, transaction) = tenant;
 
         const string upsert =
             """
@@ -261,7 +262,7 @@ public sealed partial class SessionStore
               AND  {UserMayEnter};
             """;
 
-        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        await using var connection = await _connections.OwnerBypassAsync(Bypass.Authentication, cancellationToken);
         var row = await connection.QuerySingleOrDefaultAsync<TokenRow>(
             new CommandDefinition(
                 sql,
@@ -290,8 +291,8 @@ public sealed partial class SessionStore
         SessionFacts facts,
         CancellationToken cancellationToken = default)
     {
-        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
-        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+        await using var tenant = await _connections.TenantAsync(cancellationToken);
+        var (connection, transaction) = tenant;
 
         var row = await connection.QuerySingleOrDefaultAsync<BoundRow>(
             new CommandDefinition(
@@ -329,7 +330,8 @@ public sealed partial class SessionStore
             WHERE  id = @id AND workspace_id = @workspace;
             """;
 
-        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        await using var tenant = await _connections.TenantAsync(cancellationToken);
+        var connection = tenant.Connection;
         var row = await connection.QuerySingleOrDefaultAsync<FoundRow>(
             new CommandDefinition(sql, new { id, workspace = workspaceId }, cancellationToken: cancellationToken));
 
@@ -350,8 +352,8 @@ public sealed partial class SessionStore
         ActorRole role,
         CancellationToken cancellationToken = default)
     {
-        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
-        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+        await using var tenant = await _connections.TenantAsync(cancellationToken);
+        var (connection, transaction) = tenant;
 
         var row = await connection.QuerySingleAsync<BoundRow>(
             new CommandDefinition(
@@ -413,8 +415,8 @@ public sealed partial class SessionStore
             FROM   released r;
             """;
 
-        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
-        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+        await using var tenant = await _connections.TenantAsync(cancellationToken);
+        var (connection, transaction) = tenant;
 
         var name = await connection.ExecuteScalarAsync<string>(new CommandDefinition(
             "SELECT name FROM agent_session WHERE id = @session FOR UPDATE;",

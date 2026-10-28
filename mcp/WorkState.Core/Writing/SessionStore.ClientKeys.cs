@@ -40,8 +40,8 @@ public sealed partial class SessionStore
             return null;
         }
 
-        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
-        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+        await using var tenant = await _connections.TenantAsync(cancellationToken);
+        var (connection, transaction) = tenant;
 
         var row = await connection.QuerySingleOrDefaultAsync<KeyRow>(new CommandDefinition(
             """
@@ -88,8 +88,8 @@ public sealed partial class SessionStore
             return new SessionResolution(null, NoKey());
         }
 
-        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
-        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+        await using var tenant = await _connections.TenantAsync(cancellationToken);
+        var (connection, transaction) = tenant;
 
         const string upsert =
             """
