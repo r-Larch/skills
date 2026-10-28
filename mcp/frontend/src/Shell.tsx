@@ -1,13 +1,15 @@
 import { For, Show, createEffect, createSignal, on as onChange, type ParentProps } from 'solid-js'
 import { A, useLocation } from '@solidjs/router'
-import { boards, failure, overview } from './store.ts'
+import { account, boards, failure, overview } from './store.ts'
 import { link } from './live.ts'
 import { toggleTheme } from './theme.ts'
 import { countTitle, counted, tally } from './state.ts'
-import { projectHref, runHref } from './nav.ts'
+import { ADMIN, projectHref, runHref } from './nav.ts'
 import { clock, short } from './format.ts'
 import { ProjectName } from './ui.tsx'
-import { ActivityIcon, CheckIcon, InboxIcon, OverviewIcon, SearchIcon, SessionsIcon } from './icons.tsx'
+import { ActivityIcon, AdminIcon, CheckIcon, InboxIcon, OverviewIcon, SearchIcon, SessionsIcon } from './icons.tsx'
+import { showSwitcher } from './admin.ts'
+import { switchFailure, switchWorkspace } from './tenant.ts'
 import Palette, { openPalette } from './Palette.tsx'
 import { chordLabel } from './palette.ts'
 import {
@@ -49,6 +51,8 @@ export default function Shell(props: ParentProps) {
           <span class="brand-name">WorkState</span>
         </A>
 
+        <TenantSwitcher />
+
         <button
           type="button"
           class="side-find"
@@ -81,6 +85,12 @@ export default function Shell(props: ParentProps) {
             <SessionsIcon />
             Sessions
           </A>
+          <Show when={account()?.user.administers}>
+            <A href={ADMIN} class={location.pathname.startsWith(ADMIN) ? 'on' : ''}>
+              <AdminIcon />
+              Admin
+            </A>
+          </Show>
         </nav>
 
         <div class="side-h">Projects</div>
@@ -149,6 +159,33 @@ export default function Shell(props: ParentProps) {
 
       <Palette />
     </div>
+  )
+}
+
+/**
+ * The workspace the session acts in, as a choice among the ones the user may enter — shown only when there is
+ * more than one. Switching re-issues the cookie (`POST /api/session/tenant`) and reloads at the overview.
+ */
+function TenantSwitcher() {
+  const tenants = () => account()?.tenants ?? []
+  const current = () => tenants().find((t) => t.current)
+  return (
+    <Show when={showSwitcher(tenants())}>
+      <label class="side-tenant">
+        <span>Workspace</span>
+        <select
+          value={current()?.id ?? ''}
+          aria-label="Switch workspace"
+          onChange={(e) => {
+            const to = e.currentTarget.value
+            if (to !== current()?.id) void switchWorkspace(to)
+          }}
+        >
+          <For each={tenants()}>{(t) => <option value={t.id}>{t.slug}</option>}</For>
+        </select>
+      </label>
+      <Show when={switchFailure()}>{(message) => <div class="side-none">{message()}</div>}</Show>
+    </Show>
   )
 }
 

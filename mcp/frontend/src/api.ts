@@ -1,4 +1,5 @@
 import { createSignal } from 'solid-js'
+import type { InviteView } from './admin.ts'
 import type { AppInfo, SessionTenant } from './connect.ts'
 
 /** doc 10 — the frozen v1 shapes, as `WorkState.Api/App/V1/V1Contract.cs` serialises them. */
@@ -335,6 +336,131 @@ async function write(path: string): Promise<Response> {
   }
 
   return response
+}
+
+/** A dashboard write with a JSON body and any method; a refusal throws the server's own words, as `write` does. */
+async function send(method: 'POST' | 'PUT' | 'DELETE', path: string, body?: unknown): Promise<Response> {
+  const response = await fetch(path, {
+    method,
+    credentials: 'same-origin',
+    headers: { 'X-WorkState-Write': '1', ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  })
+
+  if (response.status === 401) {
+    setSignedIn(false)
+    throw new Unauthorized()
+  }
+
+  if (!response.ok) {
+    const answer = (await response.json().catch(() => null)) as { error?: string } | null
+    throw new Error(answer?.error ?? `${path} → ${response.status}`)
+  }
+
+  return response
+}
+
+/** `GET /api/session/me`: who the cookie is, and whether the Admin page is theirs. */
+export type SessionUser = { id: string; name: string; systemAdmin: boolean; administers: boolean }
+
+export const me = () => json<SessionUser>('/api/session/me')
+
+export type AdminTenant = {
+  id: string
+  slug: string
+  createdAt: string
+  members: number
+  admins: number
+  pendingInvites: number
+  current: boolean
+}
+
+export type AdminMember = {
+  userId: string
+  name: string
+  role: string
+  systemAdmin: boolean
+  joinedAt: string
+  disabledAt: string | null
+}
+
+export type AdminUser = {
+  id: string
+  name: string
+  systemAdmin: boolean
+  createdAt: string
+  disabledAt: string | null
+  tenants: { id: string; slug: string; role: string }[]
+}
+
+export type PendingInvite = { id: string; role: string; createdBy: string | null; createdAt: string; expiresAt: string }
+
+/** The only answer that carries the token: the server keeps its hash, so it cannot be shown again. */
+export type CreatedInvite = { id: string; token: string; url: string; role: string; tenant: string; expiresAt: string }
+
+export const adminTenants = () => json<AdminTenant[]>('/api/admin/tenants')
+
+export const adminMembers = (tenant: string) => json<AdminMember[]>(`/api/admin/tenants/${id(tenant)}/members`)
+
+export const adminInvites = (tenant: string) => json<PendingInvite[]>(`/api/admin/tenants/${id(tenant)}/invites`)
+
+export const adminUsers = () => json<AdminUser[]>('/api/admin/users')
+
+export const createTenant = async (slug: string): Promise<AdminTenant> =>
+  (await send('POST', '/api/admin/tenants', { slug })).json() as Promise<AdminTenant>
+
+export async function setMemberRole(tenant: string, user: string, role: string): Promise<void> {
+  await send('PUT', `/api/admin/tenants/${id(tenant)}/members/${id(user)}`, { role })
+}
+
+export async function removeMember(tenant: string, user: string): Promise<void> {
+  await send('DELETE', `/api/admin/tenants/${id(tenant)}/members/${id(user)}`)
+}
+
+export const createInvite = async (tenant: string, role: string): Promise<CreatedInvite> =>
+  (await send('POST', `/api/admin/tenants/${id(tenant)}/invites`, { role })).json() as Promise<CreatedInvite>
+
+export async function revokeInvite(tenant: string, invite: string): Promise<void> {
+  await send('DELETE', `/api/admin/tenants/${id(tenant)}/invites/${id(invite)}`)
+}
+
+export async function setUserDisabled(user: string, disabled: boolean): Promise<void> {
+  await send('POST', `/api/admin/users/${id(user)}/${disabled ? 'disable' : 'enable'}`)
+}
+
+/** An answer from a public page's call: the body when it is JSON, the server's error when it is one; status 0 is none. */
+export type Answer<T> = { status: number; body: T | null; error: string | null }
+
+async function answer<T>(request: Promise<Response>): Promise<Answer<T>> {
+  try {
+    const response = await request
+    const parsed = (await response.json().catch(() => null)) as (T & { error?: string }) | null
+    return response.ok
+      ? { status: response.status, body: parsed, error: null }
+      : { status: response.status, body: null, error: parsed?.error ?? null }
+  } catch {
+    return { status: 0, body: null, error: null }
+  }
+}
+
+/** The invite page's read: what the link joins, and who would accept it. No session needed. */
+export const inviteInfo = (token: string) =>
+  answer<InviteView>(fetch(`/api/invite/${id(token)}`, { credentials: 'same-origin' }))
+
+/** Accepts as the signed-in user when there is one (the body is then ignored), else as a new user. */
+export const acceptInvite = (token: string, body: { name: string; password: string } | null) =>
+  answer<{ name: string; tenantId: string }>(
+    fetch(`/api/invite/${id(token)}/accept`, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json', 'X-WorkState-Write': '1' },
+      body: JSON.stringify(body ?? {}),
+    }),
+  )
+
+/** Ends this browser's session; the page decides what to show next. */
+export async function signOut(): Promise<void> {
+  await fetch('/api/session', { method: 'DELETE', credentials: 'same-origin' }).catch(() => undefined)
 }
 
 export async function setArchived(project: string, archived: boolean): Promise<void> {

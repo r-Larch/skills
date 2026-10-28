@@ -12,6 +12,7 @@ import { appIconHref, consentForm, consentStep, consentView, hiddenFields, iconS
 import { formerName, isReleased, releasable, tokenLabel } from '../src/sessions.ts'
 import { arrange, chordLabel, commands, entryHref, isPaletteChord, isSlash, matchCommands } from '../src/palette.ts'
 import { HANDLE, LIST_MIN, PANEL_MIN, PANEL_SHARE, WIDTH_KEY, clampWidth, docks, panelWidth, rememberWidth, rememberedWidth } from '../src/split.ts'
+import { expiresIn, isLastAdmin, isLinkPath, joinStep, joinToken, nameProblem, passwordProblem, roleLabel, showSwitcher, slugFrom, slugProblem } from '../src/admin.ts'
 
 let failures = 0
 
