@@ -130,6 +130,12 @@ documents and dynamic registration; PKCE S256; keys held in Postgres), the `/con
 `/connect/consent` pages with the client's icon, `WORKSTATE_TRUSTED_PROXIES`, and one additive
 migration (`OAuthServer`). Static and minted `wss_` tokens are unchanged.
 
+`0.9.0` (rlarch 2.7.0, no plugin change) carries OAuth for the read API, `/api/stream` and the
+agent-session mint (resource `<origin>/api`, scopes `workstate.read` and `workstate.sessions`), the
+cascade that ends `wss_` sessions minted under a revoked authorization, the launcher takeover of a
+name by Claude session id, the name release (dashboard Sessions page and
+`POST /api/agent-sessions/{id}/release`), and one additive migration (`OAuthMintedSession`).
+
 ---
 
 ## 3. Should the skills use it? — Yes, and as a **hard** dependency
