@@ -412,6 +412,10 @@ namespace WorkState.Core.Migrations
                         .HasColumnType("text")
                         .HasColumnName("tree");
 
+                    b.Property<Guid?>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
                     b.Property<Guid>("WorkspaceId")
                         .HasColumnType("uuid")
                         .HasColumnName("workspace_id");
@@ -431,9 +435,11 @@ namespace WorkState.Core.Migrations
                         .HasDatabaseName("agent_session_client_key_unique")
                         .HasFilter("client_key IS NOT NULL");
 
-                    b.HasIndex("WorkspaceId", "Name")
+                    b.HasIndex("WorkspaceId", "UserId", "Name")
                         .IsUnique()
                         .HasDatabaseName("agent_session_name_unique");
+
+                    NpgsqlIndexBuilderExtensions.AreNullsDistinct(b.HasIndex("WorkspaceId", "UserId", "Name"), false);
 
                     b.ToTable("agent_session", null, t =>
                         {

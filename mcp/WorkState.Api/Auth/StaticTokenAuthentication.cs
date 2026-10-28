@@ -120,9 +120,10 @@ public sealed class StaticTokenHandler(
     }
 
     /// <summary>
-    /// doc 14 §2 — a minted token is looked up by its hash; unknown, revoked and expired fail alike.
-    /// The principal carries the granted role, nested as the static ones are, and the session, which
-    /// is what binds the name to the credential instead of to a header.
+    /// doc 14 §2 — a minted token is looked up by its hash; unknown, revoked and expired fail alike, and so
+    /// does one whose user may no longer enter its workspace. The principal carries the granted role, nested
+    /// as the static ones are, the session, which is what binds the name to the credential instead of to a
+    /// header, and the user who minted it, whose further mints are theirs too.
     /// </summary>
     private async Task<AuthenticateResult> MintedAsync(string presented)
     {
@@ -136,6 +137,11 @@ public sealed class StaticTokenHandler(
         identity.AddClaim(new Claim(RequestTenant.Claim, session.WorkspaceId.ToString()));
         identity.AddClaim(new Claim(CallerSession.SessionIdClaim, session.SessionId.ToString()));
         identity.AddClaim(new Claim(CallerSession.SessionNameClaim, session.Name));
+        if (session.UserId is { } user)
+        {
+            identity.AddClaim(new Claim(CallerSession.UserIdClaim, user.ToString()));
+        }
+
         foreach (var grant in session.Grants)
         {
             identity.AddClaim(new Claim(CallerSession.GrantClaim, grant));

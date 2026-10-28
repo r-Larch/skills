@@ -45,6 +45,12 @@ public static class CallerSession
     /// <summary>One per grant the minted token carries; a static token never has one.</summary>
     public const string GrantClaim = "workstate:grant";
 
+    /// <summary>
+    /// The <c>app_user</c> id behind an OAuth token, or behind a minted token a user minted. A static token has
+    /// none, and its sessions share the workspace's names; a user's are theirs alone.
+    /// </summary>
+    public const string UserIdClaim = "workstate:user-id";
+
     public static McpRequestHandler<CallToolRequestParams, CallToolResult> Filter(
         McpRequestHandler<CallToolRequestParams, CallToolResult> next)
         => async (context, cancellationToken) =>
@@ -126,7 +132,7 @@ public static class CallerSession
                 ClientVersion: context.Server.ClientInfo?.Version,
                 ClientKey: key);
 
-            if (await store.ResolveByKeyAsync(workspaceId, role, keyed, cancellationToken) is { } byKey)
+            if (await store.ResolveByKeyAsync(workspaceId, caller.UserId, role, keyed, cancellationToken) is { } byKey)
             {
                 http.Items[ItemKey] = byKey;
             }
@@ -145,7 +151,7 @@ public static class CallerSession
             ClientVersion: context.Server.ClientInfo?.Version,
             ClientKey: key);
 
-        var resolved = await store.ResolveAsync(workspaceId, role, named, cancellationToken);
+        var resolved = await store.ResolveAsync(workspaceId, caller.UserId, role, named, cancellationToken);
         if (resolved.Session is { } session)
         {
             http.Items[ItemKey] = session;

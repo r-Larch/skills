@@ -24,9 +24,13 @@ public sealed partial class SessionStore
         bool Live,
         DateTimeOffset LastSeenAt);
 
-    /// <summary>A key nobody bound yet resolves to nothing, and the call is unnamed as before.</summary>
+    /// <summary>
+    /// A key nobody bound yet resolves to nothing, and the call is unnamed as before; so does a key another
+    /// user's session holds, since <paramref name="userId"/>'s calls are never signed with someone else's name.
+    /// </summary>
     public async Task<SessionRef?> ResolveByKeyAsync(
         Guid workspaceId,
+        Guid? userId,
         ActorRole role,
         SessionFacts facts,
         CancellationToken cancellationToken = default)
@@ -43,10 +47,10 @@ public sealed partial class SessionStore
             """
             SELECT id AS "Id", name AS "Name", claude_session_id AS "ClaudeSessionId"
             FROM   agent_session
-            WHERE  workspace_id = @workspace AND client_key = @key
+            WHERE  workspace_id = @workspace AND client_key = @key AND user_id IS NOT DISTINCT FROM @user
             FOR    UPDATE;
             """,
-            new { workspace = workspaceId, key },
+            new { workspace = workspaceId, key, user = userId },
             transaction,
             cancellationToken: cancellationToken));
 
@@ -72,6 +76,7 @@ public sealed partial class SessionStore
     /// </summary>
     public async Task<SessionResolution> BindAsync(
         Guid workspaceId,
+        Guid? userId,
         ActorRole role,
         string name,
         SessionFacts facts,
@@ -88,9 +93,9 @@ public sealed partial class SessionStore
 
         const string upsert =
             """
-            INSERT INTO agent_session (id, workspace_id, name, role)
-            VALUES (@id, @workspace, @name, @role::actor_role)
-            ON CONFLICT (workspace_id, name) DO NOTHING;
+            INSERT INTO agent_session (id, workspace_id, user_id, name, role)
+            VALUES (@id, @workspace, @user, @name, @role::actor_role)
+            ON CONFLICT (workspace_id, user_id, name) DO NOTHING;
 
             SELECT id                AS "Id",
                    claude_session_id AS "ClaudeSessionId",
@@ -105,7 +110,7 @@ public sealed partial class SessionStore
                      FROM workspace WHERE id = @workspace)) AS "Live",
                    last_seen_at      AS "LastSeenAt"
             FROM   agent_session
-            WHERE  workspace_id = @workspace AND name = @name
+            WHERE  workspace_id = @workspace AND user_id IS NOT DISTINCT FROM @user AND name = @name
             FOR    UPDATE;
             """;
 
@@ -115,6 +120,7 @@ public sealed partial class SessionStore
             {
                 id = Guid.CreateVersion7(),
                 workspace = workspaceId,
+                user = userId,
                 name,
                 role = Pg.Label(role),
                 fallback = WorkWriter.DefaultTtlMinutes,
