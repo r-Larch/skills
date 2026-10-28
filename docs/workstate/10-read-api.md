@@ -87,7 +87,8 @@ administrator with none, in the oldest workspace — and a user with no membersh
    `GET /api/v1/*` and `/api/stream`, `workstate.sessions` for the agent-session group (doc 14 §2);
    a valid `/api` token without the route's scope is `403`. The scopes bind the OAuth principal only:
    the cookie, static tokens and `wss_` tokens need no scope. The user behind the token is the
-   dashboard operator, mapped to the controller role as on `/mcp`. Registration is a client-ID
+   signed-in dashboard user, in the one tenant they approved it in (doc 08 §4), mapped to the
+   controller role as on `/mcp`. Registration is a client-ID
    metadata document (an https `client_id`; Foreman's) or DCR (`POST /connect/register`, for
    development), public clients with PKCE S256, loopback callbacks on any port (RFC 8252 §7.3: a
    requested `http` loopback `redirect_uri` is admitted when a registered callback matches it in

@@ -64,6 +64,11 @@ Rules:
   a minted token belongs to that minting session. A session minted by a static token belongs to any
   static caller whose role is at least the granted role, because the static orchestrator and
   controller tokens carry no session and cannot be told apart beyond their role.
+- **A user's sessions** (m51): a credential that names a user — an OAuth token, or a `wss_` token a
+  user minted — adds a rule on top, for PATCH, DELETE and `release` alike: a member changes only the
+  sessions that user minted; an admin of the tenant (membership role `admin`) or a system
+  administrator, any session in it; otherwise `403` naming the session as another user's. A static
+  token names no user and keeps the rule above alone.
 - **Revoke** also returns the released claims' `in_progress` items to `ready` and journals
   `claim_revoked`, as the expiry sweep does for an expired claim.
 - Revoked, expired and unknown tokens are refused on `/mcp` itself (HTTP 401), before any tool runs.
@@ -87,11 +92,16 @@ Rules:
 - **Minting with OAuth** (foreman-oauth): the whole group — mint, PATCH, DELETE — also takes an
   OAuth access token whose audience is `<origin>/api` and whose scopes include `workstate.sessions`
   (doc 10 rule 5); without the scope it is `403`, and a `/mcp` token is `401`. The request, the
-  response, the role rules and the grants are exactly those above. The OAuth user is the dashboard
-  operator as controller, so the role cap is controller, and the caller carries no session, so its
-  mints belong to it as a static controller's do. The row records the token's subject
-  (`minted_by_subject`) and its OpenIddict authorization (`minted_by_authorization_id`); a static or
-  `wss_` mint sets both to null, and each mint sets them anew. **A `wss_` token minted under an
+  response, the role rules and the grants are exactly those above. The OAuth user is a signed-in
+  dashboard user as controller, in the one tenant the token is for (doc 08 §4), so the role cap is
+  controller, and the caller carries no session. The session is that user's (m51,
+  `agent_session.user_id`): its name is unique among their own sessions in the tenant (doc 11), and a
+  `wss_` token it mints records the same user. The row records the user's name (`minted_by_subject`,
+  the access token's subject before m51) and its OpenIddict authorization
+  (`minted_by_authorization_id`); a static or `wss_` mint sets both to null, and each mint sets them
+  anew. **A `wss_` token a user minted works only while that user may enter its workspace**, checked
+  in the same hash lookup: the membership removed or the user disabled, it is refused (`401`) on its
+  next call. **A `wss_` token minted under an
   authorization works only while that authorization is valid**, checked in the hash lookup on every
   use with no cache: revoking the authorization — revoking its refresh token at `/connect/revoke`,
   which is a client's sign-out (RFC 7009 §2.1) — or pruning it ends the session's token at its next
@@ -103,6 +113,10 @@ Rules:
   drops only that column, leaving tokens valid and sliding by the default.
   A third, `OAuthMintedSession`, adds `minted_by_subject` and `minted_by_authorization_id` (nullable
   text, no foreign key, so a pruned authorization cannot null the column into a static mint).
+  A fourth, `AgentSessionUser` (m51), adds `user_id` (nullable uuid, no foreign key for the same
+  reason) and widens `agent_session_name_unique` to (workspace_id, user_id, name) `NULLS NOT DISTINCT`;
+  every existing row has no user, so it admits all of them. Its Down narrows it back and is refused
+  while two users' sessions share a name in one workspace.
 
 ## 3. The `agents` stdio server (plugin)
 
