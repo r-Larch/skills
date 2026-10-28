@@ -204,6 +204,21 @@ unviolatable — now per run, which is the scope in which duplicate task numbers
 assumption on no item) are unique per workspace rather than across every workspace on the server.
 The key compares `ref` case-sensitively; the server's free-ref probes compare `lower(ref)`.
 
+**A ref-scoping row is numbered among its siblings.** A project or a run is its own ref scope
+(`ref_scope_id = id`), so the key above never compares two of them. Their refs are unique among the
+self-scoping rows with the same `parent_id` — the runs of one project or feature; the projects of one
+workspace, whose parent is NULL — ignoring case:
+
+```sql
+CREATE UNIQUE INDEX item_sibling_ref_unique ON item (workspace_id, parent_id, lower(ref))
+  NULLS NOT DISTINCT WHERE ref_scope_id = id;   -- ScopeRefUnique (m56)
+```
+
+`ref_scope_id = id` holds for exactly the `scopes_refs` kinds, so the predicate names no kind. A
+server-numbered run is `1`, `2`, … (under a feature `<feature>.1`), a project `project-1`, … — the first
+ref free among those siblings and in the parent's scope, since `gaia/1` reaches both. Another
+workspace's rows never count. A duplicate is refused naming the sibling that holds the ref.
+
 ### Kinds are data
 
 `projects > features > plans > epics > tasks > sub-tasks > etc.` is configuration, not a migration.

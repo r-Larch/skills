@@ -153,6 +153,12 @@ TenantRls marks four built-in functions LEAKPROOF (§4, doc 02 §15). After the 
 signs in to the dashboard once, before the OAuth clients refresh: that sign-in creates the first
 user, under whose name their tokens carry over.
 
+`1.0.1` (no plugin change) numbers and keeps unique the refs of projects and runs among their
+siblings (doc 02 "Ref scoping"): a ref-less run is `1`, `2`, … under its parent, a ref-less project
+`project-1`, `project-2`, … in its workspace, and a duplicate is refused. Its one migration
+(`ScopeRefUnique`) first renames each stored duplicate but the oldest to `<ref>-2`, `<ref>-3`, …,
+journalled as `updated`, then adds the index `item_sibling_ref_unique`.
+
 ---
 
 ## 3. Should the skills use it? — Yes, and as a **hard** dependency
@@ -238,7 +244,9 @@ routes.
 | reader | `WorkState:Auth:ReaderToken` · `WORKSTATE_READER_TOKEN` (**optional**: compose passes `${WORKSTATE_READER_TOKEN:-}`, and empty means no reader token exists) | `GET /api/v1/*` and `/api/stream` only — `/mcp` refuses it (403), and so does `/api/session` |
 | minted `wss_…` (per session) | none — `POST /api/agent-sessions` with an orchestrator or controller bearer returns it once; the store keeps only its SHA-256. Expires after `ttlHours` (default 72, max 720) **unused** — an idle window each use renews, no hard cap — revoked by `DELETE` | exactly what a static token of its granted role reaches (never above its minter's role), and its calls are that session's: `X-WorkState-Agent` is ignored |
 
-Foreman authenticates with the reader token: it watches every project and can write nothing.
+Foreman signs in with OAuth only (autowork m5/43): it registers by DCR, signs in with PKCE for the
+scopes `workstate.read workstate.sessions offline_access`, and mints a `wss_` session per agent it
+launches. It holds no reader token.
 
 **The dashboard's users (m48).** The cookie is issued to a row of `app_user` (doc 02 §12a), not to the
 configured credential. `WorkState:Dashboard:{Username,Password}` (`WORKSTATE_DASHBOARD_USERNAME` /

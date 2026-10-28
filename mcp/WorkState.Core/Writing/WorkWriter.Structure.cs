@@ -162,7 +162,8 @@ public sealed partial class WorkWriter
                 : parent.RefScopeId == parent.Id ? parent.Id : parent.RefScopeId;
 
             var reference = Blank(wanted.Ref)
-                ? await DerivedRefAsync(connection, transaction, workspaceId, parent, refScope, kind, cancellationToken)
+                ? await DerivedRefAsync(
+                    connection, transaction, workspaceId, parent, refScope, kind, rules.ScopesRefs, cancellationToken)
                 : wanted.Ref!.Trim();
 
             var row2 = new NewRow(
@@ -181,6 +182,10 @@ public sealed partial class WorkWriter
             try
             {
                 await InsertItemAsync(connection, transaction, row2, cancellationToken);
+            }
+            catch (PostgresException refused) when (refused.ConstraintName == Migrations.ScopeRefUnique.Index)
+            {
+                return WriteResult.No(SiblingRefTaken(kind, reference, parent?.Ref));
             }
             catch (PostgresException refused)
             {
@@ -668,20 +673,19 @@ public sealed partial class WorkWriter
         ScopeRefLite? parent,
         Guid? refScopeId,
         string kind,
+        bool scopesRefs,
         CancellationToken cancellationToken)
     {
-        if (parent is null)
-        {
-            return await FreeRefAsync(
-                connection, transaction, workspaceId, refScopeId, n => $"{kind}-{n}", cancellationToken);
-        }
-
         // A run or a project scopes its own refs, so its children number from 1 rather than
         // inheriting a prefix nobody types: `2.3`, not `entity-store.3`.
-        var prefix = parent.RefScopeId == parent.Id ? string.Empty : $"{parent.Ref}.";
+        Func<int, string> shape = parent is null
+            ? n => $"{kind}-{n}"
+            : parent.RefScopeId == parent.Id ? n => $"{n}" : n => $"{parent.Ref}.{n}";
 
-        return await FreeRefAsync(
-            connection, transaction, workspaceId, refScopeId, n => $"{prefix}{n}", cancellationToken);
+        return scopesRefs
+            ? await FreeSiblingRefAsync(
+                connection, transaction, workspaceId, parent?.Id, refScopeId, shape, cancellationToken)
+            : await FreeRefAsync(connection, transaction, workspaceId, refScopeId, shape, cancellationToken);
     }
 
     private static async Task CriteriaAsync(
@@ -911,6 +915,18 @@ public sealed partial class WorkWriter
     /// doc 07 §1 — a rule whose violation should be impossible lives in Postgres, and its message
     /// already names the fix. Surfacing it beats paraphrasing it in C# and drifting from it.
     /// </summary>
+    private static string SiblingRefTaken(string kind, string reference, string? parentRef)
+    {
+        var holder = parentRef ?? "this workspace";
+        var name = parentRef is null ? reference : $"{parentRef}/{reference}";
+
+        return Refusal.Blocked(
+            $"work_create(items:[{{kind:\"{kind}\", ref:\"{reference}\"}}]) — {holder} already has a {kind} \"{reference}\".",
+            $"a {kind}'s ref is unique among its siblings, ignoring case, or \"{name}\" would name two of them",
+            $"work_create(items:[{{kind:\"{kind}\", …}}]) without ref — the server numbers it",
+            "work_tree() to see the refs already taken");
+    }
+
     private static string FromPostgres(PostgresException refused, string call)
     {
         var routes = new List<string>();
