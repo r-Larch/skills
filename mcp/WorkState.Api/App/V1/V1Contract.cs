@@ -244,3 +244,8 @@ public sealed record ResolveView(DateTimeOffset AsOf, long Seq, IReadOnlyList<It
 public sealed record PromptView(string Key, string Label, int? Count, string Text);
 
 public sealed record PromptsView(DateTimeOffset AsOf, long Seq, ItemRefView Scope, IReadOnlyList<PromptView> Prompts);
+
+/// <summary><c>match</c>: <c>ref</c>, <c>prefix</c> or <c>text</c>; <c>snippet</c> only on a text hit.</summary>
+public sealed record SearchHitView(ItemRefView Item, ItemRefView? Run, ItemRefView? Project, string Match, string? Snippet);
+
+public sealed record SearchView(DateTimeOffset AsOf, long Seq, IReadOnlyList<SearchHitView> Hits);

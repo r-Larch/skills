@@ -208,4 +208,71 @@ public static partial class ApiV1
 
         return Results.Ok(new ResolveView(snapshot.AsOf, snapshot.Seq, [.. matches.Select(m => book.Item(m.Id))]));
     }
+
+    /// <summary>
+    /// The dashboard's find: exact refs by <see cref="ResolveAsync"/>'s rule first, then refs that
+    /// start with the query, then full-text item hits — each item once, at its best match.
+    /// </summary>
+    private static async Task<IResult> SearchAsync(
+        [FromQuery] string? q,
+        [FromQuery] int? limit,
+        BoardQueries board,
+        ApiQueries api,
+        WorkStateQueries queries,
+        WorkspaceOptions workspace,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(q))
+        {
+            return Results.BadRequest(new { error = "q= is required" });
+        }
+
+        if (await SnapshotAsync(board, api, workspace, cancellationToken) is not { } snapshot)
+        {
+            return Results.Ok(new SearchView(DateTimeOffset.UtcNow, 0, []));
+        }
+
+        var query = q.Trim();
+        var take = Math.Clamp(limit ?? SearchDefaultLimit, 1, SearchMaxLimit);
+        var hits = new List<(Guid Id, string Match, string? Snippet)>();
+        var seen = new HashSet<Guid>();
+
+        void Add(Guid id, string match, string? snippet)
+        {
+            if (hits.Count < take && seen.Add(id))
+            {
+                hits.Add((id, match, snippet));
+            }
+        }
+
+        foreach (var match in await board.ResolveAsync(snapshot.WorkspaceId, query, cancellationToken))
+        {
+            Add(match.Id, "ref", null);
+        }
+
+        if (hits.Count < take)
+        {
+            foreach (var id in await api.RefPrefixAsync(snapshot.WorkspaceId, query, take, cancellationToken))
+            {
+                Add(id, "prefix", null);
+            }
+        }
+
+        if (hits.Count < take)
+        {
+            foreach (var hit in await queries.SearchAsync(snapshot.WorkspaceId, query, take, null, itemsOnly: true, cancellationToken))
+            {
+                Add(hit.Id, "text", hit.Snippet.Replace("<b>", string.Empty).Replace("</b>", string.Empty));
+            }
+        }
+
+        var book = new V1Book(api, board);
+        await book.PlacedAsync(hits.Select(h => h.Id), cancellationToken);
+
+        return Results.Ok(new SearchView(
+            snapshot.AsOf,
+            snapshot.Seq,
+            [.. hits.Select(h => new SearchHitView(
+                book.Item(h.Id), book.RunOf(h.Id), book.Item(book.ProjectId(h.Id)), h.Match, h.Snippet))]));
+    }
 }

@@ -10,6 +10,7 @@ import { DEFAULT_FILTER, FILTERS, asFilter, cancelledLines, plan, planQuery, wit
 import { boardHref, copyValue, itemHref, pathCrumbs, routeReads } from '../src/nav.ts'
 import { appIconHref, consentForm, consentStep, consentView, hiddenFields, iconStep, initials, isConnectPath, returnTarget, scopeLines, signInHref, signInStart, signInStep } from '../src/connect.ts'
 import { formerName, isReleased, releasable, tokenLabel } from '../src/sessions.ts'
+import { arrange, chordLabel, commands, entryHref, isPaletteChord, isSlash, matchCommands } from '../src/palette.ts'
 import { HANDLE, LIST_MIN, PANEL_MIN, PANEL_SHARE, WIDTH_KEY, clampWidth, docks, panelWidth, rememberWidth, rememberedWidth } from '../src/split.ts'
 
 let failures = 0
@@ -295,6 +296,49 @@ check('a tombstone shows the name it had', formerName(tomb), 'mw-workflow')
 check('a live name offers Release', releasable({ session: { name: 'mw-workflow' } }), true)
 check('a released row offers nothing', releasable({ session: { name: tomb } }), false)
 check('every token state reads', ['none', 'live', 'revoked', 'expired'].map(tokenLabel), ['named by header, no token', 'token live', 'token revoked', 'token expired'])
+
+console.log('\n── the command palette: what opens it, what matches, what Enter opens ───────')
+const key = (over) => ({ key: 'p', ctrlKey: false, metaKey: false, altKey: false, shiftKey: false, ...over })
+check('Ctrl+P opens', isPaletteChord(key({ ctrlKey: true })), true)
+check('Cmd+P opens', isPaletteChord(key({ metaKey: true })), true)
+check('Ctrl+Shift+P is left alone', isPaletteChord(key({ ctrlKey: true, shiftKey: true })), false)
+check('a bare p is typing', isPaletteChord(key({})), false)
+check('caps lock still opens', isPaletteChord(key({ key: 'P', ctrlKey: true })), true)
+check('/ outside a field opens', isSlash(key({ key: '/' }), false), true)
+check('/ in a field is typed', isSlash(key({ key: '/' }), true), false)
+check('the hint on a Mac', chordLabel('Mozilla/5.0 (Macintosh; Intel Mac OS X 14_5)'), '⌘P')
+check('the hint elsewhere', chordLabel('Mozilla/5.0 (Windows NT 10.0; Win64; x64)'), 'Ctrl P')
+
+const projects = [
+  { item: { id: 'p1', ref: 'workstate', title: 'WorkState — the tracker', kind: 'project' } },
+  { item: { id: 'p2', ref: 'aw', title: 'Autowork', kind: 'project' } },
+]
+const all = commands(projects)
+const labels = (cs) => cs.map((c) => c.label)
+check('every command, in order', labels(all), [
+  'Go to Overview', 'Go to Needs you', 'Go to Activity', 'Go to Sessions',
+  'Open project WorkState', 'Open WorkState backlog', 'Open project Autowork', 'Open Autowork backlog',
+  'Toggle theme',
+])
+check('a project and its backlog link through nav', all.slice(4, 6).map((c) => c.href), ['/projects/p1', '/projects/p1/backlog'])
+check('empty query keeps them all', matchCommands(all, '  ').length, all.length)
+check('a page by name', labels(matchCommands(all, 'activity')), ['Go to Activity'])
+check('a label that starts with the query leads', labels(matchCommands(all, 'open project')), ['Open project WorkState', 'Open project Autowork'])
+check('every word must appear', labels(matchCommands(all, 'workstate backlog')), ['Open WorkState backlog'])
+check('a project by its ref', labels(matchCommands(all, 'AW')), ['Open project Autowork', 'Open Autowork backlog'])
+check('the theme by a keyword', labels(matchCommands(all, 'dark')), ['Toggle theme'])
+check('a ref matches no command', labels(matchCommands(all, 'm/12')), [])
+
+const hit = (id, match, run) => ({ item: { id, kind: 'task', ref: id, fullRef: id }, run, project: null, match, snippet: null })
+const some = matchCommands(all, 'sessions')
+const textOnly = arrange(some, [hit('t1', 'text', { id: 'r1' })])
+check('commands lead without an exact ref', [textOnly.itemsFirst, textOnly.entries.map((e) => e.kind)], [false, ['command', 'item']])
+const exact = arrange(some, [hit('t2', 'ref', { id: 'r1' }), hit('t3', 'prefix', null)])
+check('an exact ref puts items first', [exact.itemsFirst, exact.entries.map((e) => e.kind)], [true, ['item', 'item', 'command']])
+check('Enter on an item in a run opens its board', entryHref(exact.entries[0]), '/runs/r1/t2')
+check('Enter on an item outside a run opens its page', entryHref(exact.entries[1]), '/items/t3')
+check('Enter on a page command', entryHref(exact.entries[2]), '/sessions')
+check('the theme navigates nowhere', entryHref({ kind: 'command', command: all.at(-1) }), null)
 
 console.log(failures === 0 ? '\nAll checks passed.' : `\n${failures} check(s) failed.`)
 if (failures > 0) process.exitCode = 1

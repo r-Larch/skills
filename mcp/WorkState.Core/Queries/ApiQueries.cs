@@ -628,6 +628,32 @@ public sealed class ApiQueries(NpgsqlDataSource dataSource)
         return await ListAsync<BacklogRow>(sql, new { scope = runId }, cancellationToken);
     }
 
+    /// <summary>
+    /// Items in the workspace whose ref starts with <paramref name="prefix"/>, case-insensitively and
+    /// literally (<c>%</c>, <c>_</c> and <c>\</c> are escaped) — shortest ref first, then the order
+    /// <see cref="BoardQueries.ResolveAsync"/> uses.
+    /// </summary>
+    public async Task<IReadOnlyList<Guid>> RefPrefixAsync(
+        Guid workspaceId,
+        string prefix,
+        int limit,
+        CancellationToken cancellationToken = default)
+    {
+        const string sql =
+            """
+            SELECT i.id
+            FROM   item i
+            JOIN   item_kind k ON k.key = i.kind
+            WHERE  i.workspace_id = @workspace
+              AND  lower(i.ref) LIKE lower(@pattern) || '%' ESCAPE '\'
+            ORDER  BY length(i.ref), k.rank, i.seq
+            LIMIT  @limit;
+            """;
+
+        var pattern = prefix.Replace(@"\", @"\\").Replace("%", @"\%").Replace("_", @"\_");
+        return await ListAsync<Guid>(sql, new { workspace = workspaceId, pattern, limit }, cancellationToken);
+    }
+
     private async Task<T?> SingleAsync<T>(string sql, object parameters, CancellationToken cancellationToken)
     {
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
