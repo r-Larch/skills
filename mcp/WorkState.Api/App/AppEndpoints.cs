@@ -23,6 +23,8 @@ public static class AppEndpoints
         var api = app.MapGroup("/api").ExcludeFromDescription();
 
         MapSession(api);
+        api.MapAdmin();
+        api.MapInvites();
         api.MapAgentSessions();
         api.MapProjectArchive();
         api.MapSessionRelease();
@@ -73,6 +75,15 @@ public static class AppEndpoints
         // page continues at once when it is, which is also what carries a SameSite=Strict cookie past a
         // cross-site arrival (see Connect.tsx).
         api.MapGet("/session", () => Results.NoContent()).RequireAuthorization(DashboardAuth.Policy);
+
+        // Who the cookie is, for the shell: the account menu's name and whether the Admin page is shown. The
+        // admin API judges every call itself; this only decides what the sidebar offers.
+        api.MapGet("/session/me", async (HttpContext context, [FromServices] AdminStore admins) =>
+        {
+            var signedIn = SignedIn(context.User);
+            var rights = await admins.RightsAsync(signedIn.Id, context.RequestAborted);
+            return Results.Ok(new SessionUserView(signedIn.Id, signedIn.Name, signedIn.IsSystemAdmin, rights?.Any ?? false));
+        }).RequireAuthorization(DashboardAuth.Policy);
 
         api.MapGet("/session/tenants", async (HttpContext context, [FromServices] UserStore users) =>
         {

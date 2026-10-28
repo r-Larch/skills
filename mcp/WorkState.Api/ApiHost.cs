@@ -258,6 +258,8 @@ public static class ApiHost
             PublicUrl(builder.Configuration)));
         builder.Services.AddSingleton(sp => new SessionStore(sp.GetRequiredService<NpgsqlDataSource>()));
         builder.Services.AddSingleton(sp => new UserStore(sp.GetRequiredService<NpgsqlDataSource>()));
+        builder.Services.AddSingleton(sp => new AdminStore(sp.GetRequiredService<NpgsqlDataSource>()));
+        builder.Services.AddSingleton(sp => new UserLinkStore(sp.GetRequiredService<NpgsqlDataSource>()));
         builder.Services.AddScoped<RequestTenant>();
 
         // The static tokens' configured binding (doc 08 §4), the one reader of WorkState:Workspace.

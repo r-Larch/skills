@@ -33,6 +33,7 @@ public class WorkStateDbContext(DbContextOptions<WorkStateDbContext> options) : 
     public DbSet<OAuthKey> OAuthKeys => Set<OAuthKey>();
     public DbSet<AppUser> Users => Set<AppUser>();
     public DbSet<TenantMembership> TenantMemberships => Set<TenantMembership>();
+    public DbSet<UserLink> UserLinks => Set<UserLink>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -82,6 +83,27 @@ public class WorkStateDbContext(DbContextOptions<WorkStateDbContext> options) : 
             e.HasIndex(x => x.WorkspaceId).HasDatabaseName("tenant_membership_workspace_idx");
             e.Property(x => x.CreatedAt).HasDefaultValueSql("now()");
             e.ToTable(t => t.HasCheckConstraint("tenant_membership_role_known", "role IN ('admin', 'member')"));
+        });
+
+        b.Entity<UserLink>(e =>
+        {
+            e.ToTable("user_link");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).ValueGeneratedNever();
+            e.HasIndex(x => x.TokenHash).HasDatabaseName("user_link_token_hash_idx").IsUnique();
+            e.HasIndex(x => x.WorkspaceId).HasDatabaseName("user_link_workspace_idx");
+            e.HasIndex(x => x.UserId).HasDatabaseName("user_link_user_idx");
+            e.HasOne<Workspace>().WithMany().HasForeignKey(x => x.WorkspaceId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne<AppUser>().WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne<AppUser>().WithMany().HasForeignKey(x => x.CreatedBy).OnDelete(DeleteBehavior.SetNull);
+            e.Property(x => x.CreatedAt).HasDefaultValueSql("now()");
+            e.ToTable(t =>
+            {
+                t.HasCheckConstraint(
+                    "user_link_shape",
+                    "(kind = 'invite' AND workspace_id IS NOT NULL AND role IN ('admin', 'member') AND user_id IS NULL)"
+                    + " OR (kind = 'reset' AND user_id IS NOT NULL AND workspace_id IS NULL AND role IS NULL)");
+            });
         });
     }
 

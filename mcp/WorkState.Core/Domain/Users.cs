@@ -38,3 +38,40 @@ public class TenantMembership
 
     public DateTimeOffset CreatedAt { get; set; }
 }
+
+/// <summary>
+/// A single-use link an administrator copies to someone: an <see cref="Invite"/> into a workspace with a role,
+/// or a <see cref="Reset"/> of one user's password. Only the SHA-256 of its token is kept (C64); the token is
+/// in the create response and nowhere else.
+/// </summary>
+public class UserLink
+{
+    public const string Invite = "invite";
+    public const string Reset = "reset";
+
+    public Guid Id { get; set; }
+
+    /// <summary><see cref="Invite"/> or <see cref="Reset"/>.</summary>
+    public string Kind { get; set; } = Invite;
+
+    /// <summary>Lowercase hex SHA-256 of the token's UTF-8 bytes.</summary>
+    public string TokenHash { get; set; } = "";
+
+    /// <summary>The workspace an invite joins; null on a reset.</summary>
+    public Guid? WorkspaceId { get; set; }
+
+    /// <summary>The <see cref="TenantMembership.Role"/> an invite grants; null on a reset.</summary>
+    public string? Role { get; set; }
+
+    /// <summary>The user a reset is for; null on an invite.</summary>
+    public Guid? UserId { get; set; }
+
+    public Guid? CreatedBy { get; set; }
+
+    public DateTimeOffset CreatedAt { get; set; }
+
+    public DateTimeOffset ExpiresAt { get; set; }
+
+    /// <summary>Set once, by the one request that used it.</summary>
+    public DateTimeOffset? UsedAt { get; set; }
+}
