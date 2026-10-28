@@ -1,6 +1,7 @@
 using System.Net;
 using System.Text;
 using System.Text.Json;
+using Dapper;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Hosting.Server;
@@ -8,7 +9,10 @@ using Microsoft.AspNetCore.Hosting.Server.Features;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using ModelContextProtocol.Client;
+using Npgsql;
 using WorkState.Api;
+using WorkState.Api.Auth;
+using WorkState.Core.Domain;
 using WorkState.Tests.Read;
 using Xunit;
 
@@ -47,7 +51,8 @@ internal sealed class AppServer : IAsyncDisposable
         string? heartbeat = null,
         string? publicUrl = null,
         string? trustedProxies = null,
-        Action<WebApplicationBuilder>? configure = null)
+        Action<WebApplicationBuilder>? configure = null,
+        bool soleMember = true)
     {
         var app = ApiHost.Build([], builder =>
         {
@@ -71,8 +76,36 @@ internal sealed class AppServer : IAsyncDisposable
 
         await app.StartAsync(cancellationToken);
 
+        if (dashboardConfigured && soleMember)
+        {
+            await SoleMemberAsync(app.Services, cancellationToken);
+        }
+
         var addresses = app.Services.GetRequiredService<IServer>().Features.Get<IServerAddressesFeature>();
         return new AppServer(app, addresses!.Addresses.First());
+    }
+
+    /// <summary>
+    /// A single-tenant install as it was before tenants: the operator is a member of exactly the workspace
+    /// this server's static tokens are bound to, so a sign-in lands there and an OAuth token resolves to it.
+    /// The shared database's operator is otherwise a member of whatever workspaces existed when the first
+    /// test signed in. Through the store, not the endpoint, so no sign-in rate limit is spent.
+    /// </summary>
+    private static async Task SoleMemberAsync(IServiceProvider services, CancellationToken cancellationToken)
+    {
+        var users = services.GetRequiredService<UserStore>();
+        var operatorUser = await users.SignInAsync(Username, Password, services.GetRequiredService<DashboardOptions>(), cancellationToken);
+        Assert.NotNull(operatorUser);
+
+        var workspace = await services.GetRequiredService<StaticTokenTenant>().IdAsync(cancellationToken);
+        await using var connection = await services.GetRequiredService<NpgsqlDataSource>().OpenConnectionAsync(cancellationToken);
+        await connection.ExecuteAsync(
+            """
+            DELETE FROM tenant_membership WHERE user_id = @Id AND workspace_id <> @workspace;
+            INSERT INTO tenant_membership (user_id, workspace_id, role) VALUES (@Id, @workspace, @role)
+            ON CONFLICT DO NOTHING;
+            """,
+            new { operatorUser.Id, workspace, role = TenantMembership.Admin });
     }
 
     /// <summary>A client with a jar of its own, so one test's session cannot leak into another's.</summary>

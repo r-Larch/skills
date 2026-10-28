@@ -6,8 +6,9 @@ Owner: skills-5d. Reviewed by autowork-7c (Foreman), 2026-10-22. Unit `workstate
 One JSON contract for two clients: the :5290 dashboard and Foreman (native gpui). Read-only — the
 MCP tools are the agents' only write path. The pre-v1 routes (`/api/projects`, `/api/watch`,
 `/api/runs/{ref}/tree|brief|journal`) were removed once the new dashboard stopped calling them (unit
-`mature/prev1-removal`). Outside v1, `/api` keeps `POST|DELETE /api/session` (sign-in),
-`/api/stream`, `/api/agent-sessions` (doc 14, bearer only) and the dashboard's two writes:
+`mature/prev1-removal`). Outside v1, `/api` keeps `POST|DELETE /api/session` (sign-in), the cookie's
+tenant (`GET /api/session/tenants`, `POST /api/session/tenant`, below), `/api/stream`,
+`/api/agent-sessions` (doc 14, bearer only) and the dashboard's two writes:
 
 ### `POST /api/projects/{id}/archive` · `POST /api/projects/{id}/unarchive` (outside v1)
 
@@ -30,6 +31,21 @@ bearer token is never evaluated here (a controller uses `POST /api/agent-session
 doc 14 §2). Answers `200 { "sessionId", "name", "releasedAs" }`; 404 for an unknown id; 409 with the
 refs when the session holds live claims, and 409 for a row already released. Journals
 `session_name_released` with the operator's name, role `human`.
+
+### `GET /api/session/tenants` · `POST /api/session/tenant` (outside v1)
+
+The dashboard cookie's tenant (rule 7). **Cookie only**; a bearer token gets 401. `GET` lists the
+workspaces the signed-in user may enter — their memberships in the order granted, then, for a system
+administrator, every other workspace, oldest first:
+```jsonc
+[{ "id": "uuid", "slug": "default", "role": "admin" | "member" | "system-admin", "current": true }]
+```
+`POST {"id": "uuid"}`, with the same `X-WorkState-Write` guard as archiving, re-issues the cookie in
+that workspace: `204`, or `403 {error}` unless the user is a member of it or a system administrator (an
+id that is no workspace is the same 403). A sign-in lands in the user's first membership — a system
+administrator with none, in the oldest workspace — and a user with no membership cannot sign in (`403
+{error}`). A user whose membership of the cookie's tenant is removed is signed out on their next request
+(`401`). The dashboard has no switcher yet; unit admin-ui adds it.
 
 ## Rules
 
@@ -86,6 +102,13 @@ refs when the session holds live claims, and 409 for a row already released. Jou
    `resolution` is exactly `ItemResolution`:
    `accepted|reworked|replanned|escalated|skipped|wontfix|duplicate|obsolete`. A forced close is not a
    resolution; it is the `forced` flag (from the `forced_transition` record).
+7. **The tenant.** Every request acts in one workspace, its credential's (doc 08 §4): the cookie's
+   current tenant, a `wss_` token's session's, an OAuth token's (its `workstate:tenant` claim, else its
+   user's only membership), or the one a static or reader token is bound to. No header or query
+   parameter selects it. Everything a response names is in it: an id from another workspace is 404
+   like a typo, `/resolve` and `/search` look nowhere else, and `/api/stream` carries only its events.
+   A credential with no tenant — an OAuth token whose user is a member of several workspaces, or of
+   none — is `403 {"error": "…"}`, the error saying what to do.
 
 ## Shared shapes
 

@@ -7,3 +7,8 @@ namespace WorkState.Api.App;
 public sealed record HonestyView(int DoneUnverified, int Forced, int Ungated, int FollowupsOpen);
 
 public sealed record SessionRequest(string? Username, string? Password);
+
+/// <summary>A workspace the signed-in user may enter. <c>Current</c> is the one the cookie acts in.</summary>
+public sealed record SessionTenantView(Guid Id, string Slug, string Role, bool Current);
+
+public sealed record SwitchTenantRequest(Guid? Id);

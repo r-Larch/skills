@@ -37,7 +37,7 @@ public static partial class ApiV1
         [FromQuery] string? kinds,
         BoardQueries board,
         ApiQueries api,
-        WorkspaceOptions workspace,
+        RequestTenant tenant,
         CancellationToken cancellationToken)
     {
         if (since is not null && before is not null)
@@ -67,10 +67,7 @@ public static partial class ApiV1
         var cursor = Math.Max(since ?? 0, 0);
 
         var book = new V1Book(api, board);
-        if (await SnapshotAsync(board, api, workspace, cancellationToken) is not { } snapshot)
-        {
-            return Results.Ok(new JournalPageView(DateTimeOffset.UtcNow, 0, cursor, false, []));
-        }
+        var snapshot = await SnapshotAsync(api, tenant, cancellationToken);
 
         if (scope is { } id && !await KnownAsync(book, snapshot, id, cancellationToken))
         {
@@ -115,7 +112,7 @@ public static partial class ApiV1
         [FromQuery] Guid? project,
         BoardQueries board,
         ApiQueries api,
-        WorkspaceOptions workspace,
+        RequestTenant tenant,
         CancellationToken cancellationToken)
     {
         if (project is not { } projectId)
@@ -124,8 +121,8 @@ public static partial class ApiV1
         }
 
         var book = new V1Book(api, board);
-        if (await SnapshotAsync(board, api, workspace, cancellationToken) is not { } snapshot
-            || !await KnownAsync(book, snapshot, projectId, cancellationToken))
+        var snapshot = await SnapshotAsync(api, tenant, cancellationToken);
+        if (!await KnownAsync(book, snapshot, projectId, cancellationToken))
         {
             return NoItem(projectId);
         }
@@ -156,13 +153,10 @@ public static partial class ApiV1
         [FromQuery] string? claudeSessionId,
         BoardQueries board,
         ApiQueries api,
-        WorkspaceOptions workspace,
+        RequestTenant tenant,
         CancellationToken cancellationToken)
     {
-        if (await SnapshotAsync(board, api, workspace, cancellationToken) is not { } snapshot)
-        {
-            return Results.Ok(new SessionsView(DateTimeOffset.UtcNow, 0, []));
-        }
+        var snapshot = await SnapshotAsync(api, tenant, cancellationToken);
 
         var book = new V1Book(api, board);
         var sessions = await api.SessionsAsync(
@@ -189,7 +183,7 @@ public static partial class ApiV1
         [FromQuery(Name = "ref")] string? reference,
         BoardQueries board,
         ApiQueries api,
-        WorkspaceOptions workspace,
+        RequestTenant tenant,
         CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(reference))
@@ -197,10 +191,7 @@ public static partial class ApiV1
             return Results.BadRequest(new { error = "ref= is required" });
         }
 
-        if (await SnapshotAsync(board, api, workspace, cancellationToken) is not { } snapshot)
-        {
-            return Results.Ok(new ResolveView(DateTimeOffset.UtcNow, 0, []));
-        }
+        var snapshot = await SnapshotAsync(api, tenant, cancellationToken);
 
         var book = new V1Book(api, board);
         var matches = await board.ResolveAsync(snapshot.WorkspaceId, reference.Trim(), cancellationToken);
@@ -219,7 +210,7 @@ public static partial class ApiV1
         BoardQueries board,
         ApiQueries api,
         WorkStateQueries queries,
-        WorkspaceOptions workspace,
+        RequestTenant tenant,
         CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(q))
@@ -227,10 +218,7 @@ public static partial class ApiV1
             return Results.BadRequest(new { error = "q= is required" });
         }
 
-        if (await SnapshotAsync(board, api, workspace, cancellationToken) is not { } snapshot)
-        {
-            return Results.Ok(new SearchView(DateTimeOffset.UtcNow, 0, []));
-        }
+        var snapshot = await SnapshotAsync(api, tenant, cancellationToken);
 
         var query = q.Trim();
         var take = Math.Clamp(limit ?? SearchDefaultLimit, 1, SearchMaxLimit);

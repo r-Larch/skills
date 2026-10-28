@@ -68,7 +68,6 @@ public sealed partial class WorkWriter(NpgsqlDataSource dataSource, BoardQueries
         DateTimeOffset HeartbeatAt,
         string ItemRef,
         string QualifiedRef,
-        bool SameWorkspace,
         Guid? SessionId,
         string Holder);
 

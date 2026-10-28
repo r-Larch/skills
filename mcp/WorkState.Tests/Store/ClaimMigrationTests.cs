@@ -20,6 +20,7 @@ namespace WorkState.Tests.Store;
 public sealed class ClaimMigrationTests(PostgresFixture fixture)
 {
     private const string Before = "20260922101022_ConstraintRef";
+    private const string ClaimPerTree = "20261022160602_ClaimPerTree";
 
     [Fact]
     public async Task Live_claims_keep_their_key_and_a_ref_fallback_key_still_binds_its_run()
@@ -42,6 +43,18 @@ public sealed class ClaimMigrationTests(PostgresFixture fixture)
 
             var (workspace, named, path) = await SeedOldShapeAsync(connectionString);
 
+            // ClaimPerTree leaves a path key server-wide; ClaimKeyWorkspace later scopes the live ones.
+            await using (var context = new WorkStateDbContext(WorkStateDbContextOptions.Build(connectionString)))
+            {
+                await context.GetService<IMigrator>().MigrateAsync(ClaimPerTree, Ct);
+            }
+
+            await using (var connection = new NpgsqlConnection(connectionString))
+            {
+                Assert.Null(await connection.ExecuteScalarAsync<Guid?>(
+                    "SELECT key_workspace_id FROM claim WHERE item_id = @path;", new { path }));
+            }
+
             await using (var context = new WorkStateDbContext(WorkStateDbContextOptions.Build(connectionString)))
             {
                 await context.Database.MigrateAsync(Ct);
@@ -53,7 +66,7 @@ public sealed class ClaimMigrationTests(PostgresFixture fixture)
                 Assert.Equal("run-a", byName.SerializationKey);
                 Assert.Equal(workspace, byName.KeyWorkspaceId);
                 Assert.Equal("P:/worktrees/shared", byPath.SerializationKey);
-                Assert.Null(byPath.KeyWorkspaceId);
+                Assert.Equal(workspace, byPath.KeyWorkspaceId);
                 Assert.All(claims, c => Assert.Null(c.Tree));
             }
 

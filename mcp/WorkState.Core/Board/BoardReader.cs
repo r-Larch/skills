@@ -24,42 +24,48 @@ public sealed partial class BoardReader(WorkStateQueries queries, BoardQueries b
     private const int BriefAssumptionCap = 5;
     private const int BriefNoteCap = 3;
 
-    public Task<ScopeResult> ResolveAsync(
+    /// <summary>
+    /// By slug, null being the oldest workspace: for a caller that holds a slug rather than a request. A
+    /// request's workspace is its tenant's id, never a slug looked up here.
+    /// </summary>
+    public async Task<ScopeResult> ResolveAsync(
         string? workspaceSlug,
         string? scope,
         CancellationToken cancellationToken = default)
-        => ResolveAsync(workspaceSlug, scope, workspace => board.DefaultScopeAsync(workspace, cancellationToken), cancellationToken);
+        => await board.WorkspaceAsync(workspaceSlug, cancellationToken) is { } workspaceId
+            ? await ResolveAsync(workspaceId, scope, cancellationToken)
+            : new ScopeResult.Empty();
+
+    public Task<ScopeResult> ResolveAsync(
+        Guid workspaceId,
+        string? scope,
+        CancellationToken cancellationToken = default)
+        => ResolveAsync(workspaceId, scope, workspace => board.DefaultScopeAsync(workspace, cancellationToken), cancellationToken);
 
     /// <summary>
-    /// <see cref="ResolveAsync(string?, string?, CancellationToken)"/> with an ambiguous ref's
+    /// <see cref="ResolveAsync(Guid, string?, CancellationToken)"/> with an ambiguous ref's
     /// candidates ordered around the caller's own default scope — the home <c>work_get</c>'s refusal
     /// orders by — so a resource and the tool never list one ref's candidates differently.
     /// </summary>
     public Task<ScopeResult> ResolveForCallerAsync(
-        string? workspaceSlug,
+        Guid workspaceId,
         string? scope,
         Guid? sessionId,
         CancellationToken cancellationToken = default)
         => ResolveAsync(
-            workspaceSlug,
+            workspaceId,
             scope,
-            async _ => (await ResolveDefaultAsync(workspaceSlug, null, sessionId, cancellationToken)) is ScopeResult.Found home
+            async _ => (await ResolveDefaultAsync(workspaceId, null, sessionId, cancellationToken)) is ScopeResult.Found home
                 ? home.Item
                 : null,
             cancellationToken);
 
     private async Task<ScopeResult> ResolveAsync(
-        string? workspaceSlug,
+        Guid workspace,
         string? scope,
         Func<Guid, Task<ScopeRef?>> homeOf,
         CancellationToken cancellationToken)
     {
-        var workspaceId = await board.WorkspaceAsync(workspaceSlug, cancellationToken);
-        if (workspaceId is not { } workspace)
-        {
-            return new ScopeResult.Empty();
-        }
-
         if (string.IsNullOrWhiteSpace(scope))
         {
             var fallback = await board.DefaultScopeAsync(workspace, cancellationToken);
@@ -95,7 +101,7 @@ public sealed partial class BoardReader(WorkStateQueries queries, BoardQueries b
     /// which leaves the caller on <see cref="ResolveAsync"/>'s busiest run.
     /// </summary>
     public async Task<ScopeResult?> ResolveRepoAsync(
-        string? workspaceSlug,
+        Guid workspace,
         IReadOnlyList<RepoKey> asked,
         Guid? sessionId,
         CancellationToken cancellationToken = default)
@@ -107,12 +113,6 @@ public sealed partial class BoardReader(WorkStateQueries queries, BoardQueries b
         if (keys.Count == 0)
         {
             return null;
-        }
-
-        var workspaceId = await board.WorkspaceAsync(workspaceSlug, cancellationToken);
-        if (workspaceId is not { } workspace)
-        {
-            return new ScopeResult.Unbound(keys, []);
         }
 
         var project = await board.ProjectByRepoAsync(workspace, keys, cancellationToken);
@@ -128,32 +128,29 @@ public sealed partial class BoardReader(WorkStateQueries queries, BoardQueries b
     /// another project's as the caller's. Archived, cancelled and superseded projects do not count.
     /// </summary>
     public async Task<ScopeResult> ResolveUnscopedBriefAsync(
-        string? workspaceSlug,
+        Guid workspace,
         CancellationToken cancellationToken = default)
     {
-        if (await board.WorkspaceAsync(workspaceSlug, cancellationToken) is { } workspace)
+        var live = (await board.ProjectsAsync(workspace, cancellationToken))
+            .Where(p => p.ArchivedAt is null
+                        && p.Status is not (ItemStatus.Cancelled or ItemStatus.Superseded))
+            .ToList();
+
+        if (live.Count > 1)
         {
-            var live = (await board.ProjectsAsync(workspace, cancellationToken))
-                .Where(p => p.ArchivedAt is null
-                            && p.Status is not (ItemStatus.Cancelled or ItemStatus.Superseded))
-                .ToList();
-
-            if (live.Count > 1)
+            var choices = new List<ProjectChoice>(live.Count);
+            foreach (var project in live)
             {
-                var choices = new List<ProjectChoice>(live.Count);
-                foreach (var project in live)
-                {
-                    var printed = choices.Count < BriefRenderer.UnboundProjectCap
-                        ? await board.PrintableRefAsync(workspace, project.Id, project.Ref, cancellationToken)
-                        : project.Ref;
-                    choices.Add(new ProjectChoice(printed, project.Title, project.OpenRuns, project.LastActivityAt));
-                }
-
-                return new ScopeResult.Unchosen(choices);
+                var printed = choices.Count < BriefRenderer.UnboundProjectCap
+                    ? await board.PrintableRefAsync(workspace, project.Id, project.Ref, cancellationToken)
+                    : project.Ref;
+                choices.Add(new ProjectChoice(printed, project.Title, project.OpenRuns, project.LastActivityAt));
             }
+
+            return new ScopeResult.Unchosen(choices);
         }
 
-        return await ResolveAsync(workspaceSlug, null, cancellationToken);
+        return await ResolveAsync(workspace, null, cancellationToken);
     }
 
     /// <summary>
@@ -162,20 +159,20 @@ public sealed partial class BoardReader(WorkStateQueries queries, BoardQueries b
     /// any other caller keeps <see cref="ResolveAsync"/>'s busiest run of the workspace.
     /// </summary>
     public async Task<ScopeResult> ResolveDefaultAsync(
-        string? workspaceSlug,
+        Guid workspaceId,
         string? scope,
         Guid? sessionId,
         CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(scope)
             && sessionId is { } session
-            && await ResolveRepoAsync(workspaceSlug, [], session, cancellationToken) is ScopeResult.Found project)
+            && await ResolveRepoAsync(workspaceId, [], session, cancellationToken) is ScopeResult.Found project)
         {
             var busiest = await board.DefaultScopeAsync(project.WorkspaceId, project.Item.Id, cancellationToken);
             return new ScopeResult.Found(project.WorkspaceId, busiest ?? project.Item);
         }
 
-        return await ResolveAsync(workspaceSlug, scope, cancellationToken);
+        return await ResolveAsync(workspaceId, scope, cancellationToken);
     }
 
     /// <summary>

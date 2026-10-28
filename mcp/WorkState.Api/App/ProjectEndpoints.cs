@@ -1,7 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using WorkState.Api.Auth;
 using WorkState.Core.Domain;
-using WorkState.Core.Queries;
 using WorkState.Core.Writing;
 using WorkState.Mcp;
 
@@ -29,12 +28,12 @@ public static class ProjectEndpoints
         var projects = api.MapGroup("/projects").DashboardWrite();
 
         projects.MapPost("/{id:guid}/archive", (Guid id, HttpContext context, [FromServices] WorkWriter writer,
-                [FromServices] BoardQueries board, [FromServices] WorkspaceOptions workspace, CancellationToken cancellationToken)
-            => SetAsync(id, true, context, writer, board, workspace, cancellationToken));
+                [FromServices] RequestTenant tenant, CancellationToken cancellationToken)
+            => SetAsync(id, true, context, writer, tenant, cancellationToken));
 
         projects.MapPost("/{id:guid}/unarchive", (Guid id, HttpContext context, [FromServices] WorkWriter writer,
-                [FromServices] BoardQueries board, [FromServices] WorkspaceOptions workspace, CancellationToken cancellationToken)
-            => SetAsync(id, false, context, writer, board, workspace, cancellationToken));
+                [FromServices] RequestTenant tenant, CancellationToken cancellationToken)
+            => SetAsync(id, false, context, writer, tenant, cancellationToken));
     }
 
     /// <summary>Cookie only, and only with <see cref="WriteHeader"/>: what every dashboard write requires.</summary>
@@ -54,17 +53,11 @@ public static class ProjectEndpoints
         bool archived,
         HttpContext context,
         WorkWriter writer,
-        BoardQueries board,
-        WorkspaceOptions workspace,
+        RequestTenant tenant,
         CancellationToken cancellationToken)
     {
-        if (await board.WorkspaceAsync(workspace.Slug, cancellationToken) is not { } workspaceId)
-        {
-            return Error(StatusCodes.Status404NotFound, $"no project with id {id}");
-        }
-
         var actor = new Actor(context.User.Identity?.Name ?? DashboardAuth.Role, ActorRole.Human);
-        var outcome = await writer.SetArchivedAsync(workspaceId, actor, id, archived, cancellationToken);
+        var outcome = await writer.SetArchivedAsync(tenant.Id, actor, id, archived, cancellationToken);
 
         return outcome switch
         {

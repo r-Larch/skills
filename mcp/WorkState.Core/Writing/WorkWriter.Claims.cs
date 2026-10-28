@@ -16,7 +16,7 @@ public sealed partial class WorkWriter
     private sealed record Predecessor(string Ref, ItemStatus Status);
 
     /// <summary>What <c>claim_one_writer_per_tree</c> is keyed on, and the tree the caller named.</summary>
-    private sealed record TreeLock(string Key, Guid? Workspace, string? Tree);
+    private sealed record TreeLock(string Key, Guid Workspace, string? Tree);
 
     private sealed record KeySources(string? RunKey, string? RepoRoot, string? ScopeRef);
 
@@ -53,7 +53,6 @@ public sealed partial class WorkWriter
                    i.ref               AS "ItemRef",
                    CASE WHEN s.ref IS NULL THEN i.ref ELSE s.ref || '/' || i.ref END
                                        AS "QualifiedRef",
-                   i.workspace_id = @workspace AS "SameWorkspace",
                    c.session_id        AS "SessionId",
                    coalesce(hs.name, c.agent_name) AS "Holder"
             FROM   claim c
@@ -63,13 +62,13 @@ public sealed partial class WorkWriter
             WHERE  c.released_at IS NULL
               AND  (c.item_id = @id
                     OR (c.writes AND c.serialization_key = @key
-                        AND c.key_workspace_id IS NOT DISTINCT FROM @keyWorkspace))
+                        AND c.key_workspace_id = @keyWorkspace))
             ORDER  BY (c.item_id = @id) DESC, c.acquired_at;
             """;
 
         var held = (await connection.QueryAsync<ClaimHolder>(new CommandDefinition(
             sql,
-            new { id = item.Id, key = treeLock.Key, keyWorkspace = treeLock.Workspace, workspace = item.WorkspaceId },
+            new { id = item.Id, key = treeLock.Key, keyWorkspace = treeLock.Workspace },
             transaction,
             cancellationToken: cancellationToken))).AsList();
 
@@ -91,18 +90,6 @@ public sealed partial class WorkWriter
                 "work_next() for something else that is ready",
                 $"{retake} once that lease lapses — "
                 + "the sweep releases it and returns the item to ready");
-        }
-
-        if (!live.SameWorkspace)
-        {
-            return Refusal.Blocked(
-                $"work_status({item.Ref} → in_progress). Another workspace's writer holds this working tree.",
-                $"{live.QualifiedRef} in another workspace holds the write claim on "
-                + $"\"{Glyph.Flat(live.SerializationKey)}\" (held by {live.Holder}{you}); {Lease(live)}",
-                $"{retake} once that lease lapses and that "
-                + "workspace's next work_brief, work_next or work_status sweeps it",
-                "work_next(scope:\"<another run>\") — two runs in different worktrees proceed in "
-                + "parallel, two sharing one working tree do not");
         }
 
         var routes = new List<string>
@@ -327,10 +314,10 @@ public sealed partial class WorkWriter
 
     /// <summary>
     /// The write lock is on the working tree, not the item: the <c>tree</c> the caller named, else
-    /// the run's <c>serialization_key</c>, else the project's repo root, else the ref scope. A path
-    /// locks server-wide; a name — a branch, or the ref-scope fallback — locks within its workspace,
-    /// so two workspaces' same-named runs never share a lock. Walking the ancestor chain server-side
-    /// keeps <c>uuid[]</c> out of the Dapper mapping, which needs a handler it does not have.
+    /// the run's <c>serialization_key</c>, else the project's repo root, else the ref scope. Every key
+    /// locks within its workspace — a path as much as a name — so one tenant's claim never holds
+    /// another's tree. Walking the ancestor chain server-side keeps <c>uuid[]</c> out of the Dapper
+    /// mapping, which needs a handler it does not have.
     /// </summary>
     private static async Task<TreeLock> TreeLockAsync(
         NpgsqlConnection connection,
@@ -341,7 +328,7 @@ public sealed partial class WorkWriter
     {
         if (WorkingTree.Parse(tree) is { } named)
         {
-            return new TreeLock(named.Key, named.IsPath ? null : item.WorkspaceId, named.Key);
+            return new TreeLock(named.Key, item.WorkspaceId, named.Key);
         }
 
         const string sql =
@@ -370,8 +357,6 @@ public sealed partial class WorkWriter
             transaction,
             cancellationToken: cancellationToken));
 
-        return (sources.RunKey ?? sources.RepoRoot) is { } path
-            ? new TreeLock(path, null, null)
-            : new TreeLock(sources.ScopeRef ?? item.Id.ToString(), item.WorkspaceId, null);
+        return new TreeLock(sources.RunKey ?? sources.RepoRoot ?? sources.ScopeRef ?? item.Id.ToString(), item.WorkspaceId, null);
     }
 }

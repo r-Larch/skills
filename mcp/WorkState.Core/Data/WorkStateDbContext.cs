@@ -260,8 +260,7 @@ public class WorkStateDbContext(DbContextOptions<WorkStateDbContext> options) : 
                 .HasFilter("released_at IS NULL");
 
             // One writer per working tree. Two units in separate worktrees proceed in parallel; two
-            // sharing a tree do not. The parallel-orchestrator rule, as an index. A null
-            // key_workspace_id is a path and collides across workspaces — NULLS NOT DISTINCT.
+            // sharing a tree do not. The parallel-orchestrator rule, as an index, per workspace.
             // doc 11 narrows it to claims with no session; claim_one_session_per_tree (Sessions
             // migration) lets one session hold several items of its tree and refuses a second one.
             e.HasIndex(x => new { x.SerializationKey, x.KeyWorkspaceId })

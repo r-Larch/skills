@@ -51,11 +51,8 @@ public sealed class EventStream(NpgsqlDataSource dataSource, StreamOptions optio
 
     private readonly ConcurrentDictionary<Guid, Subscriber> _subscribers = new();
 
-    /// <summary>
-    /// <see cref="Workspace"/> is null while the server is empty: the row is written by the first
-    /// write, and that write's event is the one this subscriber is waiting for.
-    /// </summary>
-    private sealed record Subscriber(Guid? Workspace, Channel<StreamEvent> Channel);
+    /// <summary>A subscriber hears its request tenant's events and no other workspace's.</summary>
+    private sealed record Subscriber(Guid Workspace, Channel<StreamEvent> Channel);
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -122,7 +119,7 @@ public sealed class EventStream(NpgsqlDataSource dataSource, StreamOptions optio
 
         foreach (var subscriber in _subscribers.Values)
         {
-            if (subscriber.Workspace is { } workspace && workspace != message.Workspace)
+            if (subscriber.Workspace != message.Workspace)
             {
                 continue;
             }
@@ -163,15 +160,10 @@ public sealed class EventStream(NpgsqlDataSource dataSource, StreamOptions optio
     internal static async Task HandleAsync(
         HttpContext context,
         EventStream stream,
-        BoardQueries board,
         ApiQueries api,
-        WorkspaceOptions workspace,
+        RequestTenant tenant,
         CancellationToken cancellationToken)
     {
-        // An empty server streams too: a 503 here is what the board shows as "stream down" before
-        // the first work_create, which is exactly when the operator is watching for it.
-        var workspaceId = await board.WorkspaceAsync(workspace.Slug, cancellationToken);
-
         context.Response.Headers.ContentType = "text/event-stream";
         context.Response.Headers.CacheControl = "no-cache";
 
@@ -189,22 +181,7 @@ public sealed class EventStream(NpgsqlDataSource dataSource, StreamOptions optio
                 FullMode = BoundedChannelFullMode.Wait,
             });
 
-        stream._subscribers[id] = new Subscriber(workspaceId, channel);
-
-        // Unresolved, the channel receives every workspace's events. The first one may be the write
-        // that created ours: re-resolve on it, then narrow the subscription so the rest are filtered
-        // where they are fanned out.
-        async Task<bool> AdmitsAsync(StreamEvent message)
-        {
-            if (workspaceId is null
-                && await board.WorkspaceAsync(workspace.Slug, cancellationToken) is { } resolved)
-            {
-                workspaceId = resolved;
-                stream._subscribers[id] = new Subscriber(resolved, channel);
-            }
-
-            return message.Workspace == workspaceId;
-        }
+        stream._subscribers[id] = new Subscriber(tenant.Id, channel);
 
         try
         {
@@ -213,7 +190,7 @@ public sealed class EventStream(NpgsqlDataSource dataSource, StreamOptions optio
                     ? (await api.PlacementsAsync([id], cancellationToken)).FirstOrDefault()?.RunId
                     : null;
 
-            await PumpAsync(context, channel, stream._heartbeat, AdmitsAsync, RunOfAsync, cancellationToken);
+            await PumpAsync(context, channel, stream._heartbeat, RunOfAsync, cancellationToken);
         }
         catch (OperationCanceledException)
         {
@@ -229,7 +206,6 @@ public sealed class EventStream(NpgsqlDataSource dataSource, StreamOptions optio
         HttpContext context,
         Channel<StreamEvent> channel,
         TimeSpan heartbeat,
-        Func<StreamEvent, Task<bool>> admits,
         Func<Guid?, Task<Guid?>> runOf,
         CancellationToken cancellationToken)
     {
@@ -255,11 +231,6 @@ public sealed class EventStream(NpgsqlDataSource dataSource, StreamOptions optio
                 // the client having to distinguish it from something that happened.
                 await context.Response.WriteAsync(": heartbeat\n\n", cancellationToken);
                 await context.Response.Body.FlushAsync(cancellationToken);
-                continue;
-            }
-
-            if (!await admits(message))
-            {
                 continue;
             }
 

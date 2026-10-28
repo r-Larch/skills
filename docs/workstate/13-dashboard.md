@@ -64,7 +64,10 @@ selection is deep-linkable and back/forward walk it.
 shorter unique forms — resolved by the same reader, then a 302 to the page above: a project to
 `/projects/{id}`, a run to `/runs/{id}`, an item in a run to `/runs/{run}/{id}`, anything else to
 `/items/{id}`. An ambiguous path answers 300 with a small page listing the unique forms as `/r`
-links; an unknown one 404 with the nearby refs. It takes the dashboard cookie only (a bearer token
+links; an unknown one 404 with the nearby refs. The path resolves in the cookie's current tenant
+(doc 08 §4). One that exists only in another tenant the user may enter is a 404 that names that
+workspace with a button that switches to it (`POST /api/session/tenant`) and reloads; a tenant the user
+may not enter is never looked in, so never named. It takes the dashboard cookie only (a bearer token
 does not open it). Without the cookie it answers 401 with a sign-in form — the server's own page,
 since the SPA's Gate would land on its not-found route — which posts to `/api/session` and reloads
 the same URL, so the link survives sign-in with no credential and no target in any URL, and nothing

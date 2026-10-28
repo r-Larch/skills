@@ -61,8 +61,10 @@ public sealed class OAuthTokenHandler(
             return AuthenticateResult.Fail("The token's user is no longer the operator.");
         }
 
+        var subject = principal.GetClaim(OpenIddictConstants.Claims.Subject)!;
         var identity = StaticTokenHandler.Identity(StaticTokenHandler.Nested(ActorRole.Controller), SchemeName);
-        identity.AddClaim(new Claim(OpenIddictConstants.Claims.Subject, principal.GetClaim(OpenIddictConstants.Claims.Subject)!));
+        identity.AddClaim(new Claim(OpenIddictConstants.Claims.Subject, subject));
+        await TenantAsync(identity, subject, principal);
         foreach (var scope in principal.GetScopes())
         {
             identity.AddClaim(new Claim(ScopeClaim, scope));
@@ -79,6 +81,23 @@ public sealed class OAuthTokenHandler(
         }
 
         return AuthenticateResult.Success(new AuthenticationTicket(new ClaimsPrincipal(identity), Scheme.Name));
+    }
+
+    /// <summary>
+    /// The token's <see cref="RequestTenant.Claim"/> once user-oauth issues one, else its user's only
+    /// membership. A token that yields neither still authenticates, carrying the reason instead, and the
+    /// tenant requirement turns that into a 403 naming what to do (<see cref="TenantRequirement"/>).
+    /// </summary>
+    private async Task TenantAsync(ClaimsIdentity identity, string subject, ClaimsPrincipal token)
+    {
+        var claimed = Guid.TryParse(token.GetClaim(RequestTenant.Claim), out var id) ? id : (Guid?)null;
+        var (tenant, refusal) = Context.RequestServices.GetService<UserStore>() is { } users
+            ? await users.OAuthTenantAsync(subject, claimed, Context.RequestAborted)
+            : (null, "This server has no user store to find the token's workspace in.");
+
+        identity.AddClaim(tenant is { } found
+            ? new Claim(RequestTenant.Claim, found.ToString())
+            : new Claim(TenantRequirement.RefusalClaim, refusal!));
     }
 
     /// <summary>

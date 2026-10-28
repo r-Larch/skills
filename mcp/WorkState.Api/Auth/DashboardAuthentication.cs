@@ -2,6 +2,7 @@ using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
 using Microsoft.AspNetCore.Authentication.Cookies;
+using WorkState.Mcp;
 
 namespace WorkState.Api.Auth;
 
@@ -72,13 +73,15 @@ public static class DashboardAuth
 
     public const string SystemAdminClaim = "workstate:system_admin";
 
-    public static ClaimsPrincipal Principal(DashboardUser user)
+    /// <summary>The session of <paramref name="user"/> in <paramref name="tenant"/>, the one it switches to.</summary>
+    public static ClaimsPrincipal Principal(DashboardUser user, Guid tenant)
     {
         var identity = new ClaimsIdentity(SchemeName);
         identity.AddClaim(new Claim(UserIdClaim, user.Id.ToString()));
         identity.AddClaim(new Claim(ClaimTypes.Name, user.Name));
         identity.AddClaim(new Claim(ClaimTypes.Role, Role));
         identity.AddClaim(new Claim(SystemAdminClaim, user.IsSystemAdmin ? "true" : "false", ClaimValueTypes.Boolean));
+        identity.AddClaim(new Claim(RequestTenant.Claim, tenant.ToString()));
         return new ClaimsPrincipal(identity);
     }
 
@@ -101,14 +104,17 @@ public static class DashboardAuth
         options.SlidingExpiration = true;
         options.ExpireTimeSpan = TimeSpan.FromDays(7);
 
-        // Every request asks the table, so disabling or deleting a user ends the sessions they hold rather than
-        // leaving them open until the cookie expires. A cookie with no user id predates app_user and signs in
-        // again. The configured credential is not asked: once a user exists it no longer decides anything.
+        // Every request asks the table, so disabling or deleting a user, or ending their membership of the
+        // cookie's tenant, ends the session there rather than leaving it open until the cookie expires. A
+        // cookie with no user id or no tenant predates them and signs in again. The configured credential is
+        // not asked: once a user exists it no longer decides anything.
         options.Events.OnValidatePrincipal = async context =>
         {
             var users = context.HttpContext.RequestServices.GetService<UserStore>();
-            var user = users is not null && Guid.TryParse(context.Principal?.FindFirstValue(UserIdClaim), out var id)
-                ? await users.FindActiveAsync(id, context.HttpContext.RequestAborted)
+            var user = users is not null
+                       && Guid.TryParse(context.Principal?.FindFirstValue(UserIdClaim), out var id)
+                       && RequestTenant.Of(context.Principal) is { } tenant
+                ? await users.EnterAsync(id, tenant, context.HttpContext.RequestAborted)
                 : null;
 
             if (user is null)
@@ -118,7 +124,7 @@ public static class DashboardAuth
             }
 
             // A rename or a changed administrator flag reaches the session on its next request.
-            var current = Principal(user);
+            var current = Principal(user, RequestTenant.Of(context.Principal)!.Value);
             if (current.Identity?.Name != context.Principal!.Identity?.Name
                 || current.FindFirstValue(SystemAdminClaim) != context.Principal.FindFirstValue(SystemAdminClaim))
             {
