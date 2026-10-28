@@ -12,3 +12,5 @@ public sealed record SessionRequest(string? Username, string? Password);
 public sealed record SessionTenantView(Guid Id, string Slug, string Role, bool Current);
 
 public sealed record SwitchTenantRequest(Guid? Id);
+
+public sealed record ChangePasswordRequest(string? Current, string? Next);

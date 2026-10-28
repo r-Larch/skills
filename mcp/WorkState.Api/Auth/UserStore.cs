@@ -8,6 +8,9 @@ namespace WorkState.Api.Auth;
 
 public sealed record DashboardUser(Guid Id, string Name, bool IsSystemAdmin);
 
+/// <summary>A cookie's user as the table has them now, with the security stamp a live cookie must carry.</summary>
+public sealed record DashboardSession(DashboardUser User, Guid Stamp);
+
 /// <summary>The user an OAuth token acts as, in the one tenant it acts in.</summary>
 public sealed record OAuthUser(DashboardUser User, Guid Tenant);
 
@@ -38,6 +41,8 @@ public sealed class UserStore(NpgsqlDataSource dataSource)
         () => Hasher.HashPassword(Nobody, Convert.ToBase64String(RandomNumberGenerator.GetBytes(32))));
 
     private sealed record Row(Guid Id, string Name, string PasswordHash, bool IsSystemAdmin, bool Disabled);
+
+    private sealed record SessionRow(Guid Id, string Name, bool IsSystemAdmin, Guid SecurityStamp);
 
     /// <summary>
     /// The user these credentials sign in as, or null. A wrong password, an unknown name and a disabled user
@@ -78,6 +83,70 @@ public sealed class UserStore(NpgsqlDataSource dataSource)
                    OR EXISTS (SELECT 1 FROM tenant_membership m WHERE m.user_id = u.id AND m.workspace_id = w.id));
             """,
             new { id, tenant },
+            cancellationToken: cancellationToken));
+    }
+
+    /// <summary>
+    /// <see cref="EnterAsync"/> with the user's security stamp, for the cookie's per-request check: a cookie
+    /// whose stamp is not this one was issued before a password change or reset and is signed out.
+    /// </summary>
+    public async Task<DashboardSession?> SessionAsync(Guid id, Guid tenant, CancellationToken cancellationToken)
+    {
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        var row = await connection.QuerySingleOrDefaultAsync<SessionRow>(new CommandDefinition(
+            """
+            SELECT u.id AS "Id", u.name AS "Name", u.is_system_admin AS "IsSystemAdmin",
+                   u.security_stamp AS "SecurityStamp"
+            FROM app_user u
+            JOIN workspace w ON w.id = @tenant
+            WHERE u.id = @id AND u.disabled_at IS NULL
+              AND (u.is_system_admin
+                   OR EXISTS (SELECT 1 FROM tenant_membership m WHERE m.user_id = u.id AND m.workspace_id = w.id));
+            """,
+            new { id, tenant },
+            cancellationToken: cancellationToken));
+
+        return row is null ? null : new DashboardSession(new DashboardUser(row.Id, row.Name, row.IsSystemAdmin), row.SecurityStamp);
+    }
+
+    /// <summary>The stamp a cookie issued to <paramref name="id"/> now carries; null for a user who is gone.</summary>
+    public async Task<Guid?> StampAsync(Guid id, CancellationToken cancellationToken)
+    {
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        return await connection.QuerySingleOrDefaultAsync<Guid?>(new CommandDefinition(
+            "SELECT security_stamp FROM app_user WHERE id = @id;",
+            new { id },
+            cancellationToken: cancellationToken));
+    }
+
+    /// <summary>
+    /// Sets a new password when <paramref name="current"/> is the user's password now, and draws a new security
+    /// stamp, which signs out every cookie but the one the caller re-issues with it. Null for a wrong current
+    /// password, or a user gone or disabled since; each runs one hash verification, as a sign-in does. The new
+    /// password is already judged (<see cref="AccountRules"/>).
+    /// </summary>
+    public async Task<Guid?> ChangePasswordAsync(Guid id, string current, string next, CancellationToken cancellationToken)
+    {
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        var hash = await connection.QuerySingleOrDefaultAsync<string>(new CommandDefinition(
+            "SELECT password_hash FROM app_user WHERE id = @id AND disabled_at IS NULL;",
+            new { id },
+            cancellationToken: cancellationToken));
+
+        if (Hasher.VerifyHashedPassword(Nobody, hash ?? DummyHash.Value, current) == PasswordVerificationResult.Failed
+            || hash is null)
+        {
+            return null;
+        }
+
+        // Only over the hash that was verified: of two changes racing, the second finds it gone and is refused.
+        return await connection.QuerySingleOrDefaultAsync<Guid?>(new CommandDefinition(
+            """
+            UPDATE app_user SET password_hash = @next, security_stamp = gen_random_uuid()
+            WHERE id = @id AND password_hash = @hash AND disabled_at IS NULL
+            RETURNING security_stamp;
+            """,
+            new { id, hash, next = Hasher.HashPassword(Nobody, next) },
             cancellationToken: cancellationToken));
     }
 

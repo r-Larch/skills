@@ -541,6 +541,12 @@ namespace WorkState.Core.Migrations
                         .HasColumnType("text")
                         .HasColumnName("password_hash");
 
+                    b.Property<Guid>("SecurityStamp")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("security_stamp")
+                        .HasDefaultValueSql("gen_random_uuid()");
+
                     b.HasKey("Id")
                         .HasName("pk_app_user");
 
@@ -1975,6 +1981,74 @@ namespace WorkState.Core.Migrations
                         });
                 });
 
+            modelBuilder.Entity("WorkState.Core.Domain.UserLink", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<DateTimeOffset>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("expires_at");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("kind");
+
+                    b.Property<string>("Role")
+                        .HasColumnType("text")
+                        .HasColumnName("role");
+
+                    b.Property<string>("TokenHash")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("token_hash");
+
+                    b.Property<DateTimeOffset?>("UsedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("used_at");
+
+                    b.Property<Guid?>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.Property<Guid?>("WorkspaceId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("workspace_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_user_link");
+
+                    b.HasIndex("CreatedBy")
+                        .HasDatabaseName("ix_user_link_created_by");
+
+                    b.HasIndex("TokenHash")
+                        .IsUnique()
+                        .HasDatabaseName("user_link_token_hash_idx");
+
+                    b.HasIndex("UserId")
+                        .HasDatabaseName("user_link_user_idx");
+
+                    b.HasIndex("WorkspaceId")
+                        .HasDatabaseName("user_link_workspace_idx");
+
+                    b.ToTable("user_link", null, t =>
+                        {
+                            t.HasCheckConstraint("user_link_shape", "(kind = 'invite' AND workspace_id IS NOT NULL AND role IN ('admin', 'member') AND user_id IS NULL) OR (kind = 'reset' AND user_id IS NOT NULL AND workspace_id IS NULL AND role IS NULL)");
+                        });
+                });
+
             modelBuilder.Entity("WorkState.Core.Domain.Verification", b =>
                 {
                     b.Property<Guid>("Id")
@@ -2551,6 +2625,27 @@ namespace WorkState.Core.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("fk_tenant_membership_workspace_workspace_id");
+                });
+
+            modelBuilder.Entity("WorkState.Core.Domain.UserLink", b =>
+                {
+                    b.HasOne("WorkState.Core.Domain.AppUser", null)
+                        .WithMany()
+                        .HasForeignKey("CreatedBy")
+                        .OnDelete(DeleteBehavior.SetNull)
+                        .HasConstraintName("fk_user_link_app_user_created_by");
+
+                    b.HasOne("WorkState.Core.Domain.AppUser", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .HasConstraintName("fk_user_link_app_user_user_id");
+
+                    b.HasOne("WorkState.Core.Domain.Workspace", null)
+                        .WithMany()
+                        .HasForeignKey("WorkspaceId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .HasConstraintName("fk_user_link_workspace_workspace_id");
                 });
 
             modelBuilder.Entity("WorkState.Core.Domain.Verification", b =>

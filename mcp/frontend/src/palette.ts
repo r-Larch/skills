@@ -1,25 +1,39 @@
 import type { ProjectOverview, SearchHit } from './api.ts'
-import { backlogHref, itemHref, projectHref } from './nav.ts'
+import { ADMIN, USERS, backlogHref, itemHref, projectHref } from './nav.ts'
 import { projectName } from './format.ts'
 
-/** A palette command: a page to open, or the one action the shell has (the theme). */
+/** A palette command: a page to open, or one of the shell's actions (the theme, a tenant switch). */
 export type Command = {
   id: string
   label: string
   /** Matched with the label but not shown: a project's ref and full title. */
   keywords: string
   href: string | null
-  action: 'theme' | null
+  action: 'theme' | 'tenant' | null
+  /** The workspace a `tenant` command switches to. */
+  tenant?: string
 }
 
-/** Every command the shell offers: the four pages, each project and its backlog, the theme. */
-export function commands(projects: Pick<ProjectOverview, 'item'>[]): Command[] {
+/** What the signed-in user may open beyond the work pages; without it the palette offers the work pages alone. */
+export type PaletteAccount = {
+  administers: boolean
+  systemAdmin: boolean
+  tenants: { id: string; slug: string; current: boolean }[]
+}
+
+/**
+ * Every command the shell offers: the four pages, the admin pages the user may open, each project and its
+ * backlog, a switch to each other workspace they may enter, the theme.
+ */
+export function commands(projects: Pick<ProjectOverview, 'item'>[], account?: PaletteAccount): Command[] {
   const page = (id: string, label: string, href: string): Command => ({ id, label, keywords: '', href, action: null })
   return [
     page('overview', 'Go to Overview', '/'),
     page('inbox', 'Go to Needs you', '/inbox'),
     page('activity', 'Go to Activity', '/activity'),
     page('sessions', 'Go to Sessions', '/sessions'),
+    ...(account?.administers ? [{ ...page('admin', 'Go to Admin', ADMIN), keywords: 'workspaces members invites tenants' }] : []),
+    ...(account?.systemAdmin ? [{ ...page('users', 'Go to Users', USERS), keywords: 'admin accounts disable' }] : []),
     ...projects.flatMap(({ item }) => {
       const keywords = `${item.ref} ${item.title}`
       return [
@@ -27,6 +41,16 @@ export function commands(projects: Pick<ProjectOverview, 'item'>[]): Command[] {
         { id: `backlog:${item.id}`, label: `Open ${projectName(item)} backlog`, keywords, href: backlogHref(item.id), action: null },
       ]
     }),
+    ...(account && account.tenants.length > 1 ? account.tenants : [])
+      .filter((t) => !t.current)
+      .map((t): Command => ({
+        id: `tenant:${t.id}`,
+        label: `Switch to workspace ${t.slug}`,
+        keywords: 'tenant',
+        href: null,
+        action: 'tenant',
+        tenant: t.id,
+      })),
     { id: 'theme', label: 'Toggle theme', keywords: 'dark light', href: null, action: 'theme' },
   ]
 }
@@ -60,7 +84,7 @@ export function arrange(matched: Command[], hits: SearchHit[]): { itemsFirst: bo
   return { itemsFirst, entries: itemsFirst ? [...is, ...cs] : [...cs, ...is] }
 }
 
-/** Where Enter on an entry goes; `null` for the theme, which navigates nowhere. */
+/** Where Enter on an entry goes; `null` for an action (the theme, a tenant switch), which navigates nowhere. */
 export const entryHref = (entry: Entry): string | null =>
   entry.kind === 'item' ? itemHref(entry.hit.item, entry.hit.run) : entry.command.href
 

@@ -49,6 +49,14 @@ export const backlogHref = (project: string) => `/projects/${project}/backlog`
 
 export const projectHref = (project: string) => `/projects/${project}`
 
+export const ACCOUNT = '/account'
+
+export const ADMIN = '/admin'
+
+export const USERS = '/admin/users'
+
+export const tenantAdminHref = (tenant: string) => `/admin/tenants/${tenant}`
+
 /** The run an item page's path places it in, or the item itself when it is one. */
 export function runOf(item: ItemRef, path: ItemRef[]): ItemRef | null {
   if (item.kind === 'run') return item
@@ -72,5 +80,10 @@ export function routeReads(href: string): string[] {
   if (parts[0] === 'items' && parts.length === 2) return [`/api/v1/items/${parts[1]}`]
   if (parts[0] === 'projects' && parts.length === 2) return ['/api/v1/overview']
   if (parts[0] === 'projects' && parts[2] === 'backlog' && parts.length === 3) return [`/api/v1/backlog?project=${parts[1]}`]
+  if (parts[0] === 'account' && parts.length === 1) return ['/api/session/me']
+  if (parts[0] === 'admin' && parts.length === 1) return ['/api/admin/tenants']
+  if (parts[0] === 'admin' && parts[1] === 'users' && parts.length === 2) return ['/api/admin/users']
+  if (parts[0] === 'admin' && parts[1] === 'tenants' && parts.length === 3)
+    return ['/api/admin/tenants', `/api/admin/tenants/${parts[2]}/members`, `/api/admin/tenants/${parts[2]}/invites`]
   return []
 }

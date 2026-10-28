@@ -1,11 +1,12 @@
 import { For, Show, createEffect, createMemo, createSignal, on, onCleanup, onMount, type JSX } from 'solid-js'
 import { useNavigate } from '@solidjs/router'
 import * as api from './api.ts'
-import { overview } from './store.ts'
+import { account, overview } from './store.ts'
 import { toggleTheme } from './theme.ts'
 import { refState } from './state.ts'
 import { Pill, ProjectName } from './ui.tsx'
-import { arrange, commands, entryHref, isPaletteChord, isSlash, matchCommands, type Entry } from './palette.ts'
+import { arrange, commands, entryHref, isPaletteChord, isSlash, matchCommands, type Entry, type PaletteAccount } from './palette.ts'
+import { switchWorkspace } from './tenant.ts'
 
 const DEBOUNCE_MS = 150
 
@@ -117,7 +118,11 @@ export default function Palette() {
     }),
   )
 
-  const matched = createMemo(() => matchCommands(commands(overview()?.projects ?? []), query()))
+  const paletteAccount = (): PaletteAccount | undefined => {
+    const a = account()
+    return a && { administers: a.user.administers, systemAdmin: a.user.systemAdmin, tenants: a.tenants }
+  }
+  const matched = createMemo(() => matchCommands(commands(overview()?.projects ?? [], paletteAccount()), query()))
   const layout = createMemo(() => arrange(matched(), query().trim() === '' ? [] : hits()))
   const entries = () => layout().entries
   const pending = () => query().trim() !== '' && searched() !== query().trim()
@@ -138,6 +143,7 @@ export default function Palette() {
     setOpen(false)
     if (href !== null) navigate(href)
     else if (entry.kind === 'command' && entry.command.action === 'theme') toggleTheme()
+    else if (entry.kind === 'command' && entry.command.action === 'tenant' && entry.command.tenant) void switchWorkspace(entry.command.tenant)
   }
 
   const onKey = (e: KeyboardEvent) => {

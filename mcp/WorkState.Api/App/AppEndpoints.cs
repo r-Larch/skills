@@ -23,6 +23,9 @@ public static class AppEndpoints
         var api = app.MapGroup("/api").ExcludeFromDescription();
 
         MapSession(api);
+        api.MapAdmin();
+        api.MapInvites();
+        api.MapResets();
         api.MapAgentSessions();
         api.MapProjectArchive();
         api.MapSessionRelease();
@@ -64,7 +67,7 @@ public static class AppEndpoints
                     $"{user.Name} is not a member of any workspace; a system administrator adds the membership");
             }
 
-            await context.SignInAsync(DashboardAuth.SchemeName, DashboardAuth.Principal(user, tenant));
+            await DashboardAuth.SignInAsync(context, user, tenant);
 
             return Results.NoContent();
         }).AllowAnonymous().RequireRateLimiting(RateLimits.SignIn);
@@ -73,6 +76,15 @@ public static class AppEndpoints
         // page continues at once when it is, which is also what carries a SameSite=Strict cookie past a
         // cross-site arrival (see Connect.tsx).
         api.MapGet("/session", () => Results.NoContent()).RequireAuthorization(DashboardAuth.Policy);
+
+        // Who the cookie is, for the shell: the account menu's name and whether the Admin page is shown. The
+        // admin API judges every call itself; this only decides what the sidebar offers.
+        api.MapGet("/session/me", async (HttpContext context, [FromServices] AdminStore admins) =>
+        {
+            var signedIn = SignedIn(context.User);
+            var rights = await admins.RightsAsync(signedIn.Id, context.RequestAborted);
+            return Results.Ok(new SessionUserView(signedIn.Id, signedIn.Name, signedIn.IsSystemAdmin, rights?.Any ?? false));
+        }).RequireAuthorization(DashboardAuth.Policy);
 
         api.MapGet("/session/tenants", async (HttpContext context, [FromServices] UserStore users) =>
         {
@@ -95,9 +107,35 @@ public static class AppEndpoints
                     $"{signedIn.Name} may not enter that workspace; GET /api/session/tenants lists the ones they may");
             }
 
-            await context.SignInAsync(DashboardAuth.SchemeName, DashboardAuth.Principal(user, id));
+            await DashboardAuth.SignInAsync(context, user, id);
             return Results.NoContent();
         });
+
+        // A dashboard write that guesses at the current password as a sign-in does: a wrong one is sign-in's bare
+        // 401, and it is limited like sign-in, in a window of its own. Success ends every other cookie of the user
+        // (a new security stamp) and re-issues this one with it; OAuth tokens and minted sessions stay.
+        api.MapGroup("/session/password").DashboardWrite().MapPost("", async (
+            ChangePasswordRequest request,
+            HttpContext context,
+            [FromServices] UserStore users) =>
+        {
+            if (AccountRules.PasswordProblem(request.Next) is { } problem)
+            {
+                return Error(StatusCodes.Status400BadRequest, problem);
+            }
+
+            var signedIn = SignedIn(context.User);
+            if (await users.ChangePasswordAsync(signedIn.Id, request.Current ?? string.Empty, request.Next!, context.RequestAborted)
+                is not { } stamp)
+            {
+                return Results.Unauthorized();
+            }
+
+            await context.SignInAsync(
+                DashboardAuth.SchemeName,
+                DashboardAuth.Principal(signedIn, RequestTenant.Of(context.User)!.Value, stamp));
+            return Results.NoContent();
+        }).RequireRateLimiting(RateLimits.Password);
 
         api.MapDelete("/session", async (HttpContext context) =>
         {

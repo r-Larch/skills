@@ -218,8 +218,10 @@ never reach `/mcp`.
 **The read API is the one shared door (doc 10 rule 5).** `GET /api/v1/*` and `/api/stream` are
 read-only, so they take either audience: the dashboard cookie, any agent token, or a **reader token**.
 The pre-v1 cookie-only `/api/*` routes are removed; `/api/session`, `/api/agent-sessions` (doc 14
-§2, bearer only) and `POST /api/projects/{id}/archive|unarchive` (doc 10, cookie only, with the
-`X-WorkState-Write` header) are the only other `/api` routes.
+§2, bearer only), the dashboard's writes (`POST /api/projects/{id}/archive|unarchive` and the rest in
+doc 10 "Outside v1", cookie only, with the `X-WorkState-Write` header), the admin API `/api/admin/*`
+(cookie only) and the invite link `/api/invite/{token}` (anonymous, below) are the only other `/api`
+routes.
 
 | Token | Config / env | Reaches |
 |---|---|---|
@@ -240,10 +242,13 @@ then on only the table decides: **changing or removing the configured password c
 the dashboard keeps working with neither set. A wrong password, an unknown name and a disabled user
 get the same 401 and each runs one hash verification. Every cookie request re-reads its user
 (the `sub` claim): a user deleted or disabled (`disabled_at`) is signed out on their next request,
-and a cookie issued before m48 (no `sub`) or before m50 (no tenant) has to sign in again. The
+and so is a cookie whose security stamp (`workstate:stamp`) is no longer the user's
+`app_user.security_stamp`, which a password change or reset draws anew (m52). A cookie issued before
+m48 (no `sub`), before m50 (no tenant) or before m52 (no stamp) has to sign in again. The
 configured credential has nothing to do with OAuth (m51): `/connect/authorize` is gated by a
 signed-in cookie, and a fresh install with no user has none to present.
-There is no user management yet: a second user, a password change or a disable is SQL for now.
+Users are managed on the dashboard's Admin page and change their own password on its Account page
+(m52, below).
 
 **Tenants (m50).** A tenant is a `workspace` row, and every request acts in exactly one: its
 credential's, never one a header, a query parameter or a server default names (C62). Every
@@ -253,7 +258,8 @@ authentication path puts it on the principal as the claim `workstate:tenant`:
   administrator who is a member of nothing lands in the oldest workspace; a user who is a member of
   nothing cannot sign in (403). `GET /api/session/tenants` lists the workspaces the user may enter and
   `POST /api/session/tenant {id}` re-issues the cookie in another, if they are a member of it or a
-  system administrator (doc 10). The dashboard has no switcher for it yet; unit admin-ui adds one.
+  system administrator (doc 10). The sidebar's workspace switcher (doc 13) calls it, shown only to a
+  user who may enter more than one.
   Every cookie request re-checks: a user whose membership of the cookie's tenant is removed is signed
   out there on their next request.
 - **`wss_` token** — its session's workspace. A mint creates the session in the minting credential's
@@ -285,9 +291,58 @@ authentication path puts it on the principal as the claim `workstate:tenant`:
 
 A principal with no tenant — including a request carrying two credentials that name different
 workspaces — gets `403 {"error": "…"}` saying what to do. No request creates its own tenant:
-workspaces are created only by the first user's bootstrap (`default`, when there is none) and by a
-static token's first use (its configured slug, or `default` on an empty database). A tree lock is
+workspaces are created only by the first user's bootstrap (`default`, when there is none), by a
+static token's first use (its configured slug, or `default` on an empty database), and by a system
+administrator on the Admin page (`POST /api/admin/tenants`). A tree lock is
 per tenant too: a path claimed in one workspace does not hold the same path in another (doc 07 §5).
+
+**Administration (m52).** Roles govern administration only: every member of a workspace has full
+work rights there, whatever its role. A **system administrator** (`app_user.is_system_admin`) sees
+and manages every workspace, creates workspaces and lists, disables and re-enables users; a **tenant
+admin** (`tenant_membership.role = 'admin'`) invites into their own workspace and changes or removes
+its members; a **member** reaches no admin route (403). The admin API (doc 10 "Outside v1") names the
+workspace it acts on in its path — administering a tenant is not acting in it, and a system
+administrator administers all of them — so every call is judged against the caller's rights in that
+workspace **as the table has them on that request**, never against the cookie's tenant or anything
+the request says about its caller (C62): a tenant admin of A is refused (403) every read and write
+aimed at B, and a workspace's id is checked before its existence, so they learn nothing about B. A
+workspace keeps at least one admin: demoting or removing its last one is refused (409), under a lock
+on the workspace row so two admins demoting each other at once cannot both succeed. A system
+administrator cannot disable themselves. Disabling a user ends their cookies, their OAuth tokens and
+the sessions they minted at the next request each makes; enabling them undoes it.
+
+**Invite links (m52).** No email is sent: an admin creates a link and copies it to the person. It is
+`<origin>/join/<token>`, the token 32 random bytes in base64url, **shown once** in the create
+response; `user_link` keeps only its SHA-256 (C64), so a lost link is revoked and made again, never
+shown again. An invite names a workspace and a role, is valid **14 days** and works **once**: it is
+used by one `UPDATE user_link SET used_at = now() WHERE token_hash = … AND used_at IS NULL AND
+expires_at > now() RETURNING …`, so of two requests racing with one token exactly one gets a row.
+Accepting it with no session creates the user — a name unique ignoring case and a password of **at
+least 12 characters** (and at most 1024), stored hashed — with that membership; with a signed-in
+dashboard cookie it gives that user the membership instead (never lowering a role they already hold
+there). Either way the browser is then signed in to the invite's workspace. A name already taken is
+refused (409) and leaves the link unused. `GET /api/invite/{token}` and `POST
+/api/invite/{token}/accept` take no session and are rate-limited per client address (10 a minute,
+sign-in's window doubled because the page reads the link before it uses it); the accept also needs
+the `X-WorkState-Write` header. A used, revoked, expired or unknown token is one answer, 404.
+
+**Passwords (m52).** A password is at least **12 characters** (and at most 1024) wherever one is
+set: accepting an invite, changing one's own, using a reset link. `POST /api/session/password
+{current, next}` (the cookie and the `X-WorkState-Write` header) changes the signed-in user's
+password; a wrong current password is sign-in's bare 401, and it is rate-limited like sign-in, in a
+window of its own. Success rehashes and draws a new security stamp, which **ends every other cookie
+of that user** at its next request, and re-issues the requesting cookie with the new stamp, so it
+stays. **OAuth grants and minted `wss_` sessions stay**: their tokens are not cookies and carry no
+stamp. A **reset link** is the invite's mechanism for one user: `POST
+/api/admin/users/{id}/reset-link` returns `<origin>/reset/<token>` once (only the SHA-256 kept, C64),
+valid **24 hours**, used once by the same conditional `UPDATE`; a newer link for the same user
+replaces an unused older one. Using it (`POST /api/reset/{token} {password}`, no session needed,
+rate-limited like an invite) sets the password and draws a new stamp, which **ends all of the
+user's cookies**, the browser's own included; OAuth grants stay. A reset hands its holder the whole
+account, so a system administrator makes one for anyone, and a tenant admin only for a user who is
+no system administrator and every one of whose workspaces they administer — never for someone with
+a membership in a workspace that is not theirs (C63); every refusal, an unknown id included, is the
+same 403.
 
 **`WORKSTATE_PUBLIC_URL`** (`WorkState:PublicUrl`, **optional**; compose passes
 `${WORKSTATE_PUBLIC_URL:-}`) is the base of the `web` line `work_brief` and `work_get` print

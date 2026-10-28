@@ -11,9 +11,18 @@ The dashboard does not call the pre-v1 routes (`/api/projects`, `/api/watch`,
 
 ## Information architecture
 
-A sidebar (the search field that opens the command palette; Overview, Needs you with its count,
-Activity; then the projects) and one page beside it.
+A sidebar (the workspace switcher, for a user who may enter more than one; the search field that
+opens the command palette; Overview, Needs you with its count, Activity, Sessions, and Admin for a
+user who administers a workspace; then the projects; at the foot the live state, the theme, and the
+account menu — the user's name, opening *Change password* and *Sign out*) and one page beside it.
 Every page is a URL.
+
+**The workspace switcher** (`src/Shell.tsx` `TenantSwitcher`, from `GET /api/session/tenants`): a
+select under the brand, its options the workspaces the user may enter, the session's selected. Shown
+only when there is more than one (`showSwitcher`, `src/admin.ts`). Choosing one re-issues the cookie
+(`POST /api/session/tenant`) and reloads at `/`: every read, the stream and every board belong to one
+tenant, and a page of the old one would 404 in the new. A refusal is shown under it in the server's
+words. The palette offers the same switch.
 
 **The command palette** (`src/Palette.tsx`, rules in `src/palette.ts`). **Ctrl+P** (**⌘P** on
 macOS) opens it from any page, taking the key from the browser's print dialog; so does **/** when
@@ -23,8 +32,10 @@ sidebar, which shows the shortcut. It is a modal dialog: one input, a listbox it
 returns focus where it was. One input filters two groups:
 
 - **Commands**, matched here, every word of the input against the label and a project's ref and
-  title: go to Overview, Needs you, Activity, Sessions; open each project and its backlog (from
-  `overview`); toggle the theme. An empty input shows the commands alone.
+  title: go to Overview, Needs you, Activity, Sessions; go to Admin for a user who administers a
+  workspace and to Users for a system administrator (from `GET /api/session/me`); open each project
+  and its backlog (from `overview`); *Switch to workspace &lt;slug&gt;* for each other workspace the user
+  may enter; toggle the theme. An empty input shows the commands alone.
 - **Items**, from `GET /api/v1/search` (doc 10), 150 ms after the last keystroke; an answer for an
   input no longer typed is dropped. A row shows the item's `fullRef`, title, kind and state pill and
   its project; Enter opens it through `itemHref`. When the input is some item's exact ref, Items
@@ -55,6 +66,12 @@ returns focus where it was. One input filters two groups:
 | `/runs/{run}/{item}` | the same, with `{item}` selected | `runs/{run}/board`, `items/{item}` |
 | `/items/{id}` | resolves any item: if it sits in a run it becomes `/runs/{run}/{id}`; otherwise (a project, project-level work) it is shown standalone | `items/{id}` |
 | `/projects/{id}/backlog` | **Backlog** — the project's open deferrals, grouped by the run they came from | `backlog?project={id}` |
+| `/admin` | **Admin** — the workspaces the user administers (every one for a system administrator), each with its member, admin and pending-invite counts, linking to its page; for a system administrator a *New workspace* form (slug, judged as the server does) and a link to Users | `/api/admin/tenants` |
+| `/admin/tenants/{id}` | **Workspace** — its members, each with a role select, Remove (asks first; both locked on the last admin) and *Create reset link* (the link shown once under the row; a refusal in the server's words), and its invite links: a role and *Create invite link*, the new link shown **once** in a field with Copy, then the pending ones, each with Revoke | `/api/admin/tenants`, `…/{id}/members`, `…/{id}/invites` |
+| `/admin/users` | **Users** — system administrator only: every user, their memberships as chips linking to each workspace's page, *Create reset link* and Disable (asks first; not oneself) / Enable | `/api/admin/users` |
+| `/account` | **Account** — who is signed in, and *Change password*: the current one, the new one twice (12 characters at least). It says that the other sessions end and this one and the OAuth connections stay; a wrong current password says nothing changed | `/api/session/me` |
+| `/reset/{token}` | **Reset** — outside the dashboard, like the invite page. Names whose password it sets and until when the link works; the new password twice; once set, says every session of that user was signed out and offers the sign-in | `/api/reset/{token}` |
+| `/join/{token}` | **Invite** — outside the dashboard, like the OAuth pages: no router, store, stream or sign-in gate. Names the workspace and role and until when the link works; with a session, *Join as &lt;name&gt;* and *Not you? Sign out*; without, a name and a password twice (12 characters at least) and *Create account and join*, or *Sign in first*, which shows the sign-in form and comes back. Accepting opens `/` in that workspace; a used, revoked or expired link says so and offers nothing | `/api/invite/{token}` |
 
 `?filter=open|attention` and `?tab=evidence|notes|activity|brief` ride on the run URL, so a
 selection is deep-linkable and back/forward walk it.
