@@ -8,6 +8,9 @@ What changes for someone who has the `rlarch` plugin installed, newest first. Fo
 
 ### Changed
 
+- WorkState server **0.9.2** (no plugin change, no migration): the consent page lets the browser
+  return to such a client's actual port (its `form-action` blocked the redirect, so Approve hung) and
+  no longer warns that the address is unregistered.
 - WorkState server **0.9.1** (no plugin change, no migration): an app that registers itself with a
   `http://127.0.0.1/callback` (or `localhost`) callback may sign in on any port of that host, as RFC
   8252 §7.3 requires. Foreman and `agent_signin` were refused with `ID2043` before; Claude Code was

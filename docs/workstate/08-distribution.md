@@ -140,6 +140,10 @@ name by Claude session id, the name release (dashboard Sessions page and
 registered `http` loopback callback (RFC 8252 §7.3), for dynamically registered clients as well as
 metadata-document ones; until then only the latter had it.
 
+`0.9.2` (no plugin change, no migration) applies the same rule to the consent page: its
+`form-action` names the requested loopback origin, so Approve reaches the client's listener, and the
+page no longer flags that callback as unregistered.
+
 ---
 
 ## 3. Should the skills use it? — Yes, and as a **hard** dependency
