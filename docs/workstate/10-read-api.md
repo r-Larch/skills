@@ -73,7 +73,11 @@ refs when the session holds live claims, and 409 for a row already released. Jou
    the cookie, static tokens and `wss_` tokens need no scope. The user behind the token is the
    dashboard operator, mapped to the controller role as on `/mcp`. Registration is a client-ID
    metadata document (an https `client_id`; Foreman's) or DCR (`POST /connect/register`, for
-   development), public clients with PKCE S256, loopback callbacks on any port (RFC 8252); the
+   development), public clients with PKCE S256, loopback callbacks on any port (RFC 8252 §7.3: a
+   requested `http` loopback `redirect_uri` is admitted when a registered callback matches it in
+   scheme, host, path and query — the registered port, or none, is ignored; `localhost` and
+   `127.0.0.1` are different hosts; every other callback is exact, and the token request must name
+   the `redirect_uri` the code was issued to, port included); the
    refresh token lives 30 days. Revoking the **refresh** token at `/connect/revoke` revokes the whole
    authorization (sign-out); revoking an access token revokes only that token.
 6. **Enums are lower_snake strings.** `status` is exactly `ItemStatus`:

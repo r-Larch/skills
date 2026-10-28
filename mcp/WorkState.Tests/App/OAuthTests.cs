@@ -7,6 +7,7 @@ using System.Text.Json;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.Extensions.DependencyInjection;
+using OpenIddict.Abstractions;
 using OpenIddict.Server;
 using WorkState.Tests.Read;
 using WorkState.Tests.Store;
@@ -283,6 +284,84 @@ public sealed class OAuthTests(PostgresFixture fixture)
         Assert.Equal(accepted ? HttpStatusCode.Created : HttpStatusCode.BadRequest, response.StatusCode);
     }
 
+    [Fact]
+    public async Task A_registered_port_less_loopback_callback_is_used_on_any_port()
+    {
+        // What Foreman and agent_signin register: no port, then whatever port the listener got.
+        await using var server = await AppServer.StartAsync(fixture.ConnectionString, Slug(), Ct);
+        var clientId = await RegisterAsync(server.NewClient(), "http://127.0.0.1/callback");
+        var browser = await server.SignInAsync(Ct);
+
+        foreach (var redirect in new[] { "http://127.0.0.1:52042/callback", "http://127.0.0.1:52043/callback" })
+        {
+            var pkce = Pkce.Create();
+            var code = await AuthorizeForCodeAsync(browser, clientId, pkce, $"{server.BaseAddress}/mcp", redirect);
+            var tokens = await ExchangeAsync(server.NewClient(), clientId, code, pkce, redirect);
+            Assert.Equal(HttpStatusCode.OK, (await McpAsync(server, tokens.AccessToken)).StatusCode);
+        }
+
+        // Admitted, not written down: the row does not grow a callback per sign-in.
+        await using var scope = server.Services.CreateAsyncScope();
+        var applications = scope.ServiceProvider.GetRequiredService<IOpenIddictApplicationManager>();
+        var application = await applications.FindByClientIdAsync(clientId, Ct);
+        Assert.Equal("http://127.0.0.1/callback", Assert.Single(await applications.GetRedirectUrisAsync(application!, Ct)));
+    }
+
+    [Fact]
+    public async Task A_registered_loopback_port_is_not_binding()
+    {
+        // RFC 8252 §7.3 ignores the port of a loopback callback, whichever one the registration named.
+        await using var server = await AppServer.StartAsync(fixture.ConnectionString, Slug(), Ct);
+        var clientId = await RegisterAsync(server.NewClient());
+        var browser = await server.SignInAsync(Ct);
+
+        const string redirect = "http://127.0.0.1:8888/callback";
+        var pkce = Pkce.Create();
+        var code = await AuthorizeForCodeAsync(browser, clientId, pkce, $"{server.BaseAddress}/mcp", redirect);
+        var tokens = await ExchangeAsync(server.NewClient(), clientId, code, pkce, redirect);
+        Assert.Equal(HttpStatusCode.OK, (await McpAsync(server, tokens.AccessToken)).StatusCode);
+    }
+
+    [Theory]
+    [InlineData("http://127.0.0.1/callback", "http://127.0.0.1:52042/other")]
+    [InlineData("http://127.0.0.1/callback", "http://localhost:52042/callback")]
+    [InlineData("http://localhost/callback", "http://127.0.0.1:52042/callback")]
+    [InlineData("http://127.0.0.1/callback", "https://127.0.0.1:52042/callback")]
+    [InlineData("http://127.0.0.1/callback?a=1", "http://127.0.0.1:52042/callback?a=2")]
+    [InlineData("https://client.example/callback", "https://client.example:8443/callback")]
+    public async Task Only_the_port_of_a_loopback_callback_may_differ(string registered, string requested)
+    {
+        await using var server = await AppServer.StartAsync(fixture.ConnectionString, Slug(), Ct);
+        var clientId = await RegisterAsync(server.NewClient(), registered);
+        var browser = await server.SignInAsync(Ct);
+
+        var response = await browser.GetAsync(AuthorizeUrl(clientId, Pkce.Create(), $"{server.BaseAddress}/mcp", requested), Ct);
+        await AssertRefusedAsync(response, "invalid_request");
+    }
+
+    [Fact]
+    public async Task The_token_request_names_the_port_the_code_was_issued_to()
+    {
+        await using var server = await AppServer.StartAsync(fixture.ConnectionString, Slug(), Ct);
+        var anonymous = server.NewClient();
+        var clientId = await RegisterAsync(anonymous, "http://127.0.0.1/callback");
+        var browser = await server.SignInAsync(Ct);
+
+        var pkce = Pkce.Create();
+        var code = await AuthorizeForCodeAsync(browser, clientId, pkce, $"{server.BaseAddress}/mcp", "http://127.0.0.1:52042/callback");
+        var refused = await TokenAsync(anonymous, new()
+        {
+            ["grant_type"] = "authorization_code",
+            ["code"] = code,
+            ["redirect_uri"] = "http://127.0.0.1:52043/callback",
+            ["client_id"] = clientId,
+            ["code_verifier"] = pkce.Verifier,
+        });
+
+        Assert.Equal(HttpStatusCode.BadRequest, refused.StatusCode);
+        Assert.Equal("invalid_grant", (await ReadAsync(refused)).GetProperty("error").GetString());
+    }
+
     private static string Slug() => $"oauth-{Guid.CreateVersion7():n}";
 
     private async Task<TokenSet> FullFlowAsync(AppServer server, string? resource = null)
@@ -295,11 +374,11 @@ public sealed class OAuthTests(PostgresFixture fixture)
         return await ExchangeAsync(anonymous, clientId, code, pkce);
     }
 
-    internal static async Task<string> RegisterAsync(HttpClient client)
+    internal static async Task<string> RegisterAsync(HttpClient client, string redirectUri = Callback)
     {
         var response = await client.PostAsync(
             "/connect/register",
-            AppServer.Json(new { client_name = "OAuth tests", redirect_uris = new[] { Callback } }),
+            AppServer.Json(new { client_name = "OAuth tests", redirect_uris = new[] { redirectUri } }),
             Ct);
 
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);

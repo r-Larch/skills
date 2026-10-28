@@ -4,6 +4,7 @@ using Microsoft.IdentityModel.Tokens;
 using ModelContextProtocol.AspNetCore.Authentication;
 using ModelContextProtocol.Authentication;
 using OpenIddict.Abstractions;
+using OpenIddict.EntityFrameworkCore.Models;
 using OpenIddict.Server;
 using OpenIddict.Server.AspNetCore;
 using OpenIddict.Validation;
@@ -71,7 +72,11 @@ public static class OAuthServer
         services.AddSingleton<OAuthKeyRing>();
 
         services.AddOpenIddict()
-            .AddCore(core => core.UseEntityFrameworkCore().UseDbContext<WorkStateDbContext>())
+            .AddCore(core =>
+            {
+                core.UseEntityFrameworkCore().UseDbContext<WorkStateDbContext>();
+                core.ReplaceApplicationManager<OpenIddictEntityFrameworkCoreApplication, WorkStateApplicationManager>();
+            })
             .AddServer(server =>
             {
                 if (Uri.TryCreate(publicUrl?.Trim(), UriKind.Absolute, out var issuer))
