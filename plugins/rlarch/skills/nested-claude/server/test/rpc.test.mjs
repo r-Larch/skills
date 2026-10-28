@@ -30,12 +30,12 @@ test('notifications get no reply; ping answers {}', async () => {
     }
 })
 
-test('tools/list: three tools, each an object schema; enum params carry enums', async () => {
+test('tools/list: five tools, each an object schema; enum params carry enums', async () => {
     const s = startServer()
     try {
         const r = await s.request('tools/list')
         const tools = r.result.tools
-        assert.deepEqual(tools.map((/** @type {any} */ t) => t.name), ['agent_launch', 'agent_stop', 'agent_list'])
+        assert.deepEqual(tools.map((/** @type {any} */ t) => t.name), ['agent_launch', 'agent_stop', 'agent_list', 'agent_signin', 'agent_signout'])
         for (const t of tools) {
             assert.equal(typeof t.description, 'string')
             assert.equal(t.inputSchema.type, 'object')

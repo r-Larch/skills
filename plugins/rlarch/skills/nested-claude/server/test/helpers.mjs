@@ -11,6 +11,7 @@ import { fileURLToPath } from 'node:url'
 const here = path.dirname(fileURLToPath(import.meta.url))
 export const SERVER = path.join(here, '..', 'agents.mjs')
 export const FAKE_CLAUDE = path.join(here, 'fake-claude.mjs')
+export const FAKE_BROWSER = path.join(here, 'fake-browser.mjs')
 
 export const MINTED_TOKEN = 'wss_FAKEminted0123456789abcdefMINTED'
 export const CONTROLLER_TOKEN = 'ctl_FAKEcontroller0123456789SECRET'
@@ -103,6 +104,8 @@ export function startServer(env = {}) {
             FAKE_CLAUDE_LOG: claudeLog,
             CLAUDE_PLUGIN_DATA: data,
             AGENTS_SESSION_WAIT_MS: '1500',
+            WORKSTATE_GRANTS_FILE: path.join(data, 'home', '.workstate', 'grants.json'),
+            AGENTS_BROWSER: JSON.stringify([process.execPath, FAKE_BROWSER]),
             ...env,
         },
         stdio: ['pipe', 'pipe', 'pipe'],
