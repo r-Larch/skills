@@ -275,6 +275,8 @@ public static class OAuthEndpoints
                 Permissions.Scopes.Profile,
                 Permissions.Prefixes.Scope + Scopes.OfflineAccess,
                 Permissions.Prefixes.Scope + OAuthServer.McpScope,
+                Permissions.Prefixes.Scope + OAuthServer.ReadScope,
+                Permissions.Prefixes.Scope + OAuthServer.SessionsScope,
             },
             Requirements = { Requirements.Features.ProofKeyForCodeExchange },
         };

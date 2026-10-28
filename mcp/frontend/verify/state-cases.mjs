@@ -260,6 +260,11 @@ check('initials: three words take the first two', initials('  my mcp   client ')
 check('initials: never empty', initials('   '), '?')
 check('initials: a surrogate pair stays whole', initials('🦀 rust'), '🦀R')
 check('an unknown scope is shown by name', scopeLines('?scope=mystery').map((l) => [l.scope, l.label]), [['mystery', 'mystery']])
+check('the /api scopes in plain words', scopeLines('?scope=workstate.read%20workstate.sessions%20offline_access').map((l) => [l.scope, l.label]), [
+  ['workstate.read', 'Read your board and its live updates'],
+  ['workstate.sessions', 'Start agent sessions on your behalf'],
+  ['offline_access', 'Stay connected'],
+])
 check('a lapsed session goes back through sign-in', signInHref('?client_id=c1&state=s'), '/connect/signin?returnUrl=%2Fconnect%2Fauthorize%3Fclient_id%3Dc1%26state%3Ds')
 
 console.log('\n── the sign-in page: where it may continue to ───────────────────────────────')
