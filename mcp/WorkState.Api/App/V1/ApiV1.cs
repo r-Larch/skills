@@ -20,6 +20,8 @@ public static partial class ApiV1
     private const int JournalDefaultLimit = 50;
     private const int JournalMaxLimit = 500;
     private const int ItemEventLimit = 50;
+    private const int SearchDefaultLimit = 20;
+    private const int SearchMaxLimit = 50;
 
     public static bool IsReader(ClaimsPrincipal user) => user.IsInRole(WorkStatePolicies.Reader);
 
@@ -51,6 +53,7 @@ public static partial class ApiV1
         v1.MapGet("/backlog", BacklogAsync);
         v1.MapGet("/sessions", SessionsAsync);
         v1.MapGet("/resolve", ResolveAsync);
+        v1.MapGet("/search", SearchAsync);
         v1.MapGet("/prompts", PromptsAsync);
     }
 

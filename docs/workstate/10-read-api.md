@@ -231,6 +231,22 @@ under its tombstone name with `revoked`.
 ### `GET /api/v1/resolve?ref=backlog`
 `{ "asOf": "…", "seq": 1234, "matches": [ItemRef] }` — zero, one or many; the client decides.
 
+### `GET /api/v1/search?q=&limit=`
+The dashboard's find (doc 13 "The command palette"), over items only. `limit` defaults to 20, at
+most 50. Hits come in three stages, and an item appears once, at its first: **`ref`** — `q` resolves
+to it by `/resolve`'s rule (`spa-blank-page-seam`, `m/12`, `project/run/ref`; every match of an
+ambiguous ref); **`prefix`** — its ref starts with `q`, ignoring case, taken literally (`%` and `_`
+are not wildcards), shortest ref first; **`text`** — full text over ref, title and intent, best rank
+first. Only the request's workspace. 400 when `q` is missing or blank.
+```jsonc
+{ "asOf": "…", "seq": 1234,
+  "hits": [{ "item": ItemRef, "run": ItemRef | null, "project": ItemRef | null,
+             "match": "ref" | "prefix" | "text", "snippet": "…" | null }] }
+```
+`run` and `project` are the nearest run and project at or above the item (a run's `run` is
+itself, a project's `project` is itself), so a client links and labels a hit without another read.
+`snippet` is plain text — the matching fragment of the intent, else the title — on a `text` hit only.
+
 ### `GET /api/v1/prompts?scope={id}`
 The prompt actions that apply to one project, run or item (doc 13 "The prompt catalogue"), in the
 catalogue's fixed order; an action that does not apply is absent. Each `text` is the whole prompt a

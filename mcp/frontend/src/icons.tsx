@@ -38,6 +38,13 @@ export const SessionsIcon = () => (
   </svg>
 )
 
+export const SearchIcon = () => (
+  <svg viewBox="0 0 24 24" {...stroke} aria-hidden="true">
+    <circle cx="11" cy="11" r="6.5" />
+    <path d="M16 16l4.5 4.5" />
+  </svg>
+)
+
 export const CopyIcon = () => (
   <svg viewBox="0 0 24 24" {...stroke} aria-hidden="true">
     <rect x="8" y="8" width="12" height="12" rx="2" />

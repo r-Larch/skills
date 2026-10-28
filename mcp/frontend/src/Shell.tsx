@@ -7,7 +7,9 @@ import { countTitle, counted, tally } from './state.ts'
 import { projectHref, runHref } from './nav.ts'
 import { clock, short } from './format.ts'
 import { ProjectName } from './ui.tsx'
-import { ActivityIcon, CheckIcon, InboxIcon, OverviewIcon, SessionsIcon } from './icons.tsx'
+import { ActivityIcon, CheckIcon, InboxIcon, OverviewIcon, SearchIcon, SessionsIcon } from './icons.tsx'
+import Palette, { openPalette } from './Palette.tsx'
+import { chordLabel } from './palette.ts'
 import {
   archivedOpen,
   byActivity,
@@ -46,6 +48,18 @@ export default function Shell(props: ParentProps) {
           </span>
           <span class="brand-name">WorkState</span>
         </A>
+
+        <button
+          type="button"
+          class="side-find"
+          aria-haspopup="dialog"
+          aria-keyshortcuts="Control+P Meta+P /"
+          onClick={openPalette}
+        >
+          <SearchIcon />
+          <span class="side-find-t">Search refs, items, commands</span>
+          <kbd>{chordLabel(navigator.userAgent)}</kbd>
+        </button>
 
         <nav class="nav">
           <A href="/" class={on('/') ? 'on' : ''}>
@@ -132,6 +146,8 @@ export default function Shell(props: ParentProps) {
         </Show>
         {props.children}
       </main>
+
+      <Palette />
     </div>
   )
 }

@@ -11,8 +11,25 @@ The dashboard does not call the pre-v1 routes (`/api/projects`, `/api/watch`,
 
 ## Information architecture
 
-A sidebar (Overview, Needs you with its count, Activity; then the projects) and one page beside it.
+A sidebar (the search field that opens the command palette; Overview, Needs you with its count,
+Activity; then the projects) and one page beside it.
 Every page is a URL.
+
+**The command palette** (`src/Palette.tsx`, rules in `src/palette.ts`). **Ctrl+P** (**⌘P** on
+macOS) opens it from any page, taking the key from the browser's print dialog; so does **/** when
+focus is not in a text field, and so does the *Search refs, items, commands* field at the top of the
+sidebar, which shows the shortcut. It is a modal dialog: one input, a listbox it drives
+(`aria-activedescendant`), focus held inside; ↑/↓ move, Enter opens, a click opens, Esc closes and
+returns focus where it was. One input filters two groups:
+
+- **Commands**, matched here, every word of the input against the label and a project's ref and
+  title: go to Overview, Needs you, Activity, Sessions; open each project and its backlog (from
+  `overview`); toggle the theme. An empty input shows the commands alone.
+- **Items**, from `GET /api/v1/search` (doc 10), 150 ms after the last keystroke; an answer for an
+  input no longer typed is dropped. A row shows the item's `fullRef`, title, kind and state pill and
+  its project; Enter opens it through `itemHref`. When the input is some item's exact ref, Items
+  come first, so a typed ref and Enter open it. With no hits it names what was searched and that a
+  ref works bare or as `run/ref` and `project/run/ref`.
 
 **The project list** (`src/Shell.tsx`, rules in `src/projects.ts`):
 

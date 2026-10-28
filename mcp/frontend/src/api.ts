@@ -239,6 +239,20 @@ export type Prompt = { key: string; label: string; count: number | null; text: s
 
 export type Prompts = { asOf: string; seq: number; scope: ItemRef; prompts: Prompt[] }
 
+/** `ref`: the query is the item's ref (resolve's rule); `prefix`: its ref starts with it; `text`: full text. */
+export type SearchMatch = 'ref' | 'prefix' | 'text'
+
+export type SearchHit = {
+  item: ItemRef
+  run: ItemRef | null
+  project: ItemRef | null
+  match: SearchMatch
+  /** The matching fragment of the intent or title, plain text; only on a `text` hit. */
+  snippet: string | null
+}
+
+export type Search = { asOf: string; seq: number; hits: SearchHit[] }
+
 /**
  * Whether the cookie is good. Flipped by any 401, which is the only signal the API gives: the
  * session cookie is httponly, so the document cannot read it and asking is the only way to know.
@@ -296,6 +310,8 @@ export const backlog = (project: string) => json<Backlog>(`/api/v1/backlog?proje
 export const prompts = (scope: string) => json<Prompts>(`/api/v1/prompts?scope=${id(scope)}`)
 
 export const sessions = () => json<Sessions>('/api/v1/sessions')
+
+export const search = (q: string) => json<Search>(`/api/v1/search?q=${id(q)}`)
 
 /**
  * A dashboard write (doc 10). The header is the cross-site guard: a form on another site cannot
