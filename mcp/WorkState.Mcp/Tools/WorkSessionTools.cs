@@ -38,6 +38,7 @@ public sealed class WorkSessionTools(
 
         var bound = await sessions.BindAsync(
             tenant.Id,
+            caller.UserId,
             caller.Actor.Role,
             name,
             new SessionFacts(ClaudeSessionId: claude_session_id, ClientKey: key),

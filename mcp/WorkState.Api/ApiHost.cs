@@ -42,7 +42,7 @@ public static class ApiHost
         configure?.Invoke(builder);
 
         // doc 08 §4 — one process, two audiences. The dashboard's bootstrap credential is read once here, for
-        // POST /api/session's first sign-in and for the OAuth server's subject.
+        // POST /api/session's first sign-in.
         var dashboard = new DashboardOptions();
         builder.Configuration.GetSection(DashboardOptions.Section).Bind(dashboard);
         builder.Services.AddSingleton(dashboard);

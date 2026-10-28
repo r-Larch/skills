@@ -2,9 +2,11 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Text.Json;
 using Dapper;
+using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using ModelContextProtocol.Client;
 using WorkState.Api.App;
 using WorkState.Core.Domain;
@@ -21,7 +23,8 @@ namespace WorkState.Tests.App;
 /// Two tenants that share every ref — the project <see cref="Project"/>, <c>run-a</c>, <c>1</c>, <c>1.1</c> —
 /// and a marker word in both task titles, so a read that crosses over shows up as the other tenant's title.
 /// B alone also holds <see cref="OnlyInB"/>, which a caller of A must find nowhere. The server's static tokens
-/// are bound to A, and the operator (the system administrator, and the OAuth subject) is a member of A only.
+/// are bound to A, and the operator (the system administrator) is a member of A only. The server can be made to
+/// issue tokens the way it did before tokens named a tenant (<see cref="Legacy"/>); it does not by default.
 /// </summary>
 internal sealed class TenantWorld
 {
@@ -54,6 +57,8 @@ internal sealed class TenantWorld
 
     public AppServer Server { get; }
 
+    public LegacyTokens Legacy => Server.Services.GetRequiredService<LegacyTokens>();
+
     /// <summary>B's own item, fully qualified as a caller of B names it; to a caller of A it names nothing.</summary>
     public static string OnlyInBPath => $"{Project}/run-a/{OnlyInB}";
 
@@ -64,7 +69,7 @@ internal sealed class TenantWorld
     /// <summary>A member of both, A first.</summary>
     public string UserAB { get; } = $"tenant-ab-{Guid.CreateVersion7():n}"[..21];
 
-    public static async Task<TenantWorld> CreateAsync(PostgresFixture fixture)
+    public static async Task<TenantWorld> CreateAsync(PostgresFixture fixture, Action<WebApplicationBuilder>? configure = null)
     {
         var a = await WriteSeed.CreateAsync(fixture);
         var b = await WriteSeed.CreateAsync(fixture);
@@ -80,7 +85,11 @@ internal sealed class TenantWorld
             await db.SaveChangesAsync(Ct);
         }
 
-        var server = await AppServer.StartAsync(fixture.ConnectionString, a.Slug, Ct);
+        var server = await AppServer.StartAsync(fixture.ConnectionString, a.Slug, Ct, configure: builder =>
+        {
+            LegacyTokens.Add(builder);
+            configure?.Invoke(builder);
+        });
         var world = new TenantWorld(fixture, a, b, onlyInB, server);
 
         await world.UserAsync(world.UserA, a.WorkspaceId);
@@ -126,6 +135,18 @@ internal sealed class TenantWorld
             WHERE m.user_id = u.id AND lower(u.name) = lower(@name) AND m.workspace_id = @workspace;
             """,
             new { name, workspace });
+    }
+
+    public async Task<Guid> UserIdAsync(string name)
+    {
+        await using var connection = await Fixture.DataSource.OpenConnectionAsync(Ct);
+        return await connection.ExecuteScalarAsync<Guid>("SELECT id FROM app_user WHERE lower(name) = lower(@name);", new { name });
+    }
+
+    public async Task DisableAsync(string name)
+    {
+        await using var connection = await Fixture.DataSource.OpenConnectionAsync(Ct);
+        await connection.ExecuteAsync("UPDATE app_user SET disabled_at = now() WHERE lower(name) = lower(@name);", new { name });
     }
 
     public async Task<HttpClient> CookieAsync(string name)

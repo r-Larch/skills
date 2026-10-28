@@ -1,9 +1,10 @@
 import { For, Match, Show, Switch, createSignal, onMount } from 'solid-js'
 import type { JSX } from 'solid-js'
-import { appInfo, hasSession } from './api.ts'
+import { appInfo, hasSession, sessionTenants, switchTenant } from './api.ts'
 import {
   AUTHORIZE,
   SIGN_IN,
+  TENANT_FIELD,
   type ConsentEvent,
   type ConsentState,
   type IconState,
@@ -25,7 +26,8 @@ import { CheckIcon, LinkIcon } from './icons.tsx'
 
 /**
  * The OAuth authorize step's two pages, outside the dashboard's router and store: an MCP client sent the
- * browser here, and nothing on these pages reads the workspace. Which one is the path's business.
+ * browser here. The consent page names the workspace the token will act in, the session's, and nothing on
+ * either page reads that workspace's board. Which page is the path's business.
  */
 export default function Connect() {
   return (
@@ -69,15 +71,27 @@ function Consent() {
   const step = (event: ConsentEvent) => setState(consentStep(state(), event))
   const view = () => consentView(state())
   const scopes = scopeLines(search)
+  const [picked, setPicked] = createSignal<string | null>(null)
+  const target = () => picked() ?? view().others[0]?.id ?? null
 
   onMount(async () => {
-    const { status, info } = await appInfo(search)
-    if (status === 401) {
+    const [{ status, info }, { status: tenantsStatus, tenants }] = await Promise.all([appInfo(search), sessionTenants()])
+    if (status === 401 || tenantsStatus === 401) {
       location.replace(signInHref(search))
       return
     }
-    step(info ? { t: 'loaded', info } : { t: 'failed', status })
+    step(info && tenants ? { t: 'loaded', info, tenants } : { t: 'failed', status: info ? tenantsStatus : status })
   })
+
+  // The session moves, then the same consent URL loads again in the other tenant: authorize judges it there.
+  const switchTo = async (id: string | null) => {
+    if (id === null) return
+    step({ t: 'switch', to: id })
+    if (state().k !== 'switching') return
+    const refused = await switchTenant(id)
+    if (refused === null) location.reload()
+    else step({ t: 'switch-failed', message: refused })
+  }
 
   return (
     <Show when={view().error === null} fallback={<Notice>{view().error}</Notice>}>
@@ -109,6 +123,28 @@ function Consent() {
           </Show>
 
           <Show when={view().client !== null}>
+            <div class="consent-sec">
+              <h2>Workspace</h2>
+              <Show when={view().tenant} fallback={<p class="bad">WorkState could not say which workspace this connection is for. Deny, then start again.</p>}>
+                {(tenant) => (
+                  <p>
+                    It acts in <strong class="wrap">{tenant().slug}</strong> and in no other workspace.
+                  </p>
+                )}
+              </Show>
+              <Show when={view().others.length > 0}>
+                <div class="consent-switch">
+                  <select aria-label="Another of your workspaces" disabled={!view().canAnswer} onChange={(event) => setPicked(event.currentTarget.value)}>
+                    <For each={view().others}>{(other) => <option value={other.id}>{other.slug}</option>}</For>
+                  </select>
+                  <button type="button" class="secondary" disabled={!view().canAnswer} onClick={() => void switchTo(target())}>
+                    {view().switchingTo === null ? 'Switch' : `Switching to ${view().switchingTo}…`}
+                  </button>
+                </div>
+                <p class="consent-note">Each connection acts in one workspace. To connect it to another of yours, switch first.</p>
+              </Show>
+            </div>
+
             <div class="consent-sec">
               <h2>Destination</h2>
               <Show
@@ -153,6 +189,7 @@ function Consent() {
           </Show>
 
           <For each={hiddenFields(search)}>{([name, value]) => <input type="hidden" name={name} value={value} />}</For>
+          <Show when={view().tenant}>{(tenant) => <input type="hidden" name={TENANT_FIELD} value={tenant().id} />}</Show>
 
           <div class="consent-actions">
             <button type="submit" name="consent" value="denied" class="secondary" disabled={state().k === 'loading'}>
@@ -163,7 +200,7 @@ function Consent() {
             </button>
           </div>
 
-          <p class="consent-note">WorkState remembers an approval for this client, so its next connection does not ask again.</p>
+          <p class="consent-note">WorkState remembers an approval for this client in this workspace, so its next connection here does not ask again.</p>
         </form>
       </div>
     </Show>

@@ -8,6 +8,9 @@ namespace WorkState.Api.Auth;
 
 public sealed record DashboardUser(Guid Id, string Name, bool IsSystemAdmin);
 
+/// <summary>The user an OAuth token acts as, in the one tenant it acts in.</summary>
+public sealed record OAuthUser(DashboardUser User, Guid Tenant);
+
 /// <summary>A workspace a user may enter, and why: their membership's role, or <see cref="SystemAdmin"/>.</summary>
 public sealed record UserTenant(Guid Id, string Slug, string Role)
 {
@@ -105,16 +108,38 @@ public sealed class UserStore(NpgsqlDataSource dataSource)
     }
 
     /// <summary>
-    /// The tenant an OAuth token acts in. A token that names one keeps it while its user may still enter it;
-    /// one that names none — every token before user-oauth — takes its user's only membership. Otherwise the
-    /// refusal says what to do.
+    /// Who an OAuth token acts as, and in which tenant. A token that names a tenant names its user by id and
+    /// keeps both while that user may still enter it. One that names none — every token issued before tokens
+    /// named a tenant — names its user by name and takes their only membership. Otherwise the refusal says what
+    /// to do. Asked on every use and every refresh, so a removed membership or a disabled user ends the token
+    /// at its next call.
     /// </summary>
-    public async Task<(Guid? Tenant, string? Refusal)> OAuthTenantAsync(
+    public async Task<(OAuthUser? Grant, string? Refusal)> OAuthUserAsync(
         string subject,
         Guid? claimed,
         CancellationToken cancellationToken)
     {
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        if (claimed is { } tenant)
+        {
+            if (!Guid.TryParse(subject, out var id)
+                || await connection.QuerySingleOrDefaultAsync<DashboardUser>(new CommandDefinition(
+                    """
+                    SELECT id AS "Id", name AS "Name", is_system_admin AS "IsSystemAdmin"
+                    FROM app_user
+                    WHERE id = @id AND disabled_at IS NULL;
+                    """,
+                    new { id },
+                    cancellationToken: cancellationToken)) is not { } named)
+            {
+                return (null, "The token's user no longer signs in to this server. Sign in again.");
+            }
+
+            return await EnterAsync(named.Id, tenant, cancellationToken) is { } entered
+                ? (new OAuthUser(entered, tenant), null)
+                : (null, $"{named.Name} may no longer enter the workspace this token was issued for. Sign in again.");
+        }
+
         var user = await connection.QuerySingleOrDefaultAsync<DashboardUser>(new CommandDefinition(
             """
             SELECT id AS "Id", name AS "Name", is_system_admin AS "IsSystemAdmin"
@@ -129,13 +154,6 @@ public sealed class UserStore(NpgsqlDataSource dataSource)
             return (null, $"The token's user \"{subject}\" no longer signs in to this server. Sign in again.");
         }
 
-        if (claimed is { } tenant)
-        {
-            return await EnterAsync(user.Id, tenant, cancellationToken) is not null
-                ? (tenant, null)
-                : (null, $"{user.Name} may no longer enter the workspace this token was issued for. Sign in again.");
-        }
-
         var memberships = (await connection.QueryAsync<Guid>(new CommandDefinition(
             "SELECT workspace_id FROM tenant_membership WHERE user_id = @Id LIMIT 2;",
             new { user.Id },
@@ -143,12 +161,32 @@ public sealed class UserStore(NpgsqlDataSource dataSource)
 
         return memberships switch
         {
-            [var only] => (only, null),
+            [var only] => (new OAuthUser(user, only), null),
             [] => (null, $"This token names no workspace, and {user.Name} is a member of none. A system administrator "
                          + "adds the membership; then sign in again."),
             _ => (null, $"This token names no workspace, and {user.Name} is a member of several, so it cannot be "
                         + "told which one to act in. Sign in again to get a token for one workspace."),
         };
+    }
+
+    /// <summary>
+    /// Whether <paramref name="user"/> manages everything in <paramref name="tenant"/> rather than only what
+    /// they started: an admin of it, or a system administrator, and not disabled.
+    /// </summary>
+    public async Task<bool> ManagesAsync(Guid user, Guid tenant, CancellationToken cancellationToken)
+    {
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        return await connection.ExecuteScalarAsync<bool>(new CommandDefinition(
+            """
+            SELECT EXISTS (
+                SELECT 1 FROM app_user u
+                WHERE u.id = @user AND u.disabled_at IS NULL
+                  AND (u.is_system_admin
+                       OR EXISTS (SELECT 1 FROM tenant_membership m
+                                  WHERE m.user_id = u.id AND m.workspace_id = @tenant AND m.role = @admin)));
+            """,
+            new { user, tenant, admin = TenantMembership.Admin },
+            cancellationToken: cancellationToken));
     }
 
     private async Task<bool> AnyAsync(CancellationToken cancellationToken)

@@ -851,6 +851,11 @@ The people who sign in to the dashboard (doc 08 §4). The first row is created f
 dashboard credential on the first sign-in, and is the only row anything creates so far. Memberships
 are recorded but not yet enforced: every request still acts in the configured workspace.
 
+`agent_session.user_id` (m51, migration `AgentSessionUser`; nullable, no foreign key) is the user whose
+OAuth token, or whose minted `wss_` token, named or minted the session; a static token's sessions have
+none. `agent_session_name_unique` is `(workspace_id, user_id, name) NULLS NOT DISTINCT`, so a name is
+unique among one user's sessions and the static tokens share one namespace per workspace (doc 11).
+
 ---
 
 ## 13. Views the server leans on

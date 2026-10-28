@@ -27,7 +27,6 @@ public sealed class OAuthTokenHandler(
     IOptionsMonitor<AuthenticationSchemeOptions> options,
     ILoggerFactory logger,
     UrlEncoder encoder,
-    DashboardOptions dashboard,
     IAuthenticationSchemeProvider schemes)
     : AuthenticationHandler<AuthenticationSchemeOptions>(options, logger, encoder)
 {
@@ -38,6 +37,9 @@ public sealed class OAuthTokenHandler(
 
     /// <summary>The OpenIddict authorization the token was issued under; a mint records it (doc 14 §2).</summary>
     public const string AuthorizationClaim = "workstate_authorization";
+
+    /// <summary>The token's user's name, as a mint records it in <c>minted_by_subject</c>.</summary>
+    public const string UserNameClaim = "workstate_user_name";
 
     private const string BearerPrefix = "Bearer ";
 
@@ -54,17 +56,14 @@ public sealed class OAuthTokenHandler(
             return AuthenticateResult.Fail(validated.Failure ?? new InvalidOperationException("Unrecognised bearer token."));
         }
 
-        // The token outlives a change of operator otherwise; the token endpoint makes the same check.
-        if (!OAuthEndpoints.IsOperator(principal, dashboard)
-            || !principal.HasClaim(OpenIddictConstants.Claims.Role, WorkStatePolicies.Controller))
+        // Every token here is issued with this role; the user and the tenant behind it are re-read below.
+        if (!principal.HasClaim(OpenIddictConstants.Claims.Role, WorkStatePolicies.Controller))
         {
-            return AuthenticateResult.Fail("The token's user is no longer the operator.");
+            return AuthenticateResult.Fail("The token carries no role this server issues.");
         }
 
-        var subject = principal.GetClaim(OpenIddictConstants.Claims.Subject)!;
         var identity = StaticTokenHandler.Identity(StaticTokenHandler.Nested(ActorRole.Controller), SchemeName);
-        identity.AddClaim(new Claim(OpenIddictConstants.Claims.Subject, subject));
-        await TenantAsync(identity, subject, principal);
+        await UserAsync(identity, principal.GetClaim(OpenIddictConstants.Claims.Subject) ?? string.Empty, principal);
         foreach (var scope in principal.GetScopes())
         {
             identity.AddClaim(new Claim(ScopeClaim, scope));
@@ -84,20 +83,30 @@ public sealed class OAuthTokenHandler(
     }
 
     /// <summary>
-    /// The token's <see cref="RequestTenant.Claim"/> once user-oauth issues one, else its user's only
-    /// membership. A token that yields neither still authenticates, carrying the reason instead, and the
-    /// tenant requirement turns that into a 403 naming what to do (<see cref="TenantRequirement"/>).
+    /// The token's user and its <see cref="RequestTenant.Claim"/>, re-checked on every call: the user exists,
+    /// is not disabled and may still enter the tenant. A token issued before tokens named a tenant names its
+    /// user by name and takes their only membership (<see cref="UserStore.OAuthUserAsync"/>). A token that
+    /// yields neither still authenticates, carrying the reason instead, and the tenant requirement turns that
+    /// into a 403 naming what to do (<see cref="TenantRequirement"/>).
     /// </summary>
-    private async Task TenantAsync(ClaimsIdentity identity, string subject, ClaimsPrincipal token)
+    private async Task UserAsync(ClaimsIdentity identity, string subject, ClaimsPrincipal token)
     {
         var claimed = Guid.TryParse(token.GetClaim(RequestTenant.Claim), out var id) ? id : (Guid?)null;
-        var (tenant, refusal) = Context.RequestServices.GetService<UserStore>() is { } users
-            ? await users.OAuthTenantAsync(subject, claimed, Context.RequestAborted)
+        var (grant, refusal) = Context.RequestServices.GetService<UserStore>() is { } users
+            ? await users.OAuthUserAsync(subject, claimed, Context.RequestAborted)
             : (null, "This server has no user store to find the token's workspace in.");
 
-        identity.AddClaim(tenant is { } found
-            ? new Claim(RequestTenant.Claim, found.ToString())
-            : new Claim(TenantRequirement.RefusalClaim, refusal!));
+        if (grant is not { User: var user, Tenant: var tenant })
+        {
+            identity.AddClaim(new Claim(OpenIddictConstants.Claims.Subject, subject));
+            identity.AddClaim(new Claim(TenantRequirement.RefusalClaim, refusal!));
+            return;
+        }
+
+        identity.AddClaim(new Claim(OpenIddictConstants.Claims.Subject, user.Id.ToString()));
+        identity.AddClaim(new Claim(CallerSession.UserIdClaim, user.Id.ToString()));
+        identity.AddClaim(new Claim(UserNameClaim, user.Name));
+        identity.AddClaim(new Claim(RequestTenant.Claim, tenant.ToString()));
     }
 
     /// <summary>

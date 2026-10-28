@@ -240,8 +240,9 @@ then on only the table decides: **changing or removing the configured password c
 the dashboard keeps working with neither set. A wrong password, an unknown name and a disabled user
 get the same 401 and each runs one hash verification. Every cookie request re-reads its user
 (the `sub` claim): a user deleted or disabled (`disabled_at`) is signed out on their next request,
-and a cookie issued before m48 (no `sub`) or before m50 (no tenant) has to sign in again. The configured username still names
-the OAuth subject (`/connect/authorize` refuses while it is unset), until OAuth carries the user.
+and a cookie issued before m48 (no `sub`) or before m50 (no tenant) has to sign in again. The
+configured credential has nothing to do with OAuth (m51): `/connect/authorize` is gated by a
+signed-in cookie, and a fresh install with no user has none to present.
 There is no user management yet: a second user, a password change or a disable is SQL for now.
 
 **Tenants (m50).** A tenant is a `workspace` row, and every request acts in exactly one: its
@@ -256,10 +257,26 @@ authentication path puts it on the principal as the claim `workstate:tenant`:
   Every cookie request re-checks: a user whose membership of the cookie's tenant is removed is signed
   out there on their next request.
 - **`wss_` token** — its session's workspace. A mint creates the session in the minting credential's
-  own tenant (doc 11).
-- **OAuth access token** — the token's `workstate:tenant` claim, once unit user-oauth issues one;
-  until then the one workspace its user is a member of. A token whose user is a member of none, or
-  of several, is refused 403 with "sign in again".
+  own tenant (doc 11). A session a user's credential minted works only while that user may enter its
+  workspace: removing the membership or disabling the user fails the token on its next use (401).
+- **OAuth access token** — the token's `workstate:tenant` claim (m51). A token belongs to **one user
+  in one tenant**: its `sub` is the user's `app_user` id, and its tenant is the one the user's cookie
+  was in when they approved. The consent page names that workspace and offers the user's others to
+  switch to first; a user in several tenants signs in once per tenant, and each client's connection
+  acts in one. An approval is remembered per user, client **and tenant** (the OpenIddict permanent
+  authorization keeps the tenant in its `workstate_tenant` property): approved in A, the same client
+  authorized from B asks again and gets a token for B. Every call and every refresh re-checks that
+  the user exists, is not disabled and may still enter the tenant; otherwise the call is refused
+  403 and the refresh `invalid_grant`, each saying to sign in again. The role is controller for a
+  member, an admin and a system administrator alike: tenant roles decide who manages members, not
+  what the work tools may do.
+  **Legacy tokens.** A token issued before m51 names its user by name and no tenant (Claude Code,
+  Foreman and `agent_signin` hold such refresh tokens). Presented as an access token it acts in the
+  one workspace its user is a member of, refused 403 "sign in again" with none or several. Its
+  refresh succeeds without a new sign-in while the user has exactly one membership, and returns a
+  token of the new shape — the user by id, that tenant — under the same authorization, so revoking
+  it still ends the connection. **This support ends once those tokens have refreshed**: every client
+  that refreshes within the refresh token's 30 days holds a new-style token from then on.
 - **Static role tokens and the reader token** — bound to the workspace `WorkState:Workspace` names,
   or, unset, the oldest workspace. That slug is these credentials' own configured binding, not a
   default for anyone else: only their handler reads it, and it goes when static tokens are retired

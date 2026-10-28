@@ -116,9 +116,10 @@ public class WorkStateDbContext(DbContextOptions<WorkStateDbContext> options) : 
             e.Property(x => x.FirstSeenAt).HasDefaultValueSql("now()");
             e.Property(x => x.LastSeenAt).HasDefaultValueSql("now()");
             e.HasOne<Workspace>().WithMany().HasForeignKey(x => x.WorkspaceId).OnDelete(DeleteBehavior.Cascade);
-            e.HasIndex(x => new { x.WorkspaceId, x.Name })
+            e.HasIndex(x => new { x.WorkspaceId, x.UserId, x.Name })
                 .HasDatabaseName("agent_session_name_unique")
-                .IsUnique();
+                .IsUnique()
+                .AreNullsDistinct(false);
             e.HasIndex(x => x.TokenHash)
                 .HasDatabaseName("agent_session_token_hash_unique")
                 .IsUnique();

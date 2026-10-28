@@ -172,7 +172,8 @@ Every call passes through two request filters before the tool runs:
 |---|---|---|
 | `Authorization: Bearer <token>` (3 static tokens + optional reader token, from `mcp/.env`) | the **role** → tool visibility, `run_by` on evidence, who may close | the only authority |
 | `X-WorkState-Agent` (+ `-Session`, `-Launched-By`, `-Origin`, `-Cwd`, `-Foreman-Role`) | the **session** row: name, labels, lease renewal, one-session-per-tree | a label; never grants anything |
-| dashboard cookie | the operator, for `/api/*` and the UI | — |
+| dashboard cookie | a signed-in user (`app_user`) in one tenant, for `/api/*` and the UI | re-read from the table on every request |
+| OAuth access token (`/connect/authorize`, doc 08 §4) | the **user** — `sub` is their `app_user` id — and the **one tenant** they approved the client in (`workstate:tenant`); role controller | re-checked on every call and every refresh: the user exists, is not disabled, may still enter the tenant |
 | `_meta.clientInfo` | not used (it would say `claude-code` for every session) | spec: self-reported |
 
 ### 4.5 Next to MCP
@@ -362,6 +363,14 @@ Option F — WorkState as an OAuth 2.1 authorization server with **scopes = role
 (`scopes_supported` in RFC 9728 metadata, 403 `insufficient_scope` for step-up). Claude Code already
 does discovery, registration and keychain storage. It still gives one identity per registration, so
 names would keep coming from the helper. Not worth building while the server is loopback-only.
+
+> **Changed 2026-10-28 (m51).** The OAuth server exists (0.8.0 for `/mcp`, 0.9.0 for `/api`), and its
+> identity is now a person, not the install: a token's subject is the signed-in user's id and it is
+> bound to the one tenant the user approved it in, shown on the consent page. A user in several
+> tenants signs in once per tenant, so a registration is one identity per user per tenant. Session
+> names still come from the helper or the mint; a user's are unique among their own sessions
+> (doc 11). Tokens issued before m51 (subject = the operator's name, no tenant) refresh into the new
+> shape while their user has one membership; that support ends once they have refreshed (doc 08 §4).
 
 ---
 

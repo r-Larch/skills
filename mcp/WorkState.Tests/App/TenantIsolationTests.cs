@@ -272,6 +272,7 @@ public sealed class TenantIsolationTests(PostgresFixture fixture)
     {
         var world = await TenantWorld.CreateAsync(fixture);
         await using var server = world.Server;
+        world.Legacy.On = true;
 
         var browser = await server.SignInAsync(Ct);
         var api = await world.OAuthAsync(browser, $"{server.BaseAddress}/api", "workstate.read workstate.sessions offline_access");

@@ -13,7 +13,8 @@ an orchestrator's evidence). The **session** is a second, independent fact: *wha
 is called*. Identity never grants a role; it labels, and it is the unit the tree rule counts in.
 
 ## Where the identity comes from: the registration headers, and nothing else
-- `X-WorkState-Agent: <name>` — the session's name; with the workspace, the row key.
+- `X-WorkState-Agent: <name>` — the session's name; with the workspace and the credential's user, the
+  row key.
 - `X-WorkState-Session: <claude session id>` — kept on the row; a change is history (below).
 - `X-WorkState-Launched-By: <name>` — the collision rule (below).
 - `X-WorkState-Origin` (free text, e.g. "foreman/nomos/Nomos"), `X-WorkState-Cwd`,
@@ -45,6 +46,16 @@ launchers, and a mint with no launcher onto a launcher's row. The 409 names the 
 `replace: true` keeps the row, its id, claims and history, and swaps only the token. `DELETE /api/agent-sessions/{id}` revokes
 the token and releases the session's live claims (`release_reason = 'revoked'`; the items go back to
 `ready`, as an expired claim's do). Header-named sessions keep working for anything that cannot mint.
+
+**A user's sessions are theirs (2026-10-28, m51).** A session named or minted with an OAuth token, or
+with a `wss_` token a user minted, records that user (`agent_session.user_id`); a static token's have
+none. The name is unique per (workspace, user) — `NULLS NOT DISTINCT`, so every static token's sessions
+still share one name per workspace, exactly as before. Two users of one tenant may each mint
+`worker-1`; one user cannot hold it twice (409, as before). The user's token works only while that
+user may enter the workspace: their membership removed or their account disabled, it fails on its next
+use. `PATCH` / `DELETE` / `release` keep the role rule above, and a credential that names a user adds
+one: a member changes only the sessions they minted; an admin of the tenant, or a system
+administrator, any session in it.
 
 **Or by naming itself (2026-10-26, unit `mature/session-names`).** A hand-started session shares the
 user-scope static registration, so it has no header of its own — and a fixed `X-WorkState-Agent` in
@@ -80,8 +91,9 @@ travels on every request can name a session. No tool parameter was added (tools/
 
 ## The row key survives a resume
 `claude --bg --resume <id>`, auto-compaction and the daemon's respawn keep the name and the headers.
-- **A session is keyed by (workspace, name)**, so a resumed session lands on its own row and keeps its
-  claims and its tree.
+- **A session is keyed by (workspace, user, name)** — the user is the credential's, none for a static
+  token — so a resumed session lands on its own row and keeps its claims and its tree. A header or a
+  client key resolves only among the caller's own user's sessions.
 - **Name collisions:** names are labels; Foreman guarantees uniqueness among its own sessions. A name
   already held by a row with a *different* `launched_by` (including one set against one unset) is
   refused with a teaching REFUSED, and nothing runs.
@@ -102,7 +114,8 @@ released is 409. The header path is unchanged: a header never takes over a name,
 the operator's alone.
 
 ## Data (one migration, additive)
-`agent_session`: id (uuid v7), workspace_id, name (unique per workspace), claude_session_id, role (from
+`agent_session`: id (uuid v7), workspace_id, name (unique per workspace; per workspace and `user_id`
+since m51, migration `AgentSessionUser`), claude_session_id, role (from
 the token at the last call — recorded, never consulted), external_role, origin, launched_by, cwd
 (header, else the first claim's tree), tree (last claimed), client_name, client_version (from
 `initialize` clientInfo when the transport has it — stateless requests usually do not),

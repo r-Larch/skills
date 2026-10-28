@@ -1,8 +1,10 @@
 using System.Collections.Immutable;
 using System.Security.Claims;
+using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.AspNetCore;
 using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Primitives;
 using Microsoft.IdentityModel.Tokens;
 using OpenIddict.Abstractions;
@@ -14,11 +16,18 @@ namespace WorkState.Api.Auth.OAuth;
 
 /// <summary>
 /// The passthrough half of <see cref="OAuthServer"/>: OpenIddict has validated the request by the time
-/// either handler runs, and what is left is who the user is. There is one — the dashboard's operator —
-/// and the token names them with the controller role, so <c>/mcp</c> shows what a controller token shows.
+/// either handler runs, and what is left is who the user is. The signed-in dashboard user, in the tenant
+/// their cookie is in: the token names them by id with the controller role and is bound to that one
+/// tenant, so <c>/mcp</c> shows what a controller token shows there and nothing of any other.
 /// </summary>
 public static class OAuthEndpoints
 {
+    /// <summary>
+    /// The authorization property naming the tenant an approval was given in. A remembered approval issues a
+    /// token only for that tenant; in any other the user is asked again.
+    /// </summary>
+    public const string TenantProperty = "workstate_tenant";
+
     private const int MaxRedirectUris = 10;
     private const int MaxClientNameLength = 200;
 
@@ -31,26 +40,23 @@ public static class OAuthEndpoints
 
     private static async Task<IResult> AuthorizeAsync(
         HttpContext http,
-        DashboardOptions dashboard,
         IOpenIddictApplicationManager applications,
         IOpenIddictAuthorizationManager authorizations)
     {
         var request = http.GetOpenIddictServerRequest()
                       ?? throw new InvalidOperationException("The OpenIddict request is missing.");
 
-        if (!dashboard.Configured)
-        {
-            return Results.Forbid(
-                OAuthError(Errors.AccessDenied, "The dashboard has no operator configured, so no one can sign in."),
-                [OpenIddictServerAspNetCoreDefaults.AuthenticationScheme]);
-        }
-
+        // The cookie is the gate, and its validation has just re-read its user and tenant from the table. A
+        // fresh install with no user yet has no cookie to present.
         var session = await http.AuthenticateAsync(DashboardAuth.SchemeName);
-        if (!session.Succeeded || !session.Principal.IsInRole(DashboardAuth.Role))
+        if (!session.Succeeded
+            || !session.Principal.IsInRole(DashboardAuth.Role)
+            || !Guid.TryParse(session.Principal.FindFirstValue(DashboardAuth.UserIdClaim), out var user)
+            || RequestTenant.Of(session.Principal) is not { } tenant)
         {
             return request.HasPromptValue(PromptValues.None)
                 ? Results.Forbid(
-                    OAuthError(Errors.LoginRequired, "The operator is not signed in."),
+                    OAuthError(Errors.LoginRequired, "No one is signed in."),
                     [OpenIddictServerAspNetCoreDefaults.AuthenticationScheme])
                 : Results.LocalRedirect($"{ConnectPages.SignInPath}?{ConnectPages.ReturnUrl}={Uri.EscapeDataString(await AuthorizeUrlAsync(http.Request))}");
         }
@@ -58,20 +64,27 @@ public static class OAuthEndpoints
         var application = await applications.FindByClientIdAsync(request.ClientId ?? string.Empty, http.RequestAborted)
                           ?? throw new InvalidOperationException("OpenIddict admitted a client it cannot find.");
         var applicationId = await applications.GetIdAsync(application, http.RequestAborted);
-        var subject = dashboard.Username!;
+        var subject = user.ToString();
+        var name = session.Principal.Identity?.Name ?? subject;
 
         // The consent page's answer, ahead of any remembered approval so that Deny always means deny. SameSite
-        // keeps it the operator's: a POST from another site carries no session cookie and went to sign-in above.
-        var answer = http.Request.HasFormContentType
-                     && (await http.Request.ReadFormAsync(http.RequestAborted)).TryGetValue(ConnectPages.ConsentField, out var field)
-            ? field.ToString()
-            : null;
+        // keeps it the user's: a POST from another site carries no session cookie and went to sign-in above.
+        var form = http.Request.HasFormContentType ? await http.Request.ReadFormAsync(http.RequestAborted) : null;
+        var answer = form is not null && form.TryGetValue(ConnectPages.ConsentField, out var field) ? field.ToString() : null;
 
         if (answer is not null && answer != ConnectPages.Granted)
         {
             return Results.Forbid(
-                OAuthError(Errors.AccessDenied, "The operator declined the request."),
+                OAuthError(Errors.AccessDenied, "The user declined the request."),
                 [OpenIddictServerAspNetCoreDefaults.AuthenticationScheme]);
+        }
+
+        // An approval is for the tenant the page showed. Switched since, in another tab, the page asks again.
+        if (answer is not null
+            && form!.TryGetValue(ConnectPages.TenantField, out var shown)
+            && (!Guid.TryParse(shown, out var shownTenant) || shownTenant != tenant))
+        {
+            return Results.LocalRedirect(ConsentUrl(await AuthorizeUrlAsync(http.Request)));
         }
 
         if (answer is not null || !request.HasPromptValue(PromptValues.Consent))
@@ -84,7 +97,10 @@ public static class OAuthEndpoints
                                request.GetScopes(),
                                http.RequestAborted))
             {
-                return Issue(http, request, subject, await authorizations.GetIdAsync(remembered, http.RequestAborted));
+                if (IsFor(await authorizations.GetPropertiesAsync(remembered, http.RequestAborted), tenant))
+                {
+                    return Issue(http, request, subject, name, tenant, await authorizations.GetIdAsync(remembered, http.RequestAborted));
+                }
             }
         }
 
@@ -99,29 +115,44 @@ public static class OAuthEndpoints
                 CreationDate = DateTimeOffset.UtcNow,
             };
             descriptor.Scopes.UnionWith(request.GetScopes());
+            descriptor.Properties[TenantProperty] = JsonSerializer.SerializeToElement(tenant.ToString());
 
             var authorization = await authorizations.CreateAsync(descriptor, http.RequestAborted);
-            return Issue(http, request, subject, await authorizations.GetIdAsync(authorization, http.RequestAborted));
+            return Issue(http, request, subject, name, tenant, await authorizations.GetIdAsync(authorization, http.RequestAborted));
         }
 
         return request.HasPromptValue(PromptValues.None)
             ? Results.Forbid(
-                OAuthError(Errors.ConsentRequired, "This client has not been approved."),
+                OAuthError(Errors.ConsentRequired, "This client has not been approved in this workspace."),
                 [OpenIddictServerAspNetCoreDefaults.AuthenticationScheme])
-            : Results.LocalRedirect(ConnectPages.ConsentPath + (await AuthorizeUrlAsync(http.Request))[OAuthServer.AuthorizePath.Length..]);
+            : Results.LocalRedirect(ConsentUrl(await AuthorizeUrlAsync(http.Request)));
     }
 
+    private static bool IsFor(ImmutableDictionary<string, JsonElement> properties, Guid tenant)
+        => properties.TryGetValue(TenantProperty, out var value)
+           && value.ValueKind == JsonValueKind.String
+           && Guid.TryParse(value.GetString(), out var approved)
+           && approved == tenant;
+
+    private static string ConsentUrl(string authorizeUrl) => ConnectPages.ConsentPath + authorizeUrl[OAuthServer.AuthorizePath.Length..];
+
     /// <summary>
-    /// Approved: the operator's principal, tied to the permanent authorization that remembers the approval,
-    /// so revoking that authorization ends every token issued under it.
+    /// Approved: the user's principal in the tenant, tied to the permanent authorization that remembers the
+    /// approval, so revoking that authorization ends every token issued under it.
     /// </summary>
-    private static IResult Issue(HttpContext http, OpenIddictRequest request, string subject, string? authorizationId)
+    private static IResult Issue(
+        HttpContext http,
+        OpenIddictRequest request,
+        string subject,
+        string name,
+        Guid tenant,
+        string? authorizationId)
     {
         var resources = request.GetResources() is { IsDefaultOrEmpty: false } requested
             ? requested
             : [OAuthServer.Resource(OAuthServer.Origin(http))];
 
-        var principal = Principal(subject, request.GetScopes(), resources);
+        var principal = Principal(subject, name, tenant, request.GetScopes(), resources);
         principal.SetAuthorizationId(authorizationId);
 
         return Results.SignIn(principal, authenticationScheme: OpenIddictServerAspNetCoreDefaults.AuthenticationScheme);
@@ -129,21 +160,21 @@ public static class OAuthEndpoints
 
     /// <summary>
     /// This request as a same-origin <c>/connect/authorize</c> URL, whether it came as a query or as the
-    /// consent page's form, without the consent answer: where the sign-in page sends the operator back to,
-    /// and the query the consent page is opened with.
+    /// consent page's form, without the consent page's own fields: where the sign-in page sends the user back
+    /// to, and the query the consent page is opened with.
     /// </summary>
     private static async Task<string> AuthorizeUrlAsync(HttpRequest request)
     {
         IEnumerable<KeyValuePair<string, StringValues>> fields = request.HasFormContentType
             ? (await request.ReadFormAsync(request.HttpContext.RequestAborted))
-                .Where(field => field.Key != ConnectPages.ConsentField)
+                .Where(field => field.Key is not (ConnectPages.ConsentField or ConnectPages.TenantField))
             : request.Query;
 
         return OAuthServer.AuthorizePath + QueryString.Create(
             fields.SelectMany(field => field.Value.Select(value => KeyValuePair.Create(field.Key, value))));
     }
 
-    private static async Task<IResult> ExchangeAsync(HttpContext http, DashboardOptions dashboard)
+    private static async Task<IResult> ExchangeAsync(HttpContext http, [FromServices] UserStore users)
     {
         var request = http.GetOpenIddictServerRequest()
                       ?? throw new InvalidOperationException("The OpenIddict request is missing.");
@@ -163,40 +194,54 @@ public static class OAuthEndpoints
                 [OpenIddictServerAspNetCoreDefaults.AuthenticationScheme]);
         }
 
-        // Re-checked on every exchange, refresh included: renaming the operator or switching the dashboard
-        // off ends every connection at its next refresh, not at the refresh token's expiry.
-        if (!IsOperator(principal, dashboard))
+        // Re-checked on every exchange, refresh included: a membership removed or a user disabled ends every
+        // connection at its next refresh, not at the refresh token's expiry.
+        var claimed = Guid.TryParse(principal.GetClaim(RequestTenant.Claim), out var id) ? id : (Guid?)null;
+        var (grant, refusal) = await users.OAuthUserAsync(principal.GetClaim(Claims.Subject) ?? string.Empty, claimed, http.RequestAborted);
+        if (grant is not { User: var user, Tenant: var tenant })
         {
             return Results.Forbid(
-                OAuthError(Errors.InvalidGrant, "The user this grant was issued to is no longer the operator."),
+                OAuthError(Errors.InvalidGrant, refusal!),
                 [OpenIddictServerAspNetCoreDefaults.AuthenticationScheme]);
         }
+
+        // The same user and tenant again. A grant issued before tokens named a tenant names its user by name and
+        // no tenant; it comes back as one that does, under the authorization it already had, so its client keeps
+        // working without a new sign-in and revoking that authorization still ends it.
+        principal.SetClaim(Claims.Subject, user.Id.ToString())
+            .SetClaim(Claims.Name, user.Name)
+            .SetClaim(RequestTenant.Claim, tenant.ToString());
+        principal.SetDestinations(DestinationsOf);
 
         return Results.SignIn(principal, authenticationScheme: OpenIddictServerAspNetCoreDefaults.AuthenticationScheme);
     }
 
-    public static bool IsOperator(ClaimsPrincipal principal, DashboardOptions dashboard)
-        => dashboard.Configured
-           && string.Equals(principal.GetClaim(Claims.Subject), dashboard.Username, StringComparison.Ordinal);
-
-    public static ClaimsPrincipal Principal(string username, ImmutableArray<string> scopes, IEnumerable<string> resources)
+    public static ClaimsPrincipal Principal(
+        string subject,
+        string name,
+        Guid tenant,
+        ImmutableArray<string> scopes,
+        IEnumerable<string> resources)
     {
         var identity = new ClaimsIdentity(TokenValidationParameters.DefaultAuthenticationType, Claims.Name, Claims.Role);
-        identity.SetClaim(Claims.Subject, username)
-            .SetClaim(Claims.Name, username)
+        identity.SetClaim(Claims.Subject, subject)
+            .SetClaim(Claims.Name, name)
+            .SetClaim(RequestTenant.Claim, tenant.ToString())
             .SetClaims(Claims.Role, [WorkStatePolicies.Controller]);
 
         identity.SetScopes(scopes);
         identity.SetResources(resources);
-
-        identity.SetDestinations(claim => claim.Type switch
-        {
-            Claims.Name => [Destinations.AccessToken, Destinations.IdentityToken],
-            _ => [Destinations.AccessToken],
-        });
+        identity.SetDestinations(DestinationsOf);
 
         return new ClaimsPrincipal(identity);
     }
+
+    /// <summary>Every claim goes into the access token, and the tenant with it; the name into the identity token too.</summary>
+    private static IEnumerable<string> DestinationsOf(Claim claim) => claim.Type switch
+    {
+        Claims.Name => [Destinations.AccessToken, Destinations.IdentityToken],
+        _ => [Destinations.AccessToken],
+    };
 
     /// <summary>
     /// RFC 7591, public clients only. Anonymous by nature — the client has no credential yet — so it
