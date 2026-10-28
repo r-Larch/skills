@@ -896,7 +896,7 @@ CREATE VIEW open_thread AS
 
 | Corpus failure | Prevented by |
 |---|---|
-| Duplicate task number `2.1` in two places | `UNIQUE (ref_scope_id, ref)` — per run, which is where it does harm |
+| Duplicate task number `2.1` in two places | `UNIQUE (workspace_id, ref_scope_id, ref)` — per run, which is where it does harm |
 | A task with no verification command | `item_kind.requires_verify` + a refused `work_create` |
 | A "done" task with unchecked criteria | the `done` guard reading `item_criterion` |
 | A "done" task verified only by its own worker | `verification.run_by` on the guard |
@@ -908,3 +908,172 @@ CREATE VIEW open_thread AS
 | Two writing agents in one repo | the claim's partial unique index over the run subtree |
 | A verify command that can never go red | `verification (workspace_id, command, passed)` |
 | "The record disagrees with the code" | the record *is* what the transitions produced, and every transition required evidence |
+| A query that forgets its `workspace_id` filter | row-level security: the database returns the request's tenant's rows and no other's (§15) |
+
+---
+
+## 15. Row-level security — the database keeps the tenant
+
+m54, migration `TenantRls`. Every request has exactly one tenant (`RequestTenant`, claim
+`workstate:tenant`), and every query names it in its own SQL. Row-level security is the second line:
+the database itself returns only that tenant's rows, so a query that forgets its filter leaks nothing,
+and a write that names another workspace is refused.
+
+### The role and the setting
+
+```sql
+CREATE ROLE workstate_app NOLOGIN;     -- cluster-wide; created once, shared by every database that migrates
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO workstate_app;   -- and its sequences
+REVOKE ALL ON "__EFMigrationsHistory", data_protection_key, oauth_key, openiddict_* FROM workstate_app;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO workstate_app;
+
+ALTER TABLE item ENABLE ROW LEVEL SECURITY;
+ALTER TABLE item FORCE ROW LEVEL SECURITY;
+CREATE POLICY tenant_isolation ON item
+  USING      (workspace_id = (SELECT NULLIF(current_setting('app.workspace_id', true), '')::uuid))
+  WITH CHECK (workspace_id = (SELECT NULLIF(current_setting('app.workspace_id', true), '')::uuid));
+```
+
+The tenant is a scalar subquery so that a plan reads it once, as an InitPlan, and not once per row
+(doc 15 §7).
+
+The server never logs in as `workstate_app`. It connects as it always did, as `POSTGRES_USER` — the
+image's superuser and the tables' owner, which no policy confines — and every request-path transaction
+begins with
+
+```sql
+SELECT set_config('role', 'workstate_app', true), set_config('app.workspace_id', $tenant, true);
+```
+
+Both are **transaction-local**: the commit or rollback that ends the transaction ends them, so a pooled
+connection goes back to the pool as the owner with no tenant. That does not depend on Npgsql's
+reset-on-return: it sends `DISCARD ALL` only while no statement is prepared, and the `RESET ALL` it falls
+back to leaves `role` set. `RlsTests` proves it with reset switched off.
+
+`NULLIF(…, '')` is load-bearing. Unset, the setting reads `NULL`; but once a transaction that set it has
+ended, it reads `''` on that connection, and `''::uuid` is an error rather than "no tenant". With the
+`NULLIF` both read as no tenant, which admits no row and refuses every write.
+
+No new password or secret, and the deploy's Postgres user is unchanged. That user must **stay a
+superuser**: the bypass relies on it, and so does `LEAKPROOF` below. `POSTGRES_USER` of the postgres
+image is one.
+
+### The tables
+
+| policy | tables |
+|---|---|
+| its own column, `workspace_id = tenant` | `item`, `item_link`, `doc`, `event`, `assumption`, `constraint_rule`, `note`, `verification`, `project_repo`, `agent_token`, `agent_session`, `import_record`, `tenant_membership`, `user_link` (a reset link has no workspace, so no tenant sees it) |
+| its own id, `id = tenant` | `workspace` |
+| its parent `item` is the tenant's | `item_criterion`, `attempt`, `artifact`, `claim`, `project_config`, `run_config` |
+| through two parents | `report` (→ `attempt` → `item`), `doc_block` (→ `doc`), `doc_block_revision` (→ `doc_block` → `doc`) |
+| none — global, read whole | `app_user` (a user spans workspaces), `item_kind` (the vocabulary) |
+| none — and not granted to the role | `__EFMigrationsHistory`, `data_protection_key`, `oauth_key`, `openiddict_*` |
+
+A child table's policy is `EXISTS (SELECT 1 FROM item p WHERE p.id = <child>.item_id AND p.workspace_id
+= tenant)`. No column was added: no writer changes, and nothing can disagree with the parent. `claim`
+has `key_workspace_id`, but it is nullable, so it too goes through its item.
+
+Both views, `item_rollup` and `open_thread`, are `security_invoker = true`. A view otherwise reads its
+tables as its owner, which the policies do not confine.
+
+`FORCE ROW LEVEL SECURITY` is on every tenant table. With the image's superuser as owner it changes
+nothing: a superuser passes every policy, FORCE or not. It is what would confine an owner that is *not*
+a superuser, should one ever run these tables (`RlsTests` checks exactly that). Such an owner is not
+supported: the bypass below and `LEAKPROOF` both need a superuser.
+
+`RlsTests` reads the catalogue, so a table added later cannot slip past. Every table must be a tenant
+table, forced and with its policy, or one of the global or server-owned tables above. Every view must
+run as its caller.
+
+### LEAKPROOF — the indexes a policy would otherwise switch off
+
+```sql
+ALTER FUNCTION arraycontains(anyarray, anyarray) LEAKPROOF;   -- ancestors @> ARRAY[id]: item_subtree_idx
+ALTER FUNCTION lower(text) LEAKPROOF;                         -- lower(ref) = …: item_ref_lower_idx
+ALTER FUNCTION ts_match_vq(tsvector, tsquery) LEAKPROOF;      -- search @@ …: item_search_idx
+ALTER FUNCTION to_tsvector(regconfig, text) LEAKPROOF;        -- to_tsvector('english', body): note_search_idx
+```
+
+Under a policy, Postgres evaluates a query's own condition before the policy's only if the condition's
+function is `LEAKPROOF`, meaning it cannot reveal a row through an error or a side channel. That includes
+using the condition as an index condition. None of these four is marked so by default. Without them, as
+the tenant role, every subtree count, ref lookup and search scanned the whole workspace by its
+`workspace_id` index and filtered row by row. The rollup and document-path laterals, which run once per
+row, turned that into a quadratic read: the board read went from 3 ms to 38 ms of server time on the live
+copy (doc 15 §7).
+
+**Why it is safe here.** `LEAKPROOF` protects a table from a caller who writes their own predicate and
+learns from its errors which rows the policy hid. WorkState has no such caller. Every statement is SQL the
+server itself wrote, with values bound as parameters, and no tool, endpoint or argument runs
+caller-supplied SQL. The policies guard against the server's own forgotten filter (above), which is
+unaffected. These functions may now run on a row before the policy does, which is what lets them drive
+an index. They return a boolean or a vector, and the policy still decides which rows come back. They are
+not leakproof in the strict sense: `to_tsvector` raises on a value too long for a `tsvector`, which is why
+Postgres does not mark it so. An error like that can only tell something to a caller who writes their
+own SQL. The flags are set in
+this database only (`pg_proc` is per-database), on built-in functions whose results do not depend on
+who calls them.
+
+**What it needs.** Only a superuser may mark a function `LEAKPROOF`, so the migration requires the owner
+to be one, as the bypass already does. `Down` marks all four `NOT LEAKPROOF` again. `pg_dump` does not
+carry attributes of built-in functions: a database restored from a dump keeps its migration history and
+loses the flags. So `SchemaOwner` re-asserts them at every start, after migrating. It logs one warning
+line naming the functions when it had to, and nothing when they were already set. A deployment that sets
+`WorkState:Migrate=false` must run the four `ALTER FUNCTION`s itself.
+`RlsTests.Rls_the_subtree_ref_and_search_indexes_still_serve_reads_under_the_tenant_role` fails if any of
+the four indexes stops serving its predicate as the tenant role.
+
+### Connections — the tenant helper, and the bypass by name
+
+`WorkStateConnections` (WorkState.Core/Data) is the only code that opens a connection or begins a
+transaction. `RlsSourceGuardTests` fails on `OpenConnection`, `BeginTransaction`, `new NpgsqlConnection`
+or `dataSource.CreateCommand` anywhere else in the server. It also fails on an EF context outside the
+schema owner, OpenIddict's registration and the offline importer.
+
+- **`TenantAsync()`** — a transaction acting as `workstate_app` in the tenant of the ambient
+  **`TenantScope`**. The API enters that scope in one middleware right after `UseAuthorization`, which
+  is where an endpoint policy's schemes (the cookie, OAuth) put their principal on the request. A
+  scope with no tenant, or no scope at all, sees no rows; it does not see all rows.
+  `BeginTenantAsync(connection)` starts the next tenant transaction on the same connection, once the
+  first has ended (`WorkWriter`'s re-read after a refused claim).
+- **`OwnerBypassAsync(Bypass why)`**, and `OwnerBypassTransactionAsync` for a bypass that writes more
+  than one statement — the owner, which RLS does not confine. `Bypass` is a closed enum, so the bypass
+  list below is the code's own:
+
+| `Bypass` | path | why it cannot run as the tenant |
+|---|---|---|
+| `Authentication` | `SessionStore.AuthenticateAsync` (a `wss_` token → its session) | the token is what names the tenant; there is none yet |
+| `WorkspaceBinding` | `BoardQueries.WorkspaceAsync`, `WorkWriter.EnsureWorkspaceAsync` (the static tokens' `StaticTokenTenant`) | the configured workspace is looked up, or created on first use, during authentication (C62) |
+| `Users` | `UserStore`: sign-in, the cookie's stamp check, the OAuth user, the tenant switcher, password change | a user and their memberships span workspaces |
+| `Administration` | `AdminStore` (`/api/admin/*`) | it acts on the workspace its path names; the caller's rights are read from the table on every call (C62) |
+| `Links` | `UserLinkStore` (invite and reset links) | opened by token before anyone signs in; a reset link has no workspace |
+| `Keys` | `PostgresXmlRepository`, `OAuthKeyRing` | the cookie and OAuth signing keys belong to the server |
+| `Journal` | `EventStream`'s one `LISTEN` connection | it hears every workspace and fans each event out to that workspace's subscribers only |
+
+The owner also runs, outside the helper, the migrations (`SchemaOwner`, at startup), OpenIddict's EF
+stores (its tables hold no tenant rows) and the importer (`tools/WorkState.Import`, an offline tool).
+
+One request path chooses its tenants itself: `/r/{ref}` is anonymous to the pipeline and authenticates
+the cookie in its handler. It enters the cookie's tenant. To say "this ref is in your other workspace
+X", it then enters each other workspace the user may enter (`UserStore.TenantsAsync`), one at a time.
+
+The test suite's direct store calls are no request and enter no scope. The fixture's data source is
+marked `RunUnscopedAsOwner`, so they run as the owner, as before. Nothing in the server calls that,
+and a guard test enforces it. Every HTTP test runs through the API's own data source, under RLS.
+`RlsRequestPathTests` shows a request reaches the database as the role: revoking the role's `SELECT`
+on `item` fails `/api/v1/overview`.
+
+### What it is not
+
+A guard against a forgotten filter, not against arbitrary SQL. The session user is the owner, so a
+statement that can run anything can also `RESET ROLE`.
+
+The cost is mostly round trips. On server time the gate's reads are within 20% on the live copy and on
+the 5k seed: frontier −4% to +6%, rollup +11% to +15%, board −27% to +11%. Four attention and search
+reads are not yet: expired claims, done-unverified, stale in-progress and search (doc 15 §7.2). A tenant
+read is now a transaction: `BEGIN` rides with the next statement, but the `set_config` and the closing
+`ROLLBACK` are a round trip each. Before m54 a read was the statement alone. Sending the `set_config`
+with the first statement was considered and left out. Npgsql 10 has no per-open or per-command hook:
+`UsePhysicalConnectionInitializer` runs once per physical connection, not per tenant, and nothing public
+prepends to the `BEGIN` it holds back. It would take a connection wrapper in place of `NpgsqlConnection`
+in every store.

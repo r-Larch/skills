@@ -224,3 +224,137 @@ Run the command in §1. The summary table prints to the test output, and every p
 indented node tree with cost, estimated and actual rows, loops, time, buffers and conditions) goes to
 `mcp/WorkState.Tests/bin/Debug/net10.0/explain-5k.txt`. The test fails if any measured query captured
 no plan, or if a rewritten query's rows differ from its `item_rollup` form.
+
+## 7. Row-level security (m54)
+
+Measured 2026-10-28 by ws-tenant-rls, branch `unit/tenant-rls`, postgres:17 in Docker Desktop on Windows.
+Row-level security (doc 02 §15) puts every request-path read under the role `workstate_app` with a
+policy on each tenant table. This section measures what that costs, and how two changes brought it back.
+
+**Method.** `RlsPerfTests` (opt-in) calls the real query methods against an existing database, as the
+owner and as the tenant role, interleaved call by call, 60 rounds after 3 warm-ups:
+
+```
+dotnet test mcp/WorkState.slnx --filter FullyQualifiedName~RlsPerfTests -e WORKSTATE_RLS_PERF="Host=…;Database=…"
+```
+
+With `-e WORKSTATE_RLS_PERF_SEED=1` the target must be an empty database: it is migrated and given the
+§2 seed first. Two numbers per read:
+
+- **server** — mean execution time per statement from `pg_stat_statements`, one row per role. A read
+  measured at run and at project scope is one statement, so its mean covers both.
+- **wall** — median per call as the client sees it, round trips included.
+
+The owner path goes through the same helper and so is already a transaction. Against the owner, a
+tenant read pays one extra round trip, the `set_config`. Against the code before m54, which ran a read
+with no transaction, it pays two: the `set_config` and the closing `ROLLBACK`. Over Docker Desktop on
+Windows a round trip is about **0.7 ms**. That is the whole wall delta on the small reads (rollup:
+server +0.01 ms, wall +0.7 ms). **The gate is judged on server time**; the wall numbers are reported
+because they are what a caller feels on this machine. Container-to-container in the deploy, a round
+trip is a small fraction of that.
+
+**The gate** (brief m54): frontier, rollup and board, live-data copy, with and without RLS; more than
+20% → stop.
+
+### 7.1 Live-data copy: as built, and the two fixes
+
+`ws-final.dump` restored as the image's superuser: one workspace, 7 projects, 628 items. Server mean
+in ms, owner → tenant role:
+
+| read | as built | + tenant as InitPlan | + InitPlan + LEAKPROOF (3) | **shipped** (LEAKPROOF 4) |
+|---|---|---|---|---|
+| frontier | 0.928 → 1.690 | 0.916 → 0.981 | 0.897 → 0.945 | **0.919 → 0.974** (+6%) |
+| rollup | 0.058 → 0.475 | 0.058 → 0.223 | 0.059 → 0.067 | **0.057 → 0.065** (+15%) |
+| board | 3.09 → 37.58 | 3.07 → 16.39 | 3.04 → 2.16 | **2.97 → 2.16** (−27%) |
+| subtree | 0.758 → 35.47 | 0.764 → 14.88 | 0.772 → 0.775 | **0.732 → 0.759** (+4%) |
+| default scope | 1.11 → 21.26 | 1.11 → 9.14 | 1.12 → 1.14 | **1.09 → 1.14** (+5%) |
+| threads | 1.56 → 1.88 | 1.57 → 1.60 | 1.52 → 1.59 | **1.51 → 1.55** (+3%) |
+| journal head | 0.227 → 0.241 | 0.236 → 0.236 | 0.228 → 0.245 | **0.220 → 0.235** (+7%) |
+| done-unverified | 0.241 → 0.444 | 0.253 → 0.204 | 0.239 → 0.236 | **0.239 → 0.233** (−3%) |
+| expired claims | — | — | — | **0.221 → 0.294** (+33%) |
+| stale in-progress | — | — | — | **0.014 → 0.195** |
+| search (two words) | — | — | — | **8.58 → 8.66** (+1%) |
+
+Wall median in ms, owner → tenant role:
+
+| read | as built | + InitPlan | + InitPlan + LEAKPROOF (3) | **shipped** |
+|---|---|---|---|---|
+| frontier/run | 3.23 → 4.57 | 3.20 → 3.94 | 3.22 → 4.02 | **3.22 → 4.07** (+26%) |
+| frontier/project | 3.88 → 5.33 | 3.79 → 4.48 | 3.79 → 4.58 | **3.66 → 4.50** (+23%) |
+| rollup/run | 1.53 → 2.68 | 1.59 → 2.41 | 1.63 → 2.30 | **1.59 → 2.27** (+43%) |
+| rollup/project | 1.53 → 2.65 | 1.63 → 2.35 | 1.62 → 2.38 | **1.54 → 2.24** (+46%) |
+| board/run | 4.91 → 26.53 | 5.09 → 13.87 | 5.13 → 5.43 | **4.61 → 5.28** (+15%) |
+| board/project | 6.99 → 56.30 | 7.24 → 27.28 | 7.30 → 6.68 | **6.35 → 6.46** (+2%) |
+| subtree/run | 2.34 → 24.03 | 2.47 → 11.76 | 2.58 → 3.21 | **2.32 → 3.11** (+34%) |
+| subtree/project | 2.94 → 52.97 | 3.06 → 24.10 | 3.15 → 3.81 | **2.97 → 3.73** (+26%) |
+| default scope | 3.34 → 24.58 | 3.29 → 12.35 | 3.26 → 3.97 | **3.12 → 3.88** (+24%) |
+| threads | 3.93 → 5.12 | 3.96 → 4.86 | 4.05 → 4.87 | **3.77 → 4.58** (+22%) |
+| done-unverified | 2.11 → 3.05 | 2.15 → 2.78 | 2.18 → 2.96 | **2.06 → 2.81** (+36%) |
+| expired claims | — | — | — | **2.31 → 3.35** (+45%) |
+| stale in-progress | — | — | — | **1.71 → 2.74** (+60%) |
+| search (two words) | — | — | — | **11.36 → 12.33** (+9%) |
+| journal head | 1.80 → 2.45 | 1.85 → 2.50 | 1.91 → 2.63 | **1.91 → 2.62** (+37%) |
+
+**As built, the gate failed by an order of magnitude.** Under a policy, Postgres uses a query's own
+condition as an index condition only if its function is `LEAKPROOF`. `arraycontains` (`ancestors @>`),
+`lower` and the text-search match are not. So `item_subtree_idx`, `item_ref_lower_idx` and
+`item_search_idx` went unused, and each subtree count scanned the workspace. The board's and the
+subtree's per-row rollup laterals (§4) made that quadratic. `EXPLAIN` as the role showed
+`Seq Scan on item … Filter: workspace_id = … AND ancestors @> …` where the owner gets a
+`Bitmap Index Scan on item_subtree_idx`.
+
+Two fixes, both in migration `TenantRls`:
+
+1. **The tenant as a scalar subquery.** `workspace_id = (SELECT NULLIF(current_setting(…), '')::uuid)`
+   is evaluated once per statement as an InitPlan, not once per row. It brings frontier and threads to
+   par and halves the rest, but cannot give the indexes back.
+2. **LEAKPROOF** on `arraycontains(anyarray, anyarray)`, `lower(text)`, `ts_match_vq(tsvector, tsquery)`
+   and `to_tsvector(regconfig, text)`. The fourth serves `note_search_idx`. It was found on the 5k seed
+   (§7.2): without it, search took 20.6 ms instead of 2.2 ms. Why this is safe for WorkState, and what it
+   needs, is in doc 02 §15.
+
+**Verdict on server time: passes.** Frontier +6%, rollup +15%, board −27%. Every other read measured is
+within 20% as well, except expired claims (+33%, +0.07 ms) and stale in-progress (+0.18 ms on 0.01 ms).
+The wall deltas are the 0.7 ms round trip.
+
+### 7.2 The §2 seed (4,955 items), same method
+
+Measured with `WORKSTATE_RLS_PERF_SEED=1` into an empty database, so each statement is compared within
+one database. Server mean in ms, owner → tenant role, shipped migration:
+
+| read | server | Δ | wall median | Δ |
+|---|---|---|---|---|
+| frontier | 7.57 → 7.27 | −4% | run 8.86 → 9.25, project 11.83 → 12.55 | +4%, +6% |
+| rollup | 0.391 → 0.434 | +11% | run 1.95 → 2.68, project 2.03 → 2.78 | +38%, +37% |
+| board | 21.79 → 24.27 | +11% | run 17.88 → 20.99, project 31.61 → 35.87 | +17%, +13% |
+| subtree | 9.83 → 10.18 | +4% | run 8.64 → 9.60, project 15.47 → 16.60 | +11%, +7% |
+| default scope | 3.55 → 3.94 | +11% | 5.76 → 7.04 | +22% |
+| threads | 2.60 → 2.78 | +7% | 4.86 → 5.77 | +19% |
+| journal head | 0.059 → 0.062 | +4% | 1.75 → 2.41 | +37% |
+| search (two words) | 2.20 → 3.14 | **+43%** | 4.98 → 6.71 | +35% |
+| done-unverified | 1.12 → 2.20 | **+97%** | 3.09 → 4.92 | +59% |
+| stale in-progress | 0.347 → 0.737 | **+112%** | 2.12 → 3.46 | +63% |
+| expired claims | 0.706 → 2.136 | **+202%** | 2.83 → 5.16 | +83% |
+
+**The gate's reads pass here too: frontier −4%, rollup +11%, board +11%.** Four reads outside the gate
+do not. Each is under 2.2 ms at this size, and each is listed as an open item:
+
+- **Expired claims.** `claim` has no workspace column of its own, so its policy goes through `item`.
+  The planner turns that into a hashed subplan over every item of the workspace (4,955 rows), built
+  before the claim filter. The owner's plan instead hash-joins the claims onto the subtree it scanned
+  through `item_subtree_idx`. A direct policy needs `claim.key_workspace_id` made `NOT NULL`, or a
+  workspace column: a schema change, not made here.
+- **Done-unverified, stale in-progress.** Same indexes as the owner, but the planner cannot see the
+  InitPlan's value. It sizes `workspace_id = (InitPlan)` as an average workspace (1 / `n_distinct`). It
+  estimated 1 row where 565 came back, so it chose nested loops. The same average is a risk wherever
+  tenants differ widely in size: a large tenant is planned as a small one. It is also why the plan
+  guard in `RlsTests` runs in a database of its own, with one workspace. In the shared test database,
+  the average workspace is a few rows, and a scan by workspace wins on cost alone.
+- **Search.** The item and note branches use their indexes again. What is left is the per-branch policy
+  filter and the joins to `item` for the scope of each assumption, rule and note.
+
+`QueryPlanTests` measures as the tenant role with `-e WORKSTATE_EXPLAIN_RLS=1`, and drops the
+`set_config` statements from its plans. Its run-to-run noise between two containers is too large for a
+20% comparison: board/run measured +19% in one pair of runs and +28% in the next. Use it for plans, not
+for deltas. Under the role, its rollup equivalence check still found every row identical: 9,662
+subtree, board and facts rows, and 29 default scopes.
