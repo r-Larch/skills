@@ -23,8 +23,7 @@ public sealed class DashboardOptions
     /// <summary>
     /// No credential configured and no user yet means no login and no <c>/api</c>, exactly as an unconfigured
     /// bearer token means no <c>/mcp</c>. The dashboard is off until someone turns it on, rather
-    /// than open until someone secures it. The OAuth server still requires it, and still names its subject
-    /// after <see cref="Username"/>, which is also the first user's name.
+    /// than open until someone secures it. The OAuth server does not read it: its gate is a signed-in user.
     /// </summary>
     public bool Configured
         => !string.IsNullOrWhiteSpace(Username) && !string.IsNullOrWhiteSpace(Password);

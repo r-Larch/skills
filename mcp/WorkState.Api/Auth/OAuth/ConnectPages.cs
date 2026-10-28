@@ -9,7 +9,8 @@ namespace WorkState.Api.Auth.OAuth;
 /// The two pages a human meets inside <c>/connect/authorize</c>, both SPA routes
 /// (<c>frontend/src/Connect.tsx</c>) whose shell is served only after the request is judged here: the
 /// sign-in page refuses a return address that is not this server's authorize endpoint, and the consent page
-/// is sent back through sign-in when the session is gone.
+/// is sent back through sign-in when the session is gone. The consent page names the tenant the token will
+/// act in, the session's, from <c>GET /api/session/tenants</c>, and switches it there before an approval.
 /// <para>
 /// Both forbid framing. The consent page's <c>form-action</c> names the client's registered callbacks, the
 /// request's own when it differs from one only in a loopback port, and <c>'self'</c>: a browser checks the
@@ -28,6 +29,9 @@ public static class ConnectPages
     public const string ReturnUrl = "returnUrl";
     public const string ConsentField = "consent";
     public const string Granted = "granted";
+
+    /// <summary>The tenant the consent page showed; an approval posted for another is asked for again.</summary>
+    public const string TenantField = "workstate_tenant";
 
     public static void MapConnectPages(this WebApplication app)
     {
