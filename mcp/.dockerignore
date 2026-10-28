@@ -10,3 +10,4 @@ PROBE.md
 frontend/node_modules/
 frontend/dist/
 WorkState.Api/wwwroot/
+deploy/
