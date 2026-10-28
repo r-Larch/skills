@@ -1,12 +1,16 @@
 using System.Buffers.Text;
 using System.Net;
 using System.Net.Http.Headers;
+using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
+using Microsoft.IdentityModel.JsonWebTokens;
+using Microsoft.IdentityModel.Tokens;
 using OpenIddict.Abstractions;
 using OpenIddict.Server;
 using WorkState.Tests.Read;
@@ -387,13 +391,18 @@ public sealed class OAuthTests(PostgresFixture fixture)
         return body.GetProperty("client_id").GetString()!;
     }
 
-    internal static string AuthorizeUrl(string clientId, Pkce pkce, string resource, string redirectUri = Callback)
+    internal static string AuthorizeUrl(
+        string clientId,
+        Pkce pkce,
+        string resource,
+        string redirectUri = Callback,
+        string scope = "mcp offline_access")
         => QueryHelpers.AddQueryString("/connect/authorize", new Dictionary<string, string?>
         {
             ["response_type"] = "code",
             ["client_id"] = clientId,
             ["redirect_uri"] = redirectUri,
-            ["scope"] = "mcp offline_access",
+            ["scope"] = scope,
             ["state"] = "state-1",
             ["code_challenge"] = pkce.Challenge,
             ["code_challenge_method"] = "S256",
@@ -405,9 +414,10 @@ public sealed class OAuthTests(PostgresFixture fixture)
         string clientId,
         Pkce pkce,
         string resource,
-        string redirectUri = Callback)
+        string redirectUri = Callback,
+        string scope = "mcp offline_access")
     {
-        var response = await browser.GetAsync(AuthorizeUrl(clientId, pkce, resource, redirectUri), Ct);
+        var response = await browser.GetAsync(AuthorizeUrl(clientId, pkce, resource, redirectUri, scope), Ct);
         Assert.Equal(HttpStatusCode.Redirect, response.StatusCode);
 
         // A first authorize for this client asks; answer as the consent page does. SignInConsentTests proves
@@ -460,7 +470,7 @@ public sealed class OAuthTests(PostgresFixture fixture)
         return await TokensAsync(response, clientId);
     }
 
-    private static async Task<TokenSet> RefreshAsync(HttpClient client, string clientId, string refreshToken)
+    internal static async Task<TokenSet> RefreshAsync(HttpClient client, string clientId, string refreshToken)
         => await TokensAsync(
             await TokenAsync(client, new()
             {
@@ -470,7 +480,7 @@ public sealed class OAuthTests(PostgresFixture fixture)
             }),
             clientId);
 
-    private static async Task<TokenSet> TokensAsync(HttpResponseMessage response, string clientId)
+    internal static async Task<TokenSet> TokensAsync(HttpResponseMessage response, string clientId)
     {
         var body = await ReadAsync(response);
         Assert.True(response.StatusCode == HttpStatusCode.OK, $"token endpoint → {(int)response.StatusCode}: {body}");
@@ -482,7 +492,7 @@ public sealed class OAuthTests(PostgresFixture fixture)
             body.GetProperty("expires_in").GetInt32());
     }
 
-    private static Task<HttpResponseMessage> TokenAsync(HttpClient client, Dictionary<string, string> form)
+    internal static Task<HttpResponseMessage> TokenAsync(HttpClient client, Dictionary<string, string> form)
         => client.PostAsync("/connect/token", new FormUrlEncodedContent(form), Ct);
 
     private static async Task RevokeAsync(HttpClient client, string clientId, string token)
@@ -522,13 +532,42 @@ public sealed class OAuthTests(PostgresFixture fixture)
         return await ReadAsync(response);
     }
 
-    private static async Task<JsonElement> ReadAsync(HttpResponseMessage response)
+    internal static async Task<JsonElement> ReadAsync(HttpResponseMessage response)
         => JsonDocument.Parse(await response.Content.ReadAsStringAsync(Ct)).RootElement.Clone();
 
     private static string[] Strings(JsonElement element, string property)
         => element.GetProperty(property).EnumerateArray().Select(value => value.GetString()!).ToArray();
 
+    /// <summary>
+    /// What an access token says, read the way only this server can: decrypted and its signature checked with
+    /// the server's own keys. Lifetime and audience are the validation handler's business, not this one's.
+    /// </summary>
+    internal static async Task<ClaimsIdentity> ClaimsOfAsync(AppServer server, string accessToken)
+    {
+        var options = server.Services.GetRequiredService<IOptionsMonitor<OpenIddictServerOptions>>().CurrentValue;
+        var result = await new JsonWebTokenHandler().ValidateTokenAsync(accessToken, new TokenValidationParameters
+        {
+            ValidateIssuer = false,
+            ValidateAudience = false,
+            ValidateLifetime = false,
+            IssuerSigningKeys = options.SigningCredentials.Select(credentials => credentials.Key),
+            TokenDecryptionKeys = options.EncryptionCredentials.Select(credentials => credentials.Key),
+        });
+
+        Assert.True(result.IsValid, $"the access token did not validate: {result.Exception?.Message}");
+        return result.ClaimsIdentity;
+    }
+
     internal sealed record TokenSet(string ClientId, string AccessToken, string? RefreshToken, int ExpiresIn);
+
+    /// <summary>Serves one client-ID metadata document at one URL, as Claude Code's host does; anything else is a 404.</summary>
+    internal sealed class MetadataDocument(string url, string json) : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+            => Task.FromResult(request.RequestUri?.OriginalString == url
+                ? new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(json, Encoding.UTF8, "application/json") }
+                : new HttpResponseMessage(HttpStatusCode.NotFound));
+    }
 
     internal sealed record Pkce(string Verifier, string Challenge)
     {
