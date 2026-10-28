@@ -255,8 +255,9 @@ docker compose -f mcp/compose.yml up -d
 which **pulls the published image** instead of building one, and runs the same command against it.
 
 > **Changed 2026-10-26 — a published image.** `.github/workflows/workstate-image.yml` builds
-> `mcp/Dockerfile` for `linux/amd64` and `linux/arm64` on every push to `master` that touches
-> `mcp/**`, and pushes `ghcr.io/r-larch/workstate-api:<ServerInfo.Version>` and `:latest`, labelled
+> `mcp/Dockerfile` for `linux/amd64` and `linux/arm64` when a tag `workstate-v<version>` is pushed
+> (since 2026-10-28; before that, on every push to `master` touching `mcp/**`). The tag must equal
+> `ServerInfo.Version`, and a version already on ghcr is refused rather than rebuilt. It pushes `ghcr.io/r-larch/workstate-api:<ServerInfo.Version>` and `:latest`, labelled
 > `org.opencontainers.image.source=https://github.com/r-Larch/skills`. The pull-only compose is
 > `plugins/rlarch/skills/workstate-setup/assets/compose.yml`: the same services, volume and project
 > name (`workstate`) as `mcp/compose.yml`, so a machine can move between them and keep its data.

@@ -1,0 +1,8 @@
+[Unit]
+Description=WorkState database backup (pg_dump)
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/multi-deploy/apps/workstate/backup.sh

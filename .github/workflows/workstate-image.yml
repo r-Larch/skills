@@ -1,15 +1,13 @@
 # Publishes the WorkState server image that plugins/rlarch/skills/workstate-setup/assets/compose.yml pulls.
 # Never runs on pull_request: a fork's branch must not be able to push to the package.
+# A release is a git tag `workstate-v<ServerInfo.Version>` (e.g. workstate-v0.9.0). The tag must match
+# ApiHost.cs, and a version already on ghcr is never rebuilt, so a published version cannot change.
 
 name: workstate-image
 
 on:
   push:
-    branches: [master]
-    paths:
-      - "mcp/**"
-      - ".github/workflows/workstate-image.yml"
-  workflow_dispatch:
+    tags: ["workstate-v[0-9]+.[0-9]+.[0-9]+"]
 
 permissions:
   contents: read
@@ -37,6 +35,10 @@ jobs:
             echo "::error file=mcp/WorkState.Api/ApiHost.cs::no ServerInfo Version = \"x.y.z\" line found"
             exit 1
           fi
+          if [ "workstate-v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "::error file=mcp/WorkState.Api/ApiHost.cs::tag $GITHUB_REF_NAME does not match ServerInfo.Version $version"
+            exit 1
+          fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "WorkState $version"
 
@@ -49,6 +51,13 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Refuse to overwrite a published version
+        run: |
+          if docker buildx imagetools inspect "$IMAGE:${{ steps.version.outputs.version }}" > /dev/null 2>&1; then
+            echo "::error::$IMAGE:${{ steps.version.outputs.version }} is already published; bump ServerInfo.Version"
+            exit 1
+          fi
 
       - uses: docker/build-push-action@v6
         with:

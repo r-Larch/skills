@@ -1,0 +1,77 @@
+# WorkState on a multi-deploy server (github.com/r-Larch/multi-deploy), behind its Traefik.
+# Copy this folder to /opt/multi-deploy/apps/workstate/, run ./gen-env.sh once, then `app deploy workstate`.
+# Keep the services in step with plugins/rlarch/skills/workstate-setup/assets/compose.yml; this file adds
+# the Traefik labels, the `web` network, the public origin and the trusted proxy, and publishes no port.
+# The image is pinned by WORKSTATE_VERSION in .env: an upgrade is a deliberate edit, after a backup.
+
+name: workstate
+
+services:
+  db:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-workstate}
+      POSTGRES_USER: ${POSTGRES_USER:-workstate}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    volumes:
+      - workstate-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-workstate} -d ${POSTGRES_DB:-workstate}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  api:
+    image: ghcr.io/r-larch/workstate-api:${WORKSTATE_VERSION:?set WORKSTATE_VERSION in .env}
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_HTTP_PORTS: 8080
+      WorkState__Auth__WorkerToken: ${WORKSTATE_WORKER_TOKEN:?set WORKSTATE_WORKER_TOKEN in .env}
+      WorkState__Auth__OrchestratorToken: ${WORKSTATE_ORCHESTRATOR_TOKEN:?set WORKSTATE_ORCHESTRATOR_TOKEN in .env}
+      WorkState__Auth__ControllerToken: ${WORKSTATE_CONTROLLER_TOKEN:?set WORKSTATE_CONTROLLER_TOKEN in .env}
+      WorkState__Auth__ReaderToken: ${WORKSTATE_READER_TOKEN:-}
+      WorkState__Dashboard__Username: ${WORKSTATE_DASHBOARD_USERNAME:?set WORKSTATE_DASHBOARD_USERNAME in .env}
+      WorkState__Dashboard__Password: ${WORKSTATE_DASHBOARD_PASSWORD:?set WORKSTATE_DASHBOARD_PASSWORD in .env}
+      WorkState__PublicUrl: ${WORKSTATE_PUBLIC_URL:?set WORKSTATE_PUBLIC_URL in .env}
+      WorkState__TrustedProxies: ${WORKSTATE_TRUSTED_PROXIES:?set WORKSTATE_TRUSTED_PROXIES in .env}
+      ConnectionStrings__WorkState: >-
+        Host=db;Port=5432;Database=${POSTGRES_DB:-workstate};Username=${POSTGRES_USER:-workstate};Password=${POSTGRES_PASSWORD}
+    networks:
+      - default
+      - web
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=web"
+      - "traefik.http.routers.workstate.rule=Host(`${WORKSTATE_HOST:?set WORKSTATE_HOST in .env}`)"
+      - "traefik.http.routers.workstate.entrypoints=websecure"
+      - "traefik.http.routers.workstate.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.workstate.middlewares=workstate-headers"
+      - "traefik.http.services.workstate.loadbalancer.server.port=8080"
+      # /mcp and /api/stream are streamed: flush every chunk instead of buffering it.
+      - "traefik.http.services.workstate.loadbalancer.responseforwarding.flushinterval=1ms"
+      - "traefik.http.services.workstate.loadbalancer.healthcheck.path=/health"
+      - "traefik.http.services.workstate.loadbalancer.healthcheck.hostname=${WORKSTATE_HOST}"
+      - "traefik.http.services.workstate.loadbalancer.healthcheck.interval=30s"
+      - "traefik.http.services.workstate.loadbalancer.healthcheck.timeout=5s"
+      - "traefik.http.middlewares.workstate-headers.headers.stsSeconds=31536000"
+      - "traefik.http.middlewares.workstate-headers.headers.stsIncludeSubdomains=true"
+      - "traefik.http.middlewares.workstate-headers.headers.forceSTSHeader=true"
+      - "traefik.http.middlewares.workstate-headers.headers.referrerPolicy=same-origin"
+      - "traefik.http.middlewares.workstate-headers.headers.contentTypeNosniff=true"
+      - "traefik.http.routers.workstate-http.rule=Host(`${WORKSTATE_HOST}`)"
+      - "traefik.http.routers.workstate-http.entrypoints=web"
+      - "traefik.http.routers.workstate-http.middlewares=workstate-https"
+      - "traefik.http.middlewares.workstate-https.redirectscheme.scheme=https"
+    restart: unless-stopped
+
+networks:
+  web:
+    external: true
+    name: web
+
+volumes:
+  workstate-db-data:
