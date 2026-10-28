@@ -1,5 +1,5 @@
 // state.mjs — one JSON file per launched agent, so agent_stop and agent_list survive a restart.
-// Holds paths and ids only: the env file is recorded by PATH and no token is ever written here.
+// Holds paths and ids only: the env file is recorded by PATH and no token or grant is ever written here.
 // @ts-check
 
 import fs from 'node:fs'
@@ -14,7 +14,7 @@ import path from 'node:path'
  * @property {string} repo_root
  * @property {string} brief
  * @property {string|undefined} mcpConfigPath
- * @property {string|undefined} envFile
+ * @property {string|undefined} envFile     undefined with a url: minted with the agent_signin grant
  * @property {string|undefined} url
  * @property {{sessionId: string, role: string, expiresAt: string|undefined}|null} workstate
  * @property {string} launchedAt

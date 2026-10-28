@@ -1,8 +1,8 @@
-// tools.mjs — agent_launch, agent_stop, agent_list: their schemas and handlers.
+// tools.mjs — agent_launch, agent_stop, agent_list, agent_signin, agent_signout: schemas and handlers.
 //
 // Nothing returned from here, logged, or written outside mcp-<name>.json may hold a token. The
-// controller token lives in a local variable for the length of one call; the minted one is written
-// to its file and dropped.
+// controller or access token lives in a local variable for the length of one call; the minted one
+// is written to its file and dropped.
 // @ts-check
 
 import fs from 'node:fs'
@@ -10,10 +10,11 @@ import path from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { protocolHeader } from './header.mjs'
 import {
-    Refusal, validateLaunch, buildArgv, PERMISSION_MODES, TOOLSETS, EFFORTS, ROLES, DEFAULT_WORKSTATE_URL, GRANTS,
+    Refusal, validateLaunch, buildArgv, workstateUrl, PERMISSION_MODES, TOOLSETS, EFFORTS, ROLES, DEFAULT_WORKSTATE_URL, GRANTS,
 } from './launch-args.mjs'
 import { runClaude, parseBackgroundId, listLiveAgents, stripAnsi, resolveClaude } from './claude.mjs'
 import { readControllerToken, mintSession, bindClaudeSession, revokeSession, mcpConfigJson } from './workstate.mjs'
+import { signIn, signOut, accessToken, requireGrant, forgetAccessToken } from './oauth.mjs'
 import { saveRecord, loadRecords, findRecord, deleteRecord } from './state.mjs'
 import { repoKeys } from './repo.mjs'
 
@@ -27,7 +28,7 @@ const pathArray = { type: 'array', items: { type: 'string' } }
 export const TOOLS = [
     {
         name: 'agent_launch',
-        description: 'Launch a nested Claude Code session in the background (claude --bg) with the protocol header prepended to its brief and, unless workstate.role is "none", its own minted WorkState token. Returns name, id, sessionId and brief; never a token.',
+        description: 'Launch a nested Claude Code session in the background (claude --bg) with the protocol header prepended to its brief and, unless workstate.role is "none", its own minted WorkState token. The token is minted with the agent_signin grant for workstate.url, or with workstate.env_file when given (headless; it wins over the grant). Returns name, id, sessionId and brief; never a token.',
         inputSchema: {
             type: 'object',
             properties: {
@@ -49,7 +50,7 @@ export const TOOLS = [
                     description: 'Per-session WorkState credentials. Default {role: "worker"}',
                     properties: {
                         role: { type: 'string', enum: ROLES, default: 'worker', description: '"none" mints nothing and passes no --mcp-config' },
-                        env_file: { type: 'string', description: "PATH of WorkState's .env: ~/.workstate/.env, or <clone>/mcp/.env (never its contents)" },
+                        env_file: { type: 'string', description: "Optional, for headless use: PATH of WorkState's .env, ~/.workstate/.env or <clone>/mcp/.env (never its contents). Without it the agent_signin grant mints" },
                         url: { type: 'string', default: DEFAULT_WORKSTATE_URL },
                         ttl_hours: { type: 'integer', minimum: 1, maximum: 720, description: 'Idle window in hours (server default 72): the token lapses after this long unused; every use renews it, no hard cap' },
                         grants: { type: 'array', items: { type: 'string', enum: GRANTS }, description: 'Capabilities on the minted token. "import" shows work_import; the server allows it only on role orchestrator or controller' },
@@ -81,6 +82,24 @@ export const TOOLS = [
         description: 'claude agents --json joined with what agent_launch recorded: name, id, status, waitingFor, repo_root, WorkState session and role.',
         inputSchema: { type: 'object', properties: {}, additionalProperties: false },
     },
+    {
+        name: 'agent_signin',
+        description: 'Sign in to a WorkState server once, in the browser (OAuth with PKCE), so agent_launch and agent_stop mint and revoke without workstate.env_file. Opens the system browser and waits up to 5 minutes for the sign-in; the result also carries the URL to open by hand. The grant is stored in ~/.workstate/grants.json; no token is ever returned.',
+        inputSchema: {
+            type: 'object',
+            properties: { url: { type: 'string', default: DEFAULT_WORKSTATE_URL, description: 'The WorkState server, as in workstate.url' } },
+            additionalProperties: false,
+        },
+    },
+    {
+        name: 'agent_signout',
+        description: 'Revoke the agent_signin grant for a WorkState server and delete it. Every agent session minted with it is refused on its next request; env_file launches are not affected.',
+        inputSchema: {
+            type: 'object',
+            properties: { url: { type: 'string', default: DEFAULT_WORKSTATE_URL, description: 'The WorkState server, as in workstate.url' } },
+            additionalProperties: false,
+        },
+    },
 ]
 
 /**
@@ -97,11 +116,26 @@ export async function callTool(name, args) {
         if (name === 'agent_launch') return await agentLaunch(args ?? {})
         if (name === 'agent_stop') return await agentStop(args ?? {})
         if (name === 'agent_list') return await agentList()
+        if (name === 'agent_signin') return await signIn(signinUrl(name, args))
+        if (name === 'agent_signout') return await signOut(signinUrl(name, args))
     } catch (e) {
         if (e instanceof Refusal) return { text: `refused: ${e.message}`, structured: { refused: e.message }, isError: true }
         throw e
     }
     throw new Error(`unknown tool ${name}`)
+}
+
+/**
+ * @param {string} tool
+ * @param {unknown} args
+ */
+function signinUrl(tool, args) {
+    if (args === undefined || args === null) args = {}
+    if (typeof args !== 'object' || Array.isArray(args)) throw new Refusal(`${tool} takes {url?}`)
+    const a = /** @type {Record<string, unknown>} */ (args)
+    const extra = Object.keys(a).filter((k) => k !== 'url')
+    if (extra.length) throw new Refusal(`${tool}: unknown parameter(s) ${extra.join(', ')}; allowed: url`)
+    return workstateUrl(a.url, 'url')
 }
 
 /**
@@ -158,10 +192,13 @@ async function agentLaunch(input) {
     const mints = p.workstate.role !== 'none'
     const mcpConfigPath = mints ? path.join(briefDir, `mcp-${p.name}.json`) : undefined
 
+    const signedIn = mints && p.workstate.envFile === undefined
     let controllerToken
     if (mints) {
         ensureIgnored(p.repoRoot, /** @type {string} */ (mcpConfigPath))
-        controllerToken = readControllerToken(/** @type {string} */ (p.workstate.envFile))
+        if (!signedIn) controllerToken = readControllerToken(/** @type {string} */ (p.workstate.envFile))
+        else if (p.dryRun) requireGrant(p.workstate.url)
+        else controllerToken = await accessToken(p.workstate.url)
     }
     if (!p.dryRun) resolveClaude()
 
@@ -187,6 +224,7 @@ async function agentLaunch(input) {
         minted = await mintSession({
             url: p.workstate.url,
             controllerToken: /** @type {string} */ (controllerToken),
+            signedIn,
             name: p.name,
             role: p.workstate.role,
             launchedBy: p.controller.replace(/\s\[[0-9a-fA-F]{6}\]$/, ''),
@@ -194,6 +232,9 @@ async function agentLaunch(input) {
             ttlHours: p.workstate.ttlHours,
             grants: p.workstate.grants,
             repo: repoKeys(p.repoRoot),
+        }).catch((e) => {
+            if (signedIn) forgetAccessToken(p.workstate.url)
+            throw e
         })
     }
 
@@ -301,8 +342,8 @@ async function agentStop(input) {
     let revoked = false
     if (rec?.workstate) {
         try {
-            if (!rec.envFile || !rec.url) throw new Refusal('the launch record has no env file or url')
-            const token = readControllerToken(rec.envFile)
+            if (!rec.url) throw new Refusal('the launch record has no url')
+            const token = rec.envFile ? readControllerToken(rec.envFile) : await accessToken(rec.url)
             const err = await revokeSession({ url: rec.url, controllerToken: token, sessionId: rec.workstate.sessionId })
             if (err) throw new Error(err)
             revoked = true
