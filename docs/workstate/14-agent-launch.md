@@ -39,6 +39,7 @@ All new; additive; **not** under `/api/v1` (v1 is read-only by rule).
 | `POST /api/agent-sessions` `{name, role, launchedBy?, origin?, cwd?, externalRole?, claudeSessionId?, ttlHours?, replace?, repo?:{remote?, root?}, grants?:["import"]}` | a bearer with **orchestrator or controller** role (static or minted), or an OAuth access token for `<origin>/api` with scope `workstate.sessions` (controller) | creates/updates the `agent_session` row for `name`, issues a token `wss_<base64url 32 bytes>`, stores only its SHA-256, returns `201 {sessionId, name, role, token, expiresAt}` **once** |
 | `PATCH /api/agent-sessions/{id}` `{claudeSessionId}` | the same principal, or a controller | sets the Claude session uuid (history kept as an event, doc 11) |
 | `DELETE /api/agent-sessions/{id}` | the same principal, or a controller | revokes: `revoked_at = now()`, live claims of that session released (`release_reason = 'revoked'`) |
+| `POST /api/agent-sessions/{id}/release` | a **controller** only | frees the name (doc 11 "Releasing a name"): the row is renamed `<name>~released~<id>`, its token revoked, `session_name_released` journaled; `200 {sessionId, name, releasedAs}`, `409` while it holds live claims |
 
 Rules:
 - **A role is never raised:** requested role ≤ the caller's role. Worker < orchestrator < controller.
@@ -48,7 +49,10 @@ Rules:
   it does not release claims. A revoked or expired name mints again without `replace`, on the same row.
 - **Launcher collision (doc 11):** a name held by a row with a different `launchedBy` is `409`, and
   `replace` does not override it. A mint for a header-named row with the same launcher attaches the
-  token to that row.
+  token to that row. **Takeover:** with `replace: true`, a mint whose `launchedBy` is set takes a row
+  whose `launched_by` is NULL only when the row's `claude_session_id` is set and equals the mint's
+  `claudeSessionId`; the row then records the launcher (journal `session_launcher_taken_over`). Any
+  other mismatch stays `409`, and its message names the release path above.
 - `externalRole` fills `external_role` exactly as `X-WorkState-Foreman-Role` does.
 - **Grants:** `grants` is a set of capabilities stored on the row (`agent_session.grants`, checked
   against the known names; migration `ImportGrant`). Only a minter that may mint at all (orchestrator

@@ -201,6 +201,25 @@ public sealed class ApiQueries(NpgsqlDataSource dataSource)
         return ids.Count == 0 ? [] : await ListAsync<SessionRow>(sql, new { ids = ids.ToArray() }, cancellationToken);
     }
 
+    /// <summary>doc 14 §2 — each session's token: <c>none</c> (header-named), <c>live</c>, <c>revoked</c> or <c>expired</c>.</summary>
+    public async Task<IReadOnlyList<SessionTokenRow>> SessionTokensAsync(
+        IReadOnlyCollection<Guid> ids,
+        CancellationToken cancellationToken = default)
+    {
+        const string sql =
+            """
+            SELECT s.id AS "Id",
+                   CASE WHEN s.token_hash IS NULL AND s.revoked_at IS NULL THEN 'none'
+                        WHEN s.revoked_at IS NOT NULL                     THEN 'revoked'
+                        WHEN s.token_expires_at <= now()                  THEN 'expired'
+                        ELSE 'live' END AS "Token"
+            FROM   agent_session s
+            WHERE  s.id = ANY(@ids);
+            """;
+
+        return ids.Count == 0 ? [] : await ListAsync<SessionTokenRow>(sql, new { ids = ids.ToArray() }, cancellationToken);
+    }
+
     /// <summary>doc 10 <c>/sessions</c>: most recently seen first; <paramref name="active"/> is the last 30 minutes.</summary>
     public async Task<IReadOnlyList<SessionRow>> SessionsAsync(
         Guid workspaceId,

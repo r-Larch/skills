@@ -7,7 +7,7 @@ One JSON contract for two clients: the :5290 dashboard and Foreman (native gpui)
 MCP tools are the agents' only write path. The pre-v1 routes (`/api/projects`, `/api/watch`,
 `/api/runs/{ref}/tree|brief|journal`) were removed once the new dashboard stopped calling them (unit
 `mature/prev1-removal`). Outside v1, `/api` keeps `POST|DELETE /api/session` (sign-in),
-`/api/stream`, `/api/agent-sessions` (doc 14, bearer only) and the dashboard's one write:
+`/api/stream`, `/api/agent-sessions` (doc 14, bearer only) and the dashboard's two writes:
 
 ### `POST /api/projects/{id}/archive` · `POST /api/projects/{id}/unarchive` (outside v1)
 
@@ -21,6 +21,15 @@ because it needs no token endpoint and no state, and the cookie is `SameSite=Str
 Answers `200 { "id", "ref", "archivedAt": "…" | null, "changed": true }`; 404 for an unknown id;
 400 when the id is not a project. Journals `archived` / `unarchived` with the operator's name, role
 `human`.
+
+### `POST /api/sessions/{id}/release` (outside v1)
+
+The Sessions page's Release (doc 11 "Releasing a name"): frees the session's name so the next mint
+creates the session fresh. Cookie only and the same `X-WorkState-Write` guard as archiving; a
+bearer token is never evaluated here (a controller uses `POST /api/agent-sessions/{id}/release`,
+doc 14 §2). Answers `200 { "sessionId", "name", "releasedAs" }`; 404 for an unknown id; 409 with the
+refs when the session holds live claims, and 409 for a row already released. Journals
+`session_name_released` with the operator's name, role `human`.
 
 ## Rules
 
@@ -209,8 +218,11 @@ Open follow-ups in the project-level backlog run, grouped by origin (`derived_fr
 Sessions (doc 11), most recently seen first. `active=true` limits to the last 30 minutes; `name` and
 `claudeSessionId` filter to exact matches (Foreman's fleet rows join on them).
 ```jsonc
-{ "asOf": "…", "seq": 1234, "sessions": [{ "session": Session, "claims": [Claim] }] }
+{ "asOf": "…", "seq": 1234, "sessions": [{ "session": Session, "claims": [Claim], "token": "none" | "live" | "revoked" | "expired" }] }
 ```
+`token` (added for the Sessions page, additive) is the row's minted token: `none` for a session only
+ever named by header, else whether it is live, revoked or expired. A released row (doc 11) is listed
+under its tombstone name with `revoked`.
 
 ### `GET /api/v1/resolve?ref=backlog`
 `{ "asOf": "…", "seq": 1234, "matches": [ItemRef] }` — zero, one or many; the client decides.

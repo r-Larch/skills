@@ -31,8 +31,16 @@ ttlHours?, replace?, repo?}` creates (or reuses) the row for `name` and returns 
 with that token *is* that session: the name comes from the credential, `X-WorkState-Agent` is ignored,
 and the other headers still fill the row as above. `externalRole` fills `external_role` exactly as
 `X-WorkState-Foreman-Role` does. The collision rule below holds for a mint too: a name held under a
-different `launched_by` is refused (409), and `replace` does not override it. `replace: true` keeps the
-row, its id, claims and history, and swaps only the token. `DELETE /api/agent-sessions/{id}` revokes
+different `launched_by` is refused (409), and `replace` does not override it — with one exception, the
+**takeover** (2026-10-28, unit `shared-v1/name-takeover`): a mint with `replace: true` and a non-null
+`launchedBy` may take a row whose `launched_by` is NULL when that row's `claude_session_id` is
+non-null and equals the mint's `claudeSessionId` (ordinal, both trimmed). That is a hand-named session
+later resumed by a launcher, proven by its Claude session id. The row records the new `launched_by`,
+keeps its id, claims and history, its old token (if any) is replaced as in any `replace`, and the
+journal gets `session_launcher_taken_over` (`{from: null, to, claudeSessionId}`) on the session. Every
+other case stays 409: no id on the row, ids that differ, `replace` false, two different non-null
+launchers, and a mint with no launcher onto a launcher's row. The 409 names the release path below.
+`replace: true` keeps the row, its id, claims and history, and swaps only the token. `DELETE /api/agent-sessions/{id}` revokes
 the token and releases the session's live claims (`release_reason = 'revoked'`; the items go back to
 `ready`, as an expired claim's do). Header-named sessions keep working for anything that cannot mint.
 
@@ -77,6 +85,19 @@ travels on every request can name a session. No tool parameter was added (tools/
   refused with a teaching REFUSED, and nothing runs.
 - `claude_session_id` changes under one name are kept as history (a `session_claude_id_changed` event),
   not overwritten silently — Foreman detects copies that way.
+
+## Releasing a name
+A row with no Claude session id cannot prove who it was, so no launcher can take it over. The operator
+frees its name instead: `POST /api/agent-sessions/{id}/release` (a controller bearer, or an OAuth
+token with `workstate.sessions`; doc 14 §2), or **Release** on the dashboard's Sessions page (cookie,
+`POST /api/sessions/{id}/release`, doc 10). The row is **not deleted** — claims, events and evidence
+point at it. It is renamed to `<name>~released~<its id, 32 hex>`, which its own id makes unique; its
+token is revoked (`revoked_at`), its client key is let go, and `session_name_released` (`{name,
+tombstone}`) is journaled on it. The next mint or header under the name creates a new row. A session
+that still holds live claims is refused (409, naming the refs): it may still be working, and
+`DELETE /api/agent-sessions/{id}` is the existing way to release its claims first. A row already
+released is 409. The header path is unchanged: a header never takes over a name, and the release is
+the operator's alone.
 
 ## Data (one migration, additive)
 `agent_session`: id (uuid v7), workspace_id, name (unique per workspace), claude_session_id, role (from

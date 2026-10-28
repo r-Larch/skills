@@ -175,11 +175,13 @@ public static partial class ApiV1
         var claims = await api.SessionClaimsAsync([.. sessions.Select(s => s.Id)], cancellationToken);
         var views = await book.ClaimsAsync(claims, snapshot.AsOf, cancellationToken);
         var held = claims.Zip(views).ToLookup(pair => pair.First.SessionId, pair => pair.Second);
+        var tokens = (await api.SessionTokensAsync([.. sessions.Select(s => s.Id)], cancellationToken))
+            .ToDictionary(t => t.Id, t => t.Token);
 
         return Results.Ok(new SessionsView(
             snapshot.AsOf,
             snapshot.Seq,
-            [.. sessions.Select(s => new SessionHoldingView(V1Book.Session(s), [.. held[s.Id]]))]));
+            [.. sessions.Select(s => new SessionHoldingView(V1Book.Session(s), [.. held[s.Id]], tokens.GetValueOrDefault(s.Id, "none")))]));
     }
 
     /// <summary>Rule 1's one door from a ref to an id: zero, one or many matches, and the client decides.</summary>

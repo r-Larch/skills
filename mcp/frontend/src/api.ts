@@ -32,6 +32,26 @@ export type Session = {
   lastSeenAt: string
 }
 
+/** One row of `/api/v1/sessions`: the session in full, what it holds, and its token. */
+export type SessionDetail = Session & {
+  externalRole: string | null
+  origin: string | null
+  launchedBy: string | null
+  claudeSessionId: string | null
+  cwd: string | null
+  client: string | null
+  firstSeenAt: string
+}
+
+/** `none` is a session only ever named by header. */
+export type TokenState = 'none' | 'live' | 'revoked' | 'expired'
+
+export type SessionHolding = { session: SessionDetail; claims: Claim[]; token: TokenState }
+
+export type Sessions = { asOf: string; seq: number; sessions: SessionHolding[] }
+
+export type Released = { sessionId: string; name: string; releasedAs: string }
+
 export type Claim = {
   item: ItemRef
   run: ItemRef | null
@@ -275,12 +295,13 @@ export const backlog = (project: string) => json<Backlog>(`/api/v1/backlog?proje
 
 export const prompts = (scope: string) => json<Prompts>(`/api/v1/prompts?scope=${id(scope)}`)
 
+export const sessions = () => json<Sessions>('/api/v1/sessions')
+
 /**
- * The dashboard's one write (doc 10). The header is the cross-site guard: a form on another site
- * cannot send it, and the server refuses the write without it.
+ * A dashboard write (doc 10). The header is the cross-site guard: a form on another site cannot
+ * send it, and the server refuses the write without it. A refusal throws the server's own words.
  */
-export async function setArchived(project: string, archived: boolean): Promise<void> {
-  const path = `/api/projects/${id(project)}/${archived ? 'archive' : 'unarchive'}`
+async function write(path: string): Promise<Response> {
   const response = await fetch(path, {
     method: 'POST',
     credentials: 'same-origin',
@@ -296,7 +317,17 @@ export async function setArchived(project: string, archived: boolean): Promise<v
     const body = (await response.json().catch(() => null)) as { error?: string } | null
     throw new Error(body?.error ?? `${path} → ${response.status}`)
   }
+
+  return response
 }
+
+export async function setArchived(project: string, archived: boolean): Promise<void> {
+  await write(`/api/projects/${id(project)}/${archived ? 'archive' : 'unarchive'}`)
+}
+
+/** Frees the session's name for the next mint; the row stays, renamed, for its history (doc 11). */
+export const releaseSession = async (session: string): Promise<Released> =>
+  (await write(`/api/sessions/${id(session)}/release`)).json() as Promise<Released>
 
 /** `throttled` is the sign-in rate limit (429); `rejected` never says which field was wrong. */
 export type SignInResult = 'ok' | 'rejected' | 'throttled'

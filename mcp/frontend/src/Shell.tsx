@@ -7,7 +7,7 @@ import { countTitle, counted, tally } from './state.ts'
 import { projectHref, runHref } from './nav.ts'
 import { clock, short } from './format.ts'
 import { ProjectName } from './ui.tsx'
-import { ActivityIcon, CheckIcon, InboxIcon, OverviewIcon } from './icons.tsx'
+import { ActivityIcon, CheckIcon, InboxIcon, OverviewIcon, SessionsIcon } from './icons.tsx'
 import {
   archivedOpen,
   byActivity,
@@ -62,6 +62,10 @@ export default function Shell(props: ParentProps) {
           <A href="/activity" class={on('/activity') ? 'on' : ''}>
             <ActivityIcon />
             Activity
+          </A>
+          <A href="/sessions" class={on('/sessions') ? 'on' : ''}>
+            <SessionsIcon />
+            Sessions
           </A>
         </nav>
 

@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using Microsoft.AspNetCore.Mvc;
 using OpenIddict.Abstractions;
+using WorkState.Api.Auth;
 using WorkState.Api.Auth.OAuth;
 using WorkState.Core.Domain;
 using WorkState.Core.Queries;
@@ -26,6 +27,9 @@ public sealed record MintSessionResponse(Guid SessionId, string Name, string Rol
 
 public sealed record PatchSessionRequest(string? ClaudeSessionId);
 
+/// <summary><c>name</c> is the name now free; <c>releasedAs</c> what the row is called from here on.</summary>
+public sealed record ReleaseSessionResponse(Guid SessionId, string Name, string ReleasedAs);
+
 /// <summary>
 /// doc 14 §2 — per-session tokens. A write surface for launchers, so it sits beside the App API and
 /// not under <c>/api/v1</c>, which is read-only by rule. Every call needs an orchestrator or
@@ -43,6 +47,26 @@ public static class AgentSessionEndpoints
         sessions.MapPost("", MintAsync);
         sessions.MapPatch("/{id:guid}", PatchAsync);
         sessions.MapDelete("/{id:guid}", RevokeAsync);
+        sessions.MapPost("/{id:guid}/release", (Guid id, HttpContext context, [FromServices] SessionStore store,
+                [FromServices] BoardQueries board, [FromServices] WorkspaceOptions workspace, CancellationToken cancellationToken)
+            => Rank(context.User) == ActorRole.Controller
+                ? ReleaseAsync(id, new Actor(Pg(ActorRole.Controller), ActorRole.Controller), store, board, workspace, cancellationToken)
+                : Task.FromResult(Error(StatusCodes.Status403Forbidden, "only a controller may release a session name")));
+    }
+
+    /// <summary>The dashboard's Release: the operator, by cookie, under the same guard as archiving.</summary>
+    public static void MapSessionRelease(this RouteGroupBuilder api)
+    {
+        api.MapGroup("/sessions").DashboardWrite()
+            .MapPost("/{id:guid}/release", (Guid id, HttpContext context, [FromServices] SessionStore store,
+                    [FromServices] BoardQueries board, [FromServices] WorkspaceOptions workspace, CancellationToken cancellationToken)
+                => ReleaseAsync(
+                    id,
+                    new Actor(context.User.Identity?.Name ?? DashboardAuth.Role, ActorRole.Human),
+                    store,
+                    board,
+                    workspace,
+                    cancellationToken));
     }
 
     private static async Task<IResult> MintAsync(
@@ -166,6 +190,39 @@ public static class AgentSessionEndpoints
 
         await store.RevokeAsync(id, Rank(context.User), cancellationToken);
         return Results.NoContent();
+    }
+
+    /// <summary>
+    /// doc 11 — frees the name so the next mint creates the session fresh. The row stays, under a
+    /// tombstone name, because claims and the journal point at it.
+    /// </summary>
+    private static async Task<IResult> ReleaseAsync(
+        Guid id,
+        Actor actor,
+        SessionStore store,
+        BoardQueries board,
+        WorkspaceOptions workspace,
+        CancellationToken cancellationToken)
+    {
+        if (await board.WorkspaceAsync(workspace.Slug, cancellationToken) is not { } workspaceId)
+        {
+            return Error(StatusCodes.Status404NotFound, $"no agent session with id {id}");
+        }
+
+        var result = await store.ReleaseNameAsync(workspaceId, id, actor, cancellationToken);
+
+        return result.Outcome switch
+        {
+            ReleaseOutcome.Released => Results.Ok(new ReleaseSessionResponse(id, result.Name!, result.Tombstone!)),
+            ReleaseOutcome.AlreadyReleased => Error(
+                StatusCodes.Status409Conflict,
+                $"this session was already released; it is kept as \"{result.Name}\" for its history"),
+            ReleaseOutcome.Holding => Error(
+                StatusCodes.Status409Conflict,
+                $"the session \"{result.Name}\" still holds live claims on {result.Held}; it may still be working. "
+                + $"Revoking it (DELETE /api/agent-sessions/{id}) releases them, and then its name can be released"),
+            _ => Error(StatusCodes.Status404NotFound, $"no agent session with id {id}"),
+        };
     }
 
     /// <summary>

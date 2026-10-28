@@ -68,6 +68,8 @@ public sealed record SessionRow(
     DateTimeOffset FirstSeenAt,
     DateTimeOffset LastSeenAt);
 
+public sealed record SessionTokenRow(Guid Id, string Token);
+
 public sealed record RunRow(
     Guid Id,
     string? Branch,
