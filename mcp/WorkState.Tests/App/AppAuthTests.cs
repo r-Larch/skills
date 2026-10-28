@@ -46,7 +46,10 @@ public sealed class AppAuthTests(PostgresFixture fixture)
     [Fact]
     public async Task With_no_dashboard_credential_configured_login_is_refused_and_every_api_route_is_401()
     {
-        await using var server = await StartAsync(dashboardConfigured: false);
+        // A database with no user yet: in the shared one, whichever test signed in first created the operator.
+        await using var database = await FreshDatabase.CreateAsync(fixture, Ct);
+        await using var server = await AppServer.StartAsync(
+            database.ConnectionString, $"auth-{Guid.CreateVersion7():n}", Ct, dashboardConfigured: false);
         var client = server.NewClient();
 
         var withCredentials = await AppServer.SignInAsync(
@@ -91,10 +94,9 @@ public sealed class AppAuthTests(PostgresFixture fixture)
         Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync("/api/v1/overview", Ct)).StatusCode);
     }
 
-    private Task<AppServer> StartAsync(bool dashboardConfigured = true)
+    private Task<AppServer> StartAsync()
         => AppServer.StartAsync(
             fixture.ConnectionString,
             $"auth-{Guid.CreateVersion7():n}",
-            Ct,
-            dashboardConfigured);
+            Ct);
 }

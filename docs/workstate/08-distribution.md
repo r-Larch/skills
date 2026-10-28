@@ -229,6 +229,20 @@ The pre-v1 cookie-only `/api/*` routes are removed; `/api/session`, `/api/agent-
 
 Foreman authenticates with the reader token: it watches every project and can write nothing.
 
+**The dashboard's users (m48).** The cookie is issued to a row of `app_user` (doc 02 §12a), not to the
+configured credential. `WorkState:Dashboard:{Username,Password}` (`WORKSTATE_DASHBOARD_USERNAME` /
+`_PASSWORD`) is a **bootstrap credential**: the first `POST /api/session` that presents it while
+`app_user` is empty creates the first user — named after the configured username, the presented
+password stored only as an ASP.NET Core `PasswordHasher` hash, system administrator, admin of every
+workspace that exists then. Two first sign-ins at once create one user (`LOCK TABLE app_user`). From
+then on only the table decides: **changing or removing the configured password changes nothing**, and
+the dashboard keeps working with neither set. A wrong password, an unknown name and a disabled user
+get the same 401 and each runs one hash verification. Every cookie request re-reads its user
+(the `sub` claim): a user deleted or disabled (`disabled_at`) is signed out on their next request,
+and a cookie issued before m48 (no `sub`) has to sign in again. The configured username still names
+the OAuth subject (`/connect/authorize` refuses while it is unset), until OAuth carries the user.
+There is no user management yet: a second user, a password change or a disable is SQL for now.
+
 **`WORKSTATE_PUBLIC_URL`** (`WorkState:PublicUrl`, **optional**; compose passes
 `${WORKSTATE_PUBLIC_URL:-}`) is the base of the `web` line `work_brief` and `work_get` print
 (doc 01 §8). Unset, the line names the scheme and host the MCP request came in on — from the host

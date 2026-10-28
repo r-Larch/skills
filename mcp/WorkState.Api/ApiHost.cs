@@ -40,8 +40,8 @@ public static class ApiHost
         var builder = WebApplication.CreateBuilder(args);
         configure?.Invoke(builder);
 
-        // doc 08 §4 — one process, two audiences. The dashboard's credentials are read once here so
-        // the cookie handler and POST /api/session judge the same values.
+        // doc 08 §4 — one process, two audiences. The dashboard's bootstrap credential is read once here, for
+        // POST /api/session's first sign-in and for the OAuth server's subject.
         var dashboard = new DashboardOptions();
         builder.Configuration.GetSection(DashboardOptions.Section).Bind(dashboard);
         builder.Services.AddSingleton(dashboard);
@@ -55,7 +55,7 @@ public static class ApiHost
                 options.ControllerToken = builder.Configuration["WorkState:Auth:ControllerToken"];
                 options.ReaderToken = builder.Configuration["WorkState:Auth:ReaderToken"];
             })
-            .AddCookie(DashboardAuth.SchemeName, options => DashboardAuth.Configure(options, dashboard, PublicUrl(builder.Configuration)))
+            .AddCookie(DashboardAuth.SchemeName, options => DashboardAuth.Configure(options, PublicUrl(builder.Configuration)))
 
             // Registered with or without a store, because WorkStatePolicies.Any names it; without one there
             // is no OAuth server and it admits no one and challenges as the static scheme does.
@@ -257,6 +257,7 @@ public static class ApiHost
             sp.GetRequiredService<IHttpContextAccessor>(),
             PublicUrl(builder.Configuration)));
         builder.Services.AddSingleton(sp => new SessionStore(sp.GetRequiredService<NpgsqlDataSource>()));
+        builder.Services.AddSingleton(sp => new UserStore(sp.GetRequiredService<NpgsqlDataSource>()));
 
         OAuthServer.Add(builder.Services, connectionString, PublicUrl(builder.Configuration));
     }
