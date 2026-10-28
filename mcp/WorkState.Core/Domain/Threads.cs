@@ -101,8 +101,8 @@ public class Claim
     public string SerializationKey { get; set; } = "";
 
     /// <summary>
-    /// Set when the key is a name rather than a path — a branch, or the ref-scope fallback — so the
-    /// lock is per workspace. Null means the key is a place on disk and the lock is server-wide.
+    /// The workspace the lock is held in: every key, a path included, locks within its tenant. Null only
+    /// on a claim released before that rule (the ClaimKeyWorkspace migration filled the live ones).
     /// </summary>
     public Guid? KeyWorkspaceId { get; set; }
 

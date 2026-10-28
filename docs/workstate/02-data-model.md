@@ -750,10 +750,10 @@ asked for, because they carry different working trees.
 **The key.** `work_status(ref, to:"in_progress", tree:"<worktree path or branch>")` makes the
 caller's tree the key. A path is normalised — trimmed; on Windows (`X:\…`, `\\server\…`) slashes
 become `/`, case is folded and a trailing slash dropped; a POSIX path keeps its case and loses a
-trailing slash — and locks **server-wide**, because it is a place on disk. A branch (`refs/heads/`
-stripped) is a name and locks **within its workspace**. Without `tree` the key is today's: the run's
-`serialization_key`, else the project's `repo_root` (both server-wide), else the ref scope — a name,
-so per workspace.
+trailing slash. A branch (`refs/heads/` stripped) is a name. Without `tree` the key is today's: the
+run's `serialization_key`, else the project's `repo_root`, else the ref scope. Every key locks **within
+its workspace** (`key_workspace_id`), a path as much as a name: a path is a place on one tenant's disk
+(m50 tenant-per-request; migration `ClaimKeyWorkspace` keyed the live claims taken before).
 
 > **Changed 2026-10-22 (ws/8).** Claims were per run: with no `tree` parameter, every unit of a run
 > fell back to the run's key (`30m lease on "m0"`), so a controller running parallel units in

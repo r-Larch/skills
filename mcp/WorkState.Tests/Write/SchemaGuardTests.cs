@@ -61,6 +61,7 @@ public sealed class SchemaGuardTests(PostgresFixture fixture)
             Id = Guid.CreateVersion7(),
             ItemId = rival,
             SerializationKey = $"tree-{world.RunId:n}",
+            KeyWorkspaceId = world.WorkspaceId,
             Writes = true,
             AgentName = WriteSeed.Other.Name,
             Role = ActorRole.Orchestrator,
@@ -84,26 +85,29 @@ public sealed class SchemaGuardTests(PostgresFixture fixture)
     }
 
     /// <summary>
-    /// The index is server-wide but the sweep is per workspace, so a lapsed claim another workspace
-    /// has not swept still holds a shared key. The lease filter used to hide it from the pre-check.
+    /// A run key is a path, and every key locks within its workspace: another tenant's claim on the same
+    /// key does not hold it, while a second writer in the claim's own workspace is still refused.
     /// </summary>
     [Fact]
-    public async Task A_lapsed_claim_another_workspace_has_not_swept_is_a_refusal_not_an_exception()
+    public async Task A_shared_run_key_is_held_in_its_own_workspace_and_not_across_tenants()
     {
         var key = $"shared-{Guid.CreateVersion7():n}";
         var first = await WriteSeed.CreateAsync(fixture, key);
         var second = await WriteSeed.CreateAsync(fixture, key);
+        await WriteSeed.ChildAsync(first, first.PhaseId, "1.2");
 
-        await Start(first, "1.1", WriteSeed.Orchestrator);
-        await WriteSeed.ExpireClaimAsync(first, first.TaskId);
+        var held = await Start(first, "1.1", WriteSeed.Orchestrator);
+        Assert.False(held.Refused, held.Text);
 
-        var refused = await Start(second, "1.1", WriteSeed.Other);
+        var otherTenant = await Start(second, "1.1", WriteSeed.Other);
+        Assert.False(otherTenant.Refused, otherTenant.Text);
+        Assert.Equal(ItemStatus.InProgress, await second.StatusAsync("1.1"));
 
-        Assert.True(refused.Refused, refused.Text);
-        RefusalShape.SelfCorrecting(refused.Text);
-        Assert.Contains("another workspace", refused.Text, StringComparison.Ordinal);
-        Assert.Contains("lapsed", refused.Text, StringComparison.Ordinal);
-        Assert.Equal(ItemStatus.Open, await second.StatusAsync("1.1"));
+        var sameTenant = await Start(first, "1.2", WriteSeed.Other);
+        Assert.True(sameTenant.Refused, sameTenant.Text);
+        RefusalShape.SelfCorrecting(sameTenant.Text);
+        Assert.Contains("run-a/1.1", sameTenant.Text, StringComparison.Ordinal);
+        Assert.Equal(ItemStatus.Open, await first.StatusAsync("1.2"));
     }
 
     /// <summary>
