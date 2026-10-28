@@ -167,7 +167,7 @@ public sealed partial class WorkWriter
                 : parent.RefScopeId == parent.Id ? parent.Id : parent.RefScopeId;
 
             var reference = Blank(wanted.Ref)
-                ? await DerivedRefAsync(connection, transaction, parent, refScope, kind, cancellationToken)
+                ? await DerivedRefAsync(connection, transaction, workspaceId, parent, refScope, kind, cancellationToken)
                 : wanted.Ref!.Trim();
 
             var row2 = new NewRow(
@@ -669,6 +669,7 @@ public sealed partial class WorkWriter
     private static async Task<string> DerivedRefAsync(
         NpgsqlConnection connection,
         NpgsqlTransaction transaction,
+        Guid workspaceId,
         ScopeRefLite? parent,
         Guid? refScopeId,
         string kind,
@@ -677,7 +678,7 @@ public sealed partial class WorkWriter
         if (parent is null)
         {
             return await FreeRefAsync(
-                connection, transaction, refScopeId, n => $"{kind}-{n}", cancellationToken);
+                connection, transaction, workspaceId, refScopeId, n => $"{kind}-{n}", cancellationToken);
         }
 
         // A run or a project scopes its own refs, so its children number from 1 rather than
@@ -685,7 +686,7 @@ public sealed partial class WorkWriter
         var prefix = parent.RefScopeId == parent.Id ? string.Empty : $"{parent.Ref}.";
 
         return await FreeRefAsync(
-            connection, transaction, refScopeId, n => $"{prefix}{n}", cancellationToken);
+            connection, transaction, workspaceId, refScopeId, n => $"{prefix}{n}", cancellationToken);
     }
 
     private static async Task CriteriaAsync(

@@ -693,6 +693,7 @@ public sealed partial class WorkWriter(NpgsqlDataSource dataSource, BoardQueries
     private static async Task<string> FreeRefAsync(
         NpgsqlConnection connection,
         NpgsqlTransaction transaction,
+        Guid workspaceId,
         Guid? refScopeId,
         Func<int, string> shape,
         CancellationToken cancellationToken)
@@ -701,7 +702,8 @@ public sealed partial class WorkWriter(NpgsqlDataSource dataSource, BoardQueries
             """
             SELECT EXISTS (
               SELECT 1 FROM item
-              WHERE ref_scope_id IS NOT DISTINCT FROM @scope AND lower(ref) = lower(@ref));
+              WHERE workspace_id = @workspace
+                AND ref_scope_id IS NOT DISTINCT FROM @scope AND lower(ref) = lower(@ref));
             """;
 
         for (var n = 1; n < 500; n++)
@@ -709,7 +711,7 @@ public sealed partial class WorkWriter(NpgsqlDataSource dataSource, BoardQueries
             var candidate = shape(n);
             var taken = await connection.ExecuteScalarAsync<bool>(new CommandDefinition(
                 sql,
-                new { scope = refScopeId, @ref = candidate },
+                new { workspace = workspaceId, scope = refScopeId, @ref = candidate },
                 transaction,
                 cancellationToken: cancellationToken));
 
