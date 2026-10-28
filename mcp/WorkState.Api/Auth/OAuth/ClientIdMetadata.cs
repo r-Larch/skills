@@ -349,18 +349,14 @@ public sealed class ClientIdMetadataResolver(
     }
 
     /// <summary>
-    /// RFC 8252 §7.3: a native client's loopback callback may use any port, so a requested loopback URI
-    /// that matches a declared one in everything but the port is added for this request.
+    /// A requested loopback URI that <see cref="LoopbackRedirect"/> admits is added to the row for this
+    /// request, replacing the previous one; <see cref="WorkStateApplicationManager"/> would admit it without.
     /// </summary>
     private static Uri[] WithRequestedLoopback(Uri[] callbacks, string? redirectUri)
     {
         if (!Uri.TryCreate(redirectUri, UriKind.Absolute, out var requested)
-            || !requested.IsLoopback
             || Array.Exists(callbacks, callback => callback.Equals(requested))
-            || !Array.Exists(callbacks, callback => callback.IsLoopback
-                                                    && callback.Scheme == requested.Scheme
-                                                    && callback.Host == requested.Host
-                                                    && callback.AbsolutePath == requested.AbsolutePath))
+            || !Array.Exists(callbacks, callback => LoopbackRedirect.Matches(callback, requested)))
         {
             return callbacks;
         }
