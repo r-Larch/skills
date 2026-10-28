@@ -173,7 +173,7 @@ Every call passes through two request filters before the tool runs:
 | `Authorization: Bearer <token>` (3 static tokens + optional reader token, from `mcp/.env`) | the **role** → tool visibility, `run_by` on evidence, who may close | the only authority |
 | `X-WorkState-Agent` (+ `-Session`, `-Launched-By`, `-Origin`, `-Cwd`, `-Foreman-Role`) | the **session** row: name, labels, lease renewal, one-session-per-tree | a label; never grants anything |
 | dashboard cookie | a signed-in user (`app_user`) in one tenant, for `/api/*` and the UI | re-read from the table on every request |
-| OAuth access token (`/connect/authorize`, doc 08 §4) | the **user** — `sub` is their `app_user` id — and the **one tenant** they approved the client in (`workstate:tenant`); role controller | re-checked on every call and every refresh: the user exists, is not disabled, may still enter the tenant |
+| OAuth access token (`/connect/authorize`, doc 08 §4) | the **user** — `sub` is their `app_user` id — and the **one tenant** they approved the client in (`workstate:tenant`); role controller | re-checked on every call and every refresh: the user exists, is not disabled, may still enter the tenant. Its refresh token is an opaque 43-character handle to a row of `openiddict_token` (m57), short enough for Windows Credential Manager's 2560-byte blob, where Foreman stores it |
 | `_meta.clientInfo` | not used (it would say `claude-code` for every session) | spec: self-reported |
 
 ### 4.5 Next to MCP

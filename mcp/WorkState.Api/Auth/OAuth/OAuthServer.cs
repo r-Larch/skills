@@ -93,6 +93,11 @@ public static class OAuthServer
                     .RequireProofKeyForCodeExchange()
                     .SetRefreshTokenLifetime(RefreshTokenLifetime);
 
+                // A refresh token is a 43-character handle to its payload in openiddict_token: self-contained it
+                // outgrew the 2560-byte blob Windows Credential Manager stores (Foreman, m57). One issued before
+                // this still redeems — ValidateReferenceTokenIdentifier passes a JWT through — into a handle.
+                server.UseReferenceRefreshTokens();
+
                 // S256 only: OpenIddict enables plain beside it by default, and a client offered plain will
                 // take it. With plain gone, a request naming it or naming no method is refused.
                 server.Configure(options => options.CodeChallengeMethods.Remove(CodeChallengeMethods.Plain));

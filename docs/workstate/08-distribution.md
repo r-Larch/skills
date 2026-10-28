@@ -292,6 +292,15 @@ authentication path puts it on the principal as the claim `workstate:tenant`:
   token of the new shape — the user by id, that tenant — under the same authorization, so revoking
   it still ends the connection. **This support ends once those tokens have refreshed**: every client
   that refreshes within the refresh token's 30 days holds a new-style token from then on.
+  **Refresh tokens are opaque reference handles (m57)**: 43 characters naming a row of
+  `openiddict_token`, which holds the encrypted payload; access tokens stay self-contained. Why:
+  Foreman keeps its refresh token in Windows Credential Manager, whose blob (`CredWriteW`) takes at
+  most 2560 bytes, and the self-contained refresh token of 1.0.0 — an encrypted JWT carrying the
+  user, the tenant and the authorization — measured 2875 characters, so Foreman's refresh succeeded
+  and storing its result failed. A self-contained refresh token issued before the switch still
+  redeems, once, into a handle (OpenIddict tries a handle lookup only for a token that is not a JWT),
+  so no client signs in again. Rotation, the 30-second reuse leeway for concurrent refreshes and
+  revocation — of the token or of its authorization — behave the same on either format.
 - **Static role tokens and the reader token** — bound to the workspace `WorkState:Workspace` names,
   or, unset, the oldest workspace. That slug is these credentials' own configured binding, not a
   default for anyone else: only their handler reads it. A configured workspace that does not exist
