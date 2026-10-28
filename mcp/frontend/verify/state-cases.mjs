@@ -361,5 +361,80 @@ check('Enter on an item outside a run opens its page', entryHref(exact.entries[1
 check('Enter on a page command', entryHref(exact.entries[2]), '/sessions')
 check('the theme navigates nowhere', entryHref({ kind: 'command', command: all.at(-1) }), null)
 
+console.log('\n── admin: the rules the pages hint with, the switcher, the palette ──────────')
+check('a password of 11 is short', passwordProblem('a'.repeat(11)), 'A password needs at least 12 characters.')
+check('a password of 12 is enough', passwordProblem('a'.repeat(12)), null)
+check('a blank name is refused', nameProblem('   ') !== null, true)
+check('a name is trimmed before it is judged', nameProblem('  ada  '), null)
+check('a control character is refused', nameProblem('ada\u0007') !== null, true)
+check('slugs like default pass', ['default', 'team-two', 'a1'].map(slugProblem), [null, null, null])
+check('slugs unlike them fail', ['Team', 'team--two', '-team', 'team-', 'tea m', ''].map((s) => slugProblem(s) !== null), [true, true, true, true, true, true])
+check('a typed slug is lowered and hyphenated', slugFrom('  Team Two '), 'team-two')
+check('roles read', ['admin', 'member', 'system-admin'].map(roleLabel), ['Admin', 'Member', 'System admin'])
+check('one workspace shows no switcher', showSwitcher([{ id: 'a' }]), false)
+check('two workspaces show it', showSwitcher([{ id: 'a' }, { id: 'b' }]), true)
+const crew = [{ userId: 'u1', role: 'admin' }, { userId: 'u2', role: 'member' }]
+check('the only admin is locked', isLastAdmin(crew, 'u1'), true)
+check('a member is not', isLastAdmin(crew, 'u2'), false)
+check('one of two admins is not', isLastAdmin([...crew, { userId: 'u3', role: 'admin' }], 'u1'), false)
+const t0 = Date.parse('2026-10-28T12:00:00Z')
+check('fourteen days out', expiresIn('2026-11-11T12:00:00Z', t0), 'in 14 days')
+check('a day out reads in hours', expiresIn('2026-10-29T12:00:00Z', t0), 'in 24 hours')
+check('minutes out', expiresIn('2026-10-28T12:05:00Z', t0), 'in 5 minutes')
+check('past is expired', expiresIn('2026-10-28T11:00:00Z', t0), 'expired')
+
+console.log('\n── the invite page: its path, and every step ───────────────────────────────')
+const tok = 'Gx3c1oZk5mJ1VtJm6Vv3lR0yq8Jt4vWfZrjSx5i0bEk'
+check('an invite path names its token', joinToken(`/join/${tok}`), tok)
+check('not an invite path', ['/join/', '/join/a/b', '/joins/x', '/'].map(joinToken), [null, null, null, null])
+check('the invite page is a link page', [isLinkPath(`/join/${tok}`), isLinkPath('/admin')], [true, false])
+check('a link page is no connect page', isConnectPath(`/join/${tok}`), false)
+const view = { tenantId: 't', tenant: 'team-two', role: 'member', expiresAt: '2026-11-11T12:00:00Z', signedInAs: null, member: false }
+const invited = joinStep({ k: 'loading' }, { t: 'loaded', invite: view })
+check('a usable invite shows the create form', [invited.k, invited.mode], ['shown', 'create'])
+check('an unusable one says so in the server words', joinStep({ k: 'loading' }, { t: 'failed', status: 404, error: 'gone' }), { k: 'invalid', message: 'gone' })
+check('no answer at all says so', joinStep({ k: 'loading' }, { t: 'failed', status: 0, error: null }).message, 'WorkState did not answer. Check that it is running, then reload this page.')
+check('sign in instead', joinStep(invited, { t: 'mode', mode: 'sign-in' }).mode, 'sign-in')
+const accepting = joinStep(invited, { t: 'accept' })
+check('accept is one at a time', [accepting.k, joinStep(accepting, { t: 'accept' }).k], ['accepting', 'accepting'])
+check('a taken name goes back to the form with the reason', joinStep(accepting, { t: 'refused', status: 409, error: 'taken' }), { ...invited, error: 'taken' })
+check('a link used meanwhile ends the page', joinStep(accepting, { t: 'refused', status: 404, error: null }).k, 'invalid')
+check('throttled says to wait', joinStep(accepting, { t: 'refused', status: 429, error: null }).error, 'Too many attempts. Wait a minute, then try again.')
+check('accepted', joinStep(accepting, { t: 'accepted' }), { k: 'joined', tenant: 'team-two' })
+
+const withAccount = (account) => labels(commands(projects, account))
+const reachable = [{ id: 'a', slug: 'default', current: true }, { id: 'b', slug: 'team-two', current: false }]
+check('a member gets no admin command', withAccount({ administers: false, systemAdmin: false, tenants: reachable.slice(0, 1) }), labels(all))
+check('an admin of several gets Admin and each switch', withAccount({ administers: true, systemAdmin: false, tenants: reachable }), [
+  'Go to Overview', 'Go to Needs you', 'Go to Activity', 'Go to Sessions', 'Go to Admin',
+  'Open project WorkState', 'Open WorkState backlog', 'Open project Autowork', 'Open Autowork backlog',
+  'Switch to workspace team-two', 'Toggle theme',
+])
+const sys = commands(projects, { administers: true, systemAdmin: true, tenants: reachable })
+check('a system administrator also gets Users', labels(sys).slice(4, 6), ['Go to Admin', 'Go to Users'])
+check('admin commands open their pages', sys.slice(4, 6).map((c) => c.href), ['/admin', '/admin/users'])
+const switchTo = sys.find((c) => c.action === 'tenant')
+check('a switch names its workspace and opens nothing', [switchTo.tenant, entryHref({ kind: 'command', command: switchTo })], ['b', null])
+check('a switch by the word workspace', labels(matchCommands(sys, 'workspace team')), ['Switch to workspace team-two'])
+check('reads for the admin pages', ['/admin', '/admin/users', '/admin/tenants/T'].map(routeReads), [
+  ['/api/admin/tenants'], ['/api/admin/users'], ['/api/admin/tenants', '/api/admin/tenants/T/members', '/api/admin/tenants/T/invites'],
+])
+
+console.log('\n── passwords: the reset page and the account page ─────────────────────────')
+check('a reset path names its token', resetToken(`/reset/${tok}`), tok)
+check('a reset page is a link page, an invite path no reset', [isLinkPath(`/reset/${tok}`), resetToken(`/join/${tok}`)], [true, null])
+const resetShown = resetStep({ k: 'loading' }, { t: 'loaded', reset: { name: 'ada', expiresAt: '2026-10-29T12:00:00Z' } })
+check('a usable reset link shows the form', resetShown, { k: 'shown', reset: { name: 'ada', expiresAt: '2026-10-29T12:00:00Z' }, error: null })
+check('an unusable one says so', resetStep({ k: 'loading' }, { t: 'failed', status: 404, error: 'used' }), { k: 'invalid', message: 'used' })
+const saving = resetStep(resetShown, { t: 'save' })
+check('saving is one at a time', [saving.k, resetStep(saving, { t: 'save' }).k], ['saving', 'saving'])
+check('a weak password goes back with the reason', resetStep(saving, { t: 'refused', status: 400, error: 'short' }).error, 'short')
+check('a link used meanwhile ends the page', resetStep(saving, { t: 'refused', status: 404, error: null }).k, 'invalid')
+check('saved names whose password it set', resetStep(saving, { t: 'saved' }), { k: 'done', name: 'ada' })
+check('a change that worked says the other sessions ended', passwordMessage({ k: 'ok' }).startsWith('Password changed. Your other sessions are signed out'), true)
+check('a wrong current password says nothing changed', passwordMessage({ k: 'wrong' }), 'The current password is not right. Nothing changed.')
+check('a refusal is the server words', passwordMessage({ k: 'refused', error: 'A password needs at least 12 characters.' }), 'A password needs at least 12 characters.')
+check('reads for the account page', routeReads('/account'), ['/api/session/me'])
+
 console.log(failures === 0 ? '\nAll checks passed.' : `\n${failures} check(s) failed.`)
 if (failures > 0) process.exitCode = 1
