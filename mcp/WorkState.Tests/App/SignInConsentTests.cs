@@ -188,6 +188,32 @@ public sealed class SignInConsentTests(PostgresFixture fixture)
         Assert.Equal(HttpStatusCode.BadRequest, (await browser.GetAsync("/connect/app-info", Ct)).StatusCode);
     }
 
+    [Theory]
+    [InlineData("http://127.0.0.1/callback", "http://127.0.0.1:59031/callback", "http://127.0.0.1:59031", "127.0.0.1")]
+    [InlineData("http://127.0.0.1/callback", "http://127.0.0.1:59031/other", null, null)]
+    [InlineData("http://127.0.0.1/callback", "http://localhost:59031/callback", null, null)]
+    public async Task A_loopback_callback_on_another_port_is_named_and_allowed_as_the_form_target(
+        string registered, string requested, string? origin, string? host)
+    {
+        // What Foreman sees: it registers no port, its listener gets one, and the approval's redirect goes there.
+        await using var server = await StartAsync();
+        var clientId = await RegisterAsync(server.NewClient(), registered);
+        var browser = await server.SignInAsync(Ct);
+
+        var consentPage = await browser.GetAsync(
+            QueryHelpers.AddQueryString("/connect/consent", new Dictionary<string, string?>
+            {
+                ["client_id"] = clientId,
+                ["redirect_uri"] = requested,
+            }),
+            Ct);
+        var csp = Csp(consentPage);
+        Assert.Contains(origin is null ? "form-action 'self' http://127.0.0.1;" : $"form-action 'self' http://127.0.0.1 {origin};", csp, StringComparison.Ordinal);
+
+        var info = await AppInfoAsync(browser, clientId, requested);
+        Assert.Equal(host, info.GetProperty("redirectHost").GetString());
+    }
+
     [Fact]
     public async Task Prompt_none_answers_the_client_instead_of_showing_a_page()
     {
