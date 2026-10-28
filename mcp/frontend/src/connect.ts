@@ -21,9 +21,12 @@ export function returnTarget(raw: string | null): string | null {
   return raw === AUTHORIZE || raw.startsWith(`${AUTHORIZE}?`) ? raw : null
 }
 
-/** The consent page's query without the answer field: what goes back to authorize as hidden inputs. */
+/** The tenant the consent page showed, posted with the answer; the server asks again if the session has moved since. */
+export const TENANT_FIELD = 'workstate_tenant'
+
+/** The consent page's query without its own fields: what goes back to authorize as hidden inputs. */
 export function hiddenFields(search: string): [string, string][] {
-  return [...new URLSearchParams(search).entries()].filter(([key]) => key !== 'consent')
+  return [...new URLSearchParams(search).entries()].filter(([key]) => key !== 'consent' && key !== TENANT_FIELD)
 }
 
 /** Back through sign-in, to the authorize request this consent page was opened for. */
@@ -41,6 +44,12 @@ export type AppInfo = {
   redirectHost: string | null
   loopbackOnly: boolean
 }
+
+/**
+ * `GET /api/session/tenants`: a workspace the signed-in user may enter. The token the client gets acts in the
+ * `current` one, the session's, and nowhere else.
+ */
+export type SessionTenant = { id: string; slug: string; role: string; current: boolean }
 
 /**
  * `GET /connect/app-icon`: the client's own icon, resolved and served by this server
@@ -69,14 +78,18 @@ export type Answer = 'granted' | 'denied'
 
 export type ConsentState =
   | { k: 'loading' }
-  | { k: 'shown'; info: AppInfo }
-  | { k: 'answering'; info: AppInfo; answer: Answer }
+  | { k: 'shown'; info: AppInfo; tenants: SessionTenant[] }
+  | { k: 'switching'; info: AppInfo; tenants: SessionTenant[]; to: string }
+  | { k: 'answering'; info: AppInfo; tenants: SessionTenant[]; answer: Answer }
   | { k: 'error'; message: string }
 
+/** A switch that succeeds reloads the page: the same consent URL, now in the other tenant, so it has no event. */
 export type ConsentEvent =
-  | { t: 'loaded'; info: AppInfo }
+  | { t: 'loaded'; info: AppInfo; tenants?: SessionTenant[] }
   | { t: 'failed'; status: number }
   | { t: 'answer'; answer: Answer }
+  | { t: 'switch'; to: string }
+  | { t: 'switch-failed'; message: string }
 
 /** A 401 is not an error state: the page goes back through sign-in instead (`signInHref`). */
 export function failure(status: number): string {
@@ -89,12 +102,19 @@ export function failure(status: number): string {
 export function consentStep(state: ConsentState, event: ConsentEvent): ConsentState {
   switch (event.t) {
     case 'loaded':
-      return state.k === 'loading' ? { k: 'shown', info: event.info } : state
+      return state.k === 'loading' ? { k: 'shown', info: event.info, tenants: event.tenants ?? [] } : state
     case 'failed':
       return state.k === 'loading' ? { k: 'error', message: failure(event.status) } : state
     case 'answer':
       // One answer per page: a second click while the first is in flight changes nothing.
-      return state.k === 'shown' ? { k: 'answering', info: state.info, answer: event.answer } : state
+      return state.k === 'shown' ? { k: 'answering', info: state.info, tenants: state.tenants, answer: event.answer } : state
+    case 'switch':
+      // Only to another tenant the user may enter, and never with an answer in flight.
+      return state.k === 'shown' && state.tenants.some((t) => t.id === event.to && !t.current)
+        ? { k: 'switching', info: state.info, tenants: state.tenants, to: event.to }
+        : state
+    case 'switch-failed':
+      return state.k === 'switching' ? { k: 'error', message: event.message } : state
   }
 }
 
@@ -141,6 +161,12 @@ export type ConsentView = {
   /** Who vouches for the name: the metadata document's host, or the client itself. */
   declaredBy: string | null
   loopbackOnly: boolean
+  /** The workspace the client will act in: the session's. Null until known. */
+  tenant: SessionTenant | null
+  /** The other workspaces the user may enter, to switch to before answering. */
+  others: SessionTenant[]
+  /** The slug being switched to, while the session moves. */
+  switchingTo: string | null
   canAnswer: boolean
   approveLabel: string
   denyLabel: string
@@ -148,13 +174,18 @@ export type ConsentView = {
 }
 
 export function consentView(state: ConsentState): ConsentView {
-  const info = state.k === 'shown' || state.k === 'answering' ? state.info : null
+  const loaded = state.k === 'shown' || state.k === 'switching' || state.k === 'answering' ? state : null
+  const info = loaded?.info ?? null
+  const tenants = loaded?.tenants ?? []
   const answering = state.k === 'answering' ? state.answer : null
   return {
     client: info?.clientName ?? null,
     destination: info?.redirectHost ?? null,
     declaredBy: info?.clientHost ?? null,
     loopbackOnly: info?.loopbackOnly ?? false,
+    tenant: tenants.find((t) => t.current) ?? null,
+    others: tenants.filter((t) => !t.current),
+    switchingTo: state.k === 'switching' ? (tenants.find((t) => t.id === state.to)?.slug ?? null) : null,
     canAnswer: state.k === 'shown',
     approveLabel: answering === 'granted' ? 'Approving…' : 'Approve',
     denyLabel: answering === 'denied' ? 'Denying…' : 'Deny',
@@ -162,8 +193,15 @@ export function consentView(state: ConsentState): ConsentView {
   }
 }
 
-/** The form an answer submits: the hidden fields, then the pressed button's own name and value. */
-export const consentForm = (search: string, answer: Answer): [string, string][] => [...hiddenFields(search), ['consent', answer]]
+/**
+ * The form an answer submits: the hidden fields, the tenant the page showed when it showed one, then the
+ * pressed button's own name and value.
+ */
+export const consentForm = (search: string, answer: Answer, tenant?: string): [string, string][] => [
+  ...hiddenFields(search),
+  ...(tenant === undefined ? [] : [[TENANT_FIELD, tenant] as [string, string]]),
+  ['consent', answer],
+]
 
 export type SignInState = { k: 'invalid' } | { k: 'checking'; target: string } | { k: 'form'; target: string } | { k: 'continuing'; target: string }
 

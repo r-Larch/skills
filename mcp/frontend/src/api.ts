@@ -1,5 +1,5 @@
 import { createSignal } from 'solid-js'
-import type { AppInfo } from './connect.ts'
+import type { AppInfo, SessionTenant } from './connect.ts'
 
 /** doc 10 — the frozen v1 shapes, as `WorkState.Api/App/V1/V1Contract.cs` serialises them. */
 export type ItemRef = {
@@ -368,6 +368,36 @@ export async function signIn(username: string, password: string): Promise<SignIn
 export async function hasSession(): Promise<boolean> {
   const response = await fetch('/api/session', { credentials: 'same-origin' })
   return response.status === 204
+}
+
+/** The workspaces the signed-in user may enter, the session's marked current; a status of 0 is no answer at all. */
+export async function sessionTenants(): Promise<{ status: number; tenants: SessionTenant[] | null }> {
+  try {
+    const response = await fetch('/api/session/tenants', { credentials: 'same-origin' })
+    return { status: response.status, tenants: response.ok ? ((await response.json()) as SessionTenant[]) : null }
+  } catch {
+    return { status: 0, tenants: null }
+  }
+}
+
+/**
+ * Moves the session to another workspace the user may enter. Null when it moved; otherwise the server's own
+ * words. A dashboard write, so it carries the write header (doc 10).
+ */
+export async function switchTenant(id: string): Promise<string | null> {
+  try {
+    const response = await fetch('/api/session/tenant', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json', 'X-WorkState-Write': '1' },
+      body: JSON.stringify({ id }),
+    })
+    if (response.status === 204) return null
+    const body = (await response.json().catch(() => null)) as { error?: string } | null
+    return body?.error ?? `WorkState could not switch the workspace (${response.status}). Reload the page to try again.`
+  } catch {
+    return 'WorkState did not answer. Check that it is running, then reload this page.'
+  }
 }
 
 /** The consent page's client; a status of 0 is no answer at all. */

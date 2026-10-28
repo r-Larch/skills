@@ -251,6 +251,26 @@ check('a stale consent field is never forwarded twice', hiddenFields('?client_id
 check('what it gets: openid is not a line', scopeLines(search).map((l) => l.scope), ['mcp', 'offline_access'])
 check('what it gets: mcp is controller access', scopeLines(search)[0].label, 'Full access to your WorkState as controller')
 
+console.log('\n── the consent page: the workspace it acts in, and the switch ───────────────')
+const tenants = [
+  { id: 't-a', slug: 'alpha', role: 'member', current: true },
+  { id: 't-b', slug: 'beta', role: 'admin', current: false },
+]
+const inA = consentStep(loading, { t: 'loaded', info, tenants })
+const where = (v) => ({ tenant: v.tenant?.slug ?? null, others: v.others.map((t) => t.slug), switching: v.switchingTo, canAnswer: v.canAnswer })
+check('the session\'s tenant is named, the other offered', where(consentView(inA)), { tenant: 'alpha', others: ['beta'], switching: null, canAnswer: true })
+check('one tenant: nothing to switch to', where(consentView(consentStep(loading, { t: 'loaded', info, tenants: [tenants[0]] }))), { tenant: 'alpha', others: [], switching: null, canAnswer: true })
+check('no tenants answered: none named', consentView(shown).tenant, null)
+const moving = consentStep(inA, { t: 'switch', to: 't-b' })
+check('switching: named, and no answer meanwhile', where(consentView(moving)), { tenant: 'alpha', others: ['beta'], switching: 'beta', canAnswer: false })
+check('switching: an answer meanwhile changes nothing', consentStep(moving, { t: 'answer', answer: 'granted' }), moving)
+check('a switch to the current tenant changes nothing', consentStep(inA, { t: 'switch', to: 't-a' }), inA)
+check('a switch to a tenant not offered changes nothing', consentStep(inA, { t: 'switch', to: 't-elsewhere' }), inA)
+check('a switch during an answer changes nothing', consentStep(consentStep(inA, { t: 'answer', answer: 'granted' }), { t: 'switch', to: 't-b' }).k, 'answering')
+check('a refused switch shows the server\'s words', consentView(consentStep(moving, { t: 'switch-failed', message: 'nope' })).error, 'nope')
+check('approve: the tenant shown goes with the answer', consentForm(search, 'granted', 't-a').slice(-2), [['workstate_tenant', 't-a'], ['consent', 'granted']])
+check('a stale tenant field is never forwarded twice', hiddenFields('?client_id=c1&workstate_tenant=t-a'), [['client_id', 'c1']])
+
 console.log('\n── the consent page: the client\'s icon, or its initials ────────────────────')
 check('the icon is asked of this origin, for this client', appIconHref('?client_id=https%3A%2F%2Fclaude.ai%2Foauth%2Fm&x=1'), '/connect/app-icon?client_id=https%3A%2F%2Fclaude.ai%2Foauth%2Fm')
 check('no client id, no icon request', appIconHref('?scope=mcp'), null)
