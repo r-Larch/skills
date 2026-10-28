@@ -198,8 +198,11 @@ both have a `2.3`. So **`ref` is unique within its nearest ref-scoping ancestor*
 - the handle an agent passes is `"2.3"` when the call carries a run context (from its token or an
   explicit `run` argument), or the qualified `"entity-store/2.3"` from anywhere.
 
-`UNIQUE (ref_scope_id, ref)` still makes plan-audit check #3 unviolatable — now per run, which is the
-scope in which duplicate task numbers actually cause harm.
+`UNIQUE NULLS NOT DISTINCT (workspace_id, ref_scope_id, ref)` still makes plan-audit check #3
+unviolatable — now per run, which is the scope in which duplicate task numbers actually cause harm.
+`workspace_id` is in the key so that the few rows with no ref scope (a feature with no parent, an
+assumption on no item) are unique per workspace rather than across every workspace on the server.
+The key compares `ref` case-sensitively; the server's free-ref probes compare `lower(ref)`.
 
 ### Kinds are data
 
@@ -297,7 +300,8 @@ CREATE TABLE item (
       setweight(to_tsvector('english', coalesce(title,'')), 'B') ||
       setweight(to_tsvector('english', coalesce(intent,'')),'C')) STORED,
 
-  CONSTRAINT item_ref_unique      UNIQUE (ref_scope_id, ref),          -- audit check #3, unviolatable
+  CONSTRAINT item_ref_unique      UNIQUE NULLS NOT DISTINCT
+                                  (workspace_id, ref_scope_id, ref),   -- audit check #3, unviolatable
                                                                        -- scoped per run, which is where
                                                                        -- a duplicate number does harm
   CONSTRAINT item_sibling_order   UNIQUE (parent_id, seq) DEFERRABLE,
@@ -576,9 +580,11 @@ CREATE TABLE assumption (
   resolution_note text,
   resolved_at    timestamptz,
   created_at     timestamptz NOT NULL DEFAULT now(),
-  UNIQUE (ref_scope_id, ref),   -- 'A1' exists once PER RUN, not once globally. With many
+  CONSTRAINT assumption_ref_unique UNIQUE NULLS NOT DISTINCT (workspace_id, ref_scope_id, ref),
+                                -- 'A1' exists once PER RUN, not once globally. With many
                                 -- orchestrators running at once, a global unique would make the
-                                -- second run unable to open its own A1.
+                                -- second run unable to open its own A1. A workspace-wide A1
+                                -- (ref_scope_id NULL) exists once per workspace.
   CONSTRAINT assumption_resolved CHECK ((state = 'open') = (resolved_at IS NULL))
 );
 CREATE INDEX assumption_open_idx ON assumption (workspace_id) WHERE state = 'open';
