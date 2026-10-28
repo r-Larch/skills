@@ -58,6 +58,15 @@ public class AgentSession
     /// <summary>The minted session that minted this one; null when a static token did.</summary>
     public Guid? MintedBySessionId { get; set; }
 
+    /// <summary>The OAuth user (the access token's subject) behind the latest mint; null when a token that names no user did.</summary>
+    public string? MintedBySubject { get; set; }
+
+    /// <summary>
+    /// The OpenIddict authorization behind that mint. While it is set, the token works only as long as the
+    /// authorization is valid; no foreign key, so pruning the authorization cannot null it into a static mint.
+    /// </summary>
+    public string? MintedByAuthorizationId { get; set; }
+
     /// <summary>The repository the session was launched in, normalised by <see cref="RepoKeys"/>.</summary>
     public string? RepoRemote { get; set; }
 

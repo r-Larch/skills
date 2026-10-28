@@ -1,9 +1,11 @@
 using System.Buffers.Text;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using Dapper;
 using Npgsql;
 using WorkState.Core.Domain;
+using WorkState.Core.Rendering;
 
 namespace WorkState.Core.Writing;
 
@@ -20,7 +22,9 @@ public sealed record MintRequest(
     string? ExternalRole = null,
     string? ClaudeSessionId = null,
     RepoArg? Repo = null,
-    IReadOnlyList<string>? Grants = null);
+    IReadOnlyList<string>? Grants = null,
+    string? MintedBySubject = null,
+    string? MintedByAuthorizationId = null);
 
 /// <summary>The only place the token exists in the clear; the caller returns it once and drops it.</summary>
 public sealed record MintedToken(Guid SessionId, string Name, ActorRole Role, string Token, DateTimeOffset ExpiresAt);
@@ -91,12 +95,22 @@ public sealed partial class SessionStore
             transaction,
             cancellationToken: cancellationToken));
 
-        if (!string.Equals(row.LaunchedBy, launchedBy, StringComparison.Ordinal))
+        // doc 11 — a launcher may adopt a launcher-less row only by proving it is the same Claude session.
+        var takeover = request.Replace
+            && launchedBy is not null
+            && row.LaunchedBy is null
+            && row.ClaudeSessionId is not null
+            && string.Equals(row.ClaudeSessionId, claudeId, StringComparison.Ordinal);
+
+        if (!takeover && !string.Equals(row.LaunchedBy, launchedBy, StringComparison.Ordinal))
         {
             return new MintResult(null,
                 $"the session name \"{name}\" is held by a session launched by {row.LaunchedBy ?? "no launcher"}, "
                 + $"and this mint says {launchedBy ?? "no launcher"}; two launchers' sessions cannot share a name, "
-                + "and replace does not override that");
+                + "and replace does not override that. A launcher takes over a name with no launcher only with "
+                + "replace: true and the claudeSessionId that row records. If that session is gone, a controller "
+                + $"frees the name with {ReleasePath(row.Id)} (or Release on the dashboard's Sessions page), "
+                + "and the next mint creates it fresh");
         }
 
         if (row.Live && !request.Replace)
@@ -116,7 +130,10 @@ public sealed partial class SessionStore
                    token_ttl_hours      = @ttl,
                    revoked_at           = NULL,
                    minted_by_session_id = @mintedBy,
+                   minted_by_subject    = @mintedBySubject,
+                   minted_by_authorization_id = @mintedByAuthorization,
                    role                 = @role::actor_role,
+                   launched_by          = @launchedBy,
                    claude_session_id    = coalesce(@claude, s.claude_session_id),
                    external_role        = CASE WHEN @external IS NULL OR @external = @role THEN s.external_role
                                                ELSE @external END,
@@ -138,7 +155,10 @@ public sealed partial class SessionStore
                 hash = SessionToken.Hash(token),
                 role = Pg.Label(request.Role),
                 ttl = request.TtlHours,
+                launchedBy,
                 mintedBy = request.MintedBy,
+                mintedBySubject = request.MintedBySubject,
+                mintedByAuthorization = request.MintedByAuthorizationId,
                 claude = claudeId,
                 external = SessionFacts.Clean(request.ExternalRole),
                 origin = SessionFacts.Clean(request.Origin),
@@ -153,6 +173,27 @@ public sealed partial class SessionStore
         await ClaudeIdChangedAsync(
             connection, transaction, workspaceId, row.Id, name, row.ClaudeSessionId, claudeId, request.Role, cancellationToken);
 
+        if (takeover)
+        {
+            await connection.ExecuteAsync(new CommandDefinition(
+                """
+                INSERT INTO event (workspace_id, item_id, actor, role, kind, payload, summary, session_id)
+                VALUES (@workspace, NULL, @actor, @role::actor_role, 'session_launcher_taken_over',
+                        @payload::jsonb, @summary, @session);
+                """,
+                new
+                {
+                    workspace = workspaceId,
+                    actor = Pg.Label(request.Role),
+                    role = Pg.Label(request.Role),
+                    payload = JsonSerializer.Serialize(new { from = (string?)null, to = launchedBy, claudeSessionId = claudeId }),
+                    summary = Glyph.Flat($"session {name} taken over by launcher {launchedBy}, same Claude session {claudeId}"),
+                    session = row.Id,
+                },
+                transaction,
+                cancellationToken: cancellationToken));
+        }
+
         await transaction.CommitAsync(cancellationToken);
 
         return new MintResult(new MintedToken(row.Id, name, request.Role, token, expiresAt), null);
@@ -162,28 +203,38 @@ public sealed partial class SessionStore
     /// A token that is unknown, revoked or expired finds nothing, and the three read alike. A live one
     /// slides its expiry to now plus its own window, written at most once a minute; a concurrent use
     /// waits on the row, re-reads it renewed, skips the write and still authenticates.
+    /// <para>
+    /// A token minted with an OAuth token lives only as long as that OAuth authorization is valid, read on
+    /// every use with no cache: revoked or pruned, the token reads as unknown from the next call on.
+    /// </para>
     /// </summary>
     public async Task<TokenSession?> AuthenticateAsync(string token, CancellationToken cancellationToken = default)
     {
         const string sql =
             """
-            UPDATE agent_session
-               SET token_expires_at = now() + make_interval(hours => coalesce(token_ttl_hours, @defaultTtl))
-             WHERE token_hash = @hash
-               AND revoked_at IS NULL
-               AND token_expires_at > now()
-               AND token_expires_at < now() + make_interval(hours => coalesce(token_ttl_hours, @defaultTtl))
-                                            - interval '1 minute';
+            UPDATE agent_session s
+               SET token_expires_at = now() + make_interval(hours => coalesce(s.token_ttl_hours, @defaultTtl))
+             WHERE s.token_hash = @hash
+               AND s.revoked_at IS NULL
+               AND s.token_expires_at > now()
+               AND s.token_expires_at < now() + make_interval(hours => coalesce(s.token_ttl_hours, @defaultTtl))
+                                              - interval '1 minute'
+               AND (s.minted_by_authorization_id IS NULL OR EXISTS (
+                       SELECT 1 FROM openiddict_authorization a
+                        WHERE a.id = s.minted_by_authorization_id AND a.status = 'valid'));
 
-            SELECT id                 AS "SessionId",
-                   name               AS "Name",
-                   granted_role::text AS "Role",
-                   workspace_id       AS "WorkspaceId",
-                   array_to_string(grants, ',') AS "Grants"
-            FROM   agent_session
-            WHERE  token_hash = @hash
-              AND  revoked_at IS NULL
-              AND  token_expires_at > now();
+            SELECT s.id                 AS "SessionId",
+                   s.name               AS "Name",
+                   s.granted_role::text AS "Role",
+                   s.workspace_id       AS "WorkspaceId",
+                   array_to_string(s.grants, ',') AS "Grants"
+            FROM   agent_session s
+            WHERE  s.token_hash = @hash
+              AND  s.revoked_at IS NULL
+              AND  s.token_expires_at > now()
+              AND  (s.minted_by_authorization_id IS NULL OR EXISTS (
+                       SELECT 1 FROM openiddict_authorization a
+                        WHERE a.id = s.minted_by_authorization_id AND a.status = 'valid'));
             """;
 
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);

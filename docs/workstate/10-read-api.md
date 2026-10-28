@@ -7,7 +7,7 @@ One JSON contract for two clients: the :5290 dashboard and Foreman (native gpui)
 MCP tools are the agents' only write path. The pre-v1 routes (`/api/projects`, `/api/watch`,
 `/api/runs/{ref}/tree|brief|journal`) were removed once the new dashboard stopped calling them (unit
 `mature/prev1-removal`). Outside v1, `/api` keeps `POST|DELETE /api/session` (sign-in),
-`/api/stream`, `/api/agent-sessions` (doc 14, bearer only) and the dashboard's one write:
+`/api/stream`, `/api/agent-sessions` (doc 14, bearer only) and the dashboard's two writes:
 
 ### `POST /api/projects/{id}/archive` · `POST /api/projects/{id}/unarchive` (outside v1)
 
@@ -21,6 +21,15 @@ because it needs no token endpoint and no state, and the cookie is `SameSite=Str
 Answers `200 { "id", "ref", "archivedAt": "…" | null, "changed": true }`; 404 for an unknown id;
 400 when the id is not a project. Journals `archived` / `unarchived` with the operator's name, role
 `human`.
+
+### `POST /api/sessions/{id}/release` (outside v1)
+
+The Sessions page's Release (doc 11 "Releasing a name"): frees the session's name so the next mint
+creates the session fresh. Cookie only and the same `X-WorkState-Write` guard as archiving; a
+bearer token is never evaluated here (a controller uses `POST /api/agent-sessions/{id}/release`,
+doc 14 §2). Answers `200 { "sessionId", "name", "releasedAs" }`; 404 for an unknown id; 409 with the
+refs when the session holds live claims, and 409 for a row already released. Journals
+`session_name_released` with the operator's name, role `human`.
 
 ## Rules
 
@@ -45,8 +54,28 @@ Answers `200 { "id", "ref", "archivedAt": "…" | null, "changed": true }`; 404 
    without `/api/v2`. Clients ignore unknown fields. Every response carries the header
    `X-WorkState-Api: 1`.
 5. **Auth — any of:** the dashboard cookie; `Authorization: Bearer <token>` with any agent token
-   (controller/orchestrator/worker); or a **reader** token — a new token kind that can call nothing but
-   `GET /api/v1/*` and `/api/stream` (no MCP tools at all). Foreman authenticates with a reader token.
+   (controller/orchestrator/worker); a **reader** token — a token kind that can call nothing but
+   `GET /api/v1/*` and `/api/stream` (no MCP tools at all); or an **OAuth access token for the
+   resource `<origin>/api`** with scope `workstate.read`. Foreman signs in with OAuth only (below).
+
+   **OAuth on `/api`** (foreman-oauth). `/api` is a second protected resource beside `/mcp`
+   (RFC 8707), with its own audience: a token for `<origin>/mcp` is `401` here, and a token for
+   `<origin>/api` is `401` on `/mcp`. Authorize refuses a request naming both resources
+   (`invalid_target`); ask for one. Its metadata is
+   `GET /.well-known/oauth-protected-resource/api` → `{resource: "<origin>/api",
+   authorization_servers: ["<origin>"], scopes_supported: ["workstate.read", "workstate.sessions",
+   "offline_access"]}`, and an unauthenticated request to `/api/v1/*`, `/api/stream` or
+   `/api/agent-sessions` is the usual `401` with an empty body plus
+   `WWW-Authenticate: Bearer resource_metadata="<origin>/.well-known/oauth-protected-resource/api"`
+   (a wrong static or `wss_` token still gets the bare `401`). Scopes: `workstate.read` for
+   `GET /api/v1/*` and `/api/stream`, `workstate.sessions` for the agent-session group (doc 14 §2);
+   a valid `/api` token without the route's scope is `403`. The scopes bind the OAuth principal only:
+   the cookie, static tokens and `wss_` tokens need no scope. The user behind the token is the
+   dashboard operator, mapped to the controller role as on `/mcp`. Registration is a client-ID
+   metadata document (an https `client_id`; Foreman's) or DCR (`POST /connect/register`, for
+   development), public clients with PKCE S256, loopback callbacks on any port (RFC 8252); the
+   refresh token lives 30 days. Revoking the **refresh** token at `/connect/revoke` revokes the whole
+   authorization (sign-out); revoking an access token revokes only that token.
 6. **Enums are lower_snake strings.** `status` is exactly `ItemStatus`:
    `open|ready|in_progress|blocked|review|done|cancelled|superseded`. There is no `deferred`: a deferral
    is `done` with resolution `obsolete` plus a `derived_from` follow-up elsewhere.
@@ -189,8 +218,11 @@ Open follow-ups in the project-level backlog run, grouped by origin (`derived_fr
 Sessions (doc 11), most recently seen first. `active=true` limits to the last 30 minutes; `name` and
 `claudeSessionId` filter to exact matches (Foreman's fleet rows join on them).
 ```jsonc
-{ "asOf": "…", "seq": 1234, "sessions": [{ "session": Session, "claims": [Claim] }] }
+{ "asOf": "…", "seq": 1234, "sessions": [{ "session": Session, "claims": [Claim], "token": "none" | "live" | "revoked" | "expired" }] }
 ```
+`token` (added for the Sessions page, additive) is the row's minted token: `none` for a session only
+ever named by header, else whether it is live, revoked or expired. A released row (doc 11) is listed
+under its tombstone name with `revoked`.
 
 ### `GET /api/v1/resolve?ref=backlog`
 `{ "asOf": "…", "seq": 1234, "matches": [ItemRef] }` — zero, one or many; the client decides.

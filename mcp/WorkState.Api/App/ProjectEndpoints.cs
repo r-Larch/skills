@@ -26,12 +26,7 @@ public static class ProjectEndpoints
 
     public static void MapProjectArchive(this RouteGroupBuilder api)
     {
-        var projects = api.MapGroup("/projects")
-            .RequireAuthorization(DashboardAuth.Policy)
-            .AddEndpointFilter(async (context, next) =>
-                string.IsNullOrWhiteSpace(context.HttpContext.Request.Headers[WriteHeader])
-                    ? Error(StatusCodes.Status403Forbidden, $"a dashboard write needs the {WriteHeader} header")
-                    : await next(context));
+        var projects = api.MapGroup("/projects").DashboardWrite();
 
         projects.MapPost("/{id:guid}/archive", (Guid id, HttpContext context, [FromServices] WorkWriter writer,
                 [FromServices] BoardQueries board, [FromServices] WorkspaceOptions workspace, CancellationToken cancellationToken)
@@ -40,6 +35,18 @@ public static class ProjectEndpoints
         projects.MapPost("/{id:guid}/unarchive", (Guid id, HttpContext context, [FromServices] WorkWriter writer,
                 [FromServices] BoardQueries board, [FromServices] WorkspaceOptions workspace, CancellationToken cancellationToken)
             => SetAsync(id, false, context, writer, board, workspace, cancellationToken));
+    }
+
+    /// <summary>Cookie only, and only with <see cref="WriteHeader"/>: what every dashboard write requires.</summary>
+    public static RouteGroupBuilder DashboardWrite(this RouteGroupBuilder group)
+    {
+        group.RequireAuthorization(DashboardAuth.Policy)
+            .AddEndpointFilter(async (context, next) =>
+                string.IsNullOrWhiteSpace(context.HttpContext.Request.Headers[WriteHeader])
+                    ? Error(StatusCodes.Status403Forbidden, $"a dashboard write needs the {WriteHeader} header")
+                    : await next(context));
+
+        return group;
     }
 
     private static async Task<IResult> SetAsync(

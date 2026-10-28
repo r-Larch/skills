@@ -234,7 +234,8 @@ public sealed record BacklogGroupView(ItemRefView? Origin, IReadOnlyList<ItemRef
 
 public sealed record BacklogView(DateTimeOffset AsOf, long Seq, ItemRefView? Run, IReadOnlyList<BacklogGroupView> Groups);
 
-public sealed record SessionHoldingView(SessionView Session, IReadOnlyList<ClaimView> Claims);
+/// <summary><c>token</c> (additive): <c>none</c>, <c>live</c>, <c>revoked</c> or <c>expired</c>.</summary>
+public sealed record SessionHoldingView(SessionView Session, IReadOnlyList<ClaimView> Claims, string Token = "none");
 
 public sealed record SessionsView(DateTimeOffset AsOf, long Seq, IReadOnlyList<SessionHoldingView> Sessions);
 

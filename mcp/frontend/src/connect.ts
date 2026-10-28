@@ -105,6 +105,14 @@ const SCOPES: Record<string, Omit<ScopeLine, 'scope'> | null> = {
     label: 'Full access to your WorkState as controller',
     detail: 'Everything a controller token can do: every project, run and task, to read and to write.',
   },
+  'workstate.read': {
+    label: 'Read your board and its live updates',
+    detail: 'Every project, run and task as the dashboard shows them, and the live stream of changes. Nothing is written.',
+  },
+  'workstate.sessions': {
+    label: 'Start agent sessions on your behalf',
+    detail: 'Create, rename and end agent session tokens, up to controller. Signing this app out ends the sessions it started.',
+  },
   offline_access: {
     label: 'Stay connected',
     detail: 'Keep access without asking again until you revoke it or it goes unused for 30 days.',

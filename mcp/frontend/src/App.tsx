@@ -12,6 +12,7 @@ import Item from './views/Item.tsx'
 import Overview from './views/Overview.tsx'
 import Project from './views/Project.tsx'
 import Run from './views/Run.tsx'
+import Sessions from './views/Sessions.tsx'
 
 const NotFound = () => (
   <div class="page">
@@ -36,6 +37,7 @@ export default function App() {
         <Route path="/" component={Overview} />
         <Route path="/inbox" component={Inbox} />
         <Route path="/activity" component={Activity} />
+        <Route path="/sessions" component={Sessions} />
         <Route path="/runs/:run/:item?" component={Run} />
         <Route path="/items/:item" component={Item} />
         <Route path="/projects/:project" component={Project} />

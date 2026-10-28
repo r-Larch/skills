@@ -29,6 +29,15 @@ export const ActivityIcon = () => (
   </svg>
 )
 
+export const SessionsIcon = () => (
+  <svg viewBox="0 0 24 24" {...stroke} aria-hidden="true">
+    <circle cx="9" cy="8" r="3.5" />
+    <path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6" />
+    <path d="M16 4.5a3.5 3.5 0 0 1 0 7" />
+    <path d="M18 14.5c1.8.8 3 2.9 3 5.5" />
+  </svg>
+)
+
 export const CopyIcon = () => (
   <svg viewBox="0 0 24 24" {...stroke} aria-hidden="true">
     <rect x="8" y="8" width="12" height="12" rx="2" />

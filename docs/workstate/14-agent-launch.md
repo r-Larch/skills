@@ -36,9 +36,10 @@ All new; additive; **not** under `/api/v1` (v1 is read-only by rule).
 
 | Call | Who | Does |
 |---|---|---|
-| `POST /api/agent-sessions` `{name, role, launchedBy?, origin?, cwd?, externalRole?, claudeSessionId?, ttlHours?, replace?, repo?:{remote?, root?}, grants?:["import"]}` | a bearer with **orchestrator or controller** role (static or minted) | creates/updates the `agent_session` row for `name`, issues a token `wss_<base64url 32 bytes>`, stores only its SHA-256, returns `201 {sessionId, name, role, token, expiresAt}` **once** |
+| `POST /api/agent-sessions` `{name, role, launchedBy?, origin?, cwd?, externalRole?, claudeSessionId?, ttlHours?, replace?, repo?:{remote?, root?}, grants?:["import"]}` | a bearer with **orchestrator or controller** role (static or minted), or an OAuth access token for `<origin>/api` with scope `workstate.sessions` (controller) | creates/updates the `agent_session` row for `name`, issues a token `wss_<base64url 32 bytes>`, stores only its SHA-256, returns `201 {sessionId, name, role, token, expiresAt}` **once** |
 | `PATCH /api/agent-sessions/{id}` `{claudeSessionId}` | the same principal, or a controller | sets the Claude session uuid (history kept as an event, doc 11) |
 | `DELETE /api/agent-sessions/{id}` | the same principal, or a controller | revokes: `revoked_at = now()`, live claims of that session released (`release_reason = 'revoked'`) |
+| `POST /api/agent-sessions/{id}/release` | a **controller** only | frees the name (doc 11 "Releasing a name"): the row is renamed `<name>~released~<id>`, its token revoked, `session_name_released` journaled; `200 {sessionId, name, releasedAs}`, `409` while it holds live claims |
 
 Rules:
 - **A role is never raised:** requested role ≤ the caller's role. Worker < orchestrator < controller.
@@ -48,7 +49,10 @@ Rules:
   it does not release claims. A revoked or expired name mints again without `replace`, on the same row.
 - **Launcher collision (doc 11):** a name held by a row with a different `launchedBy` is `409`, and
   `replace` does not override it. A mint for a header-named row with the same launcher attaches the
-  token to that row.
+  token to that row. **Takeover:** with `replace: true`, a mint whose `launchedBy` is set takes a row
+  whose `launched_by` is NULL only when the row's `claude_session_id` is set and equals the mint's
+  `claudeSessionId`; the row then records the launcher (journal `session_launcher_taken_over`). Any
+  other mismatch stays `409`, and its message names the release path above.
 - `externalRole` fills `external_role` exactly as `X-WorkState-Foreman-Role` does.
 - **Grants:** `grants` is a set of capabilities stored on the row (`agent_session.grants`, checked
   against the known names; migration `ImportGrant`). Only a minter that may mint at all (orchestrator
@@ -80,10 +84,25 @@ Rules:
   (with the nesting the static tokens have) **and the session** — `CallerSession` takes the session
   from the principal and ignores an `X-WorkState-Agent` header on that request. The name is then
   bound to the credential, not asserted by a header (doc 12 §7.1, SEP-2567's "authenticated principal").
+- **Minting with OAuth** (foreman-oauth): the whole group — mint, PATCH, DELETE — also takes an
+  OAuth access token whose audience is `<origin>/api` and whose scopes include `workstate.sessions`
+  (doc 10 rule 5); without the scope it is `403`, and a `/mcp` token is `401`. The request, the
+  response, the role rules and the grants are exactly those above. The OAuth user is the dashboard
+  operator as controller, so the role cap is controller, and the caller carries no session, so its
+  mints belong to it as a static controller's do. The row records the token's subject
+  (`minted_by_subject`) and its OpenIddict authorization (`minted_by_authorization_id`); a static or
+  `wss_` mint sets both to null, and each mint sets them anew. **A `wss_` token minted under an
+  authorization works only while that authorization is valid**, checked in the hash lookup on every
+  use with no cache: revoking the authorization — revoking its refresh token at `/connect/revoke`,
+  which is a client's sign-out (RFC 7009 §2.1) — or pruning it ends the session's token at its next
+  call (`401`, like an unknown token). Revoking an access token alone does not. Tokens minted with a
+  static or `wss_` token have no authorization and are unaffected.
 - Schema: `agent_session` gains `token_hash` (unique, nullable), `granted_role`, `token_expires_at`,
   `revoked_at`, `minted_by_session_id` (nullable). One additive migration with a working Down.
   A second, `TokenSlidingExpiry`, adds `token_ttl_hours` (nullable int, the idle window); its Down
   drops only that column, leaving tokens valid and sliding by the default.
+  A third, `OAuthMintedSession`, adds `minted_by_subject` and `minted_by_authorization_id` (nullable
+  text, no foreign key, so a pruned authorization cannot null the column into a static mint).
 
 ## 3. The `agents` stdio server (plugin)
 
@@ -133,8 +152,8 @@ fix. No result ever contains a token.
 
 - The `.ps1`/`.sh` launchers stay as the fallback (no plugin server, no Node) and as the reference for
   the argv order. The skill says the tool is the primary path.
-- Header-named sessions (doc 11) keep working for registrations that cannot mint (Foreman today,
-  human sessions with `--header X-WorkState-Agent`).
+- Header-named sessions (doc 11) keep working for registrations that cannot mint (human sessions
+  with `--header X-WorkState-Agent`). Foreman mints with its OAuth token (§2, "Minting with OAuth").
 - `workstate-setup` still registers the user-level server with a static token. Making setup itself
   token-free is doc 12 §7.4, not in this unit.
 

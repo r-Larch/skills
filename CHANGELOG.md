@@ -6,6 +6,14 @@ What changes for someone who has the `rlarch` plugin installed, newest first. Fo
 
 ## [Unreleased]
 
+### Changed
+
+- WorkState server **0.9.0** (no plugin change): OAuth on the read API, the stream and the
+  agent-session mint for apps like Foreman (scopes `workstate.read`, `workstate.sessions`), signing
+  an app out ends the sessions it minted, a launcher can take over a session name with the same
+  Claude session id, and the dashboard's new Sessions page releases a stuck name. Rebuild or
+  `--update` to get it; one additive migration (`OAuthMintedSession`). Back up first.
+
 ## [2.7.0] - 2026-10-28
 
 ### Added

@@ -359,9 +359,17 @@ namespace WorkState.Core.Migrations
                         .HasColumnType("text")
                         .HasColumnName("launched_by");
 
+                    b.Property<string>("MintedByAuthorizationId")
+                        .HasColumnType("text")
+                        .HasColumnName("minted_by_authorization_id");
+
                     b.Property<Guid?>("MintedBySessionId")
                         .HasColumnType("uuid")
                         .HasColumnName("minted_by_session_id");
+
+                    b.Property<string>("MintedBySubject")
+                        .HasColumnType("text")
+                        .HasColumnName("minted_by_subject");
 
                     b.Property<string>("Name")
                         .IsRequired()

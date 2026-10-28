@@ -9,6 +9,7 @@ import { CLOSED, LEAF, countTitle, counted, independent, progress, state, tally 
 import { DEFAULT_FILTER, FILTERS, asFilter, cancelledLines, plan, planQuery, withoutCancelled } from '../src/plan.ts'
 import { boardHref, copyValue, itemHref, pathCrumbs, routeReads } from '../src/nav.ts'
 import { appIconHref, consentForm, consentStep, consentView, hiddenFields, iconStep, initials, isConnectPath, returnTarget, scopeLines, signInHref, signInStart, signInStep } from '../src/connect.ts'
+import { formerName, isReleased, releasable, tokenLabel } from '../src/sessions.ts'
 import { HANDLE, LIST_MIN, PANEL_MIN, PANEL_SHARE, WIDTH_KEY, clampWidth, docks, panelWidth, rememberWidth, rememberedWidth } from '../src/split.ts'
 
 let failures = 0
@@ -180,6 +181,7 @@ check('reads for /', routeReads('/'), ['/api/v1/overview'])
 check('reads for /runs/R/T', routeReads('/runs/R/T?tab=evidence'), ['/api/v1/runs/R/board', '/api/v1/items/T'])
 check('reads for /items/P', routeReads('/items/P'), ['/api/v1/items/P'])
 check('reads for a backlog', routeReads('/projects/P/backlog'), ['/api/v1/backlog?project=P'])
+check('reads for /sessions', routeReads('/sessions'), ['/api/v1/sessions'])
 check('an unknown path has no page', routeReads('/runs'), [])
 
 console.log('\n── the run split: docked or a sheet, by the measured width ─────────────────')
@@ -260,6 +262,11 @@ check('initials: three words take the first two', initials('  my mcp   client ')
 check('initials: never empty', initials('   '), '?')
 check('initials: a surrogate pair stays whole', initials('🦀 rust'), '🦀R')
 check('an unknown scope is shown by name', scopeLines('?scope=mystery').map((l) => [l.scope, l.label]), [['mystery', 'mystery']])
+check('the /api scopes in plain words', scopeLines('?scope=workstate.read%20workstate.sessions%20offline_access').map((l) => [l.scope, l.label]), [
+  ['workstate.read', 'Read your board and its live updates'],
+  ['workstate.sessions', 'Start agent sessions on your behalf'],
+  ['offline_access', 'Stay connected'],
+])
 check('a lapsed session goes back through sign-in', signInHref('?client_id=c1&state=s'), '/connect/signin?returnUrl=%2Fconnect%2Fauthorize%3Fclient_id%3Dc1%26state%3Ds')
 
 console.log('\n── the sign-in page: where it may continue to ───────────────────────────────')
@@ -279,6 +286,15 @@ const form = signInStep(checking, { t: 'session', present: false })
 check('no session shows the form', form.k, 'form')
 check('signing in continues', signInStep(form, { t: 'signed-in' }), { k: 'continuing', target: '/connect/authorize?client_id=x' })
 check('the connect pages', ['/connect/signin', '/connect/consent', '/connect/authorize', '/'].map(isConnectPath), [true, true, false, false])
+
+console.log('\n── sessions: who offers Release, and what the token says ────────────────────')
+const tomb = 'mw-workflow~released~0192f1c2a3b44c5d8e9f00112233aabb'
+check('a live name is not released', isReleased('mw-workflow'), false)
+check('a tombstone is released', isReleased(tomb), true)
+check('a tombstone shows the name it had', formerName(tomb), 'mw-workflow')
+check('a live name offers Release', releasable({ session: { name: 'mw-workflow' } }), true)
+check('a released row offers nothing', releasable({ session: { name: tomb } }), false)
+check('every token state reads', ['none', 'live', 'revoked', 'expired'].map(tokenLabel), ['named by header, no token', 'token live', 'token revoked', 'token expired'])
 
 console.log(failures === 0 ? '\nAll checks passed.' : `\n${failures} check(s) failed.`)
 if (failures > 0) process.exitCode = 1

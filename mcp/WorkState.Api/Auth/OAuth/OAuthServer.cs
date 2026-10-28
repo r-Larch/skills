@@ -15,14 +15,18 @@ using static OpenIddict.Abstractions.OpenIddictConstants;
 namespace WorkState.Api.Auth.OAuth;
 
 /// <summary>
-/// The OAuth 2.1 authorization server <c>/mcp</c> trusts beside the static and minted tokens: OpenIddict
+/// The OAuth 2.1 authorization server <c>/mcp</c> and <c>/api</c> trust beside the static and minted tokens: OpenIddict
 /// in passthrough mode over the EF stores in <see cref="WorkStateDbContext"/>, authorization code with
 /// PKCE S256 and refresh only.
 /// <para>
 /// Two values are per request rather than per process, because a local install has no public URL and
 /// is reached on whatever loopback origin the client used: the issuer (OpenIddict infers it when none
-/// is set) and the resource, <c>&lt;origin&gt;/mcp</c>. Both come from <see cref="WebBase"/>, so the
-/// authorize request, the token's audience and the check on <c>/mcp</c> name the same origin.
+/// is set) and the resources, <c>&lt;origin&gt;/mcp</c> and <c>&lt;origin&gt;/api</c>. Both come from
+/// <see cref="WebBase"/>, so the authorize request, the token's audience and the check on each surface
+/// name the same origin.
+/// </para>
+/// <para>
+/// The two resources are two audiences (RFC 8707): a token is for one surface, and the other refuses it.
 /// </para>
 /// </summary>
 public static class OAuthServer
@@ -35,6 +39,16 @@ public static class OAuthServer
     public const string McpScope = "mcp";
     public const string McpPath = "/mcp";
 
+    /// <summary>GET <c>/api/v1/*</c> and <c>/api/stream</c>.</summary>
+    public const string ReadScope = "workstate.read";
+
+    /// <summary>The <c>/api/agent-sessions</c> group: mint, rename and revoke.</summary>
+    public const string SessionsScope = "workstate.sessions";
+
+    public const string ApiPath = "/api";
+
+    public const string ResourceMetadataPath = "/.well-known/oauth-protected-resource";
+
     public const string ClientIdMetadataSupported = "client_id_metadata_document_supported";
 
     /// <summary>
@@ -44,6 +58,12 @@ public static class OAuthServer
     public static readonly TimeSpan RefreshTokenLifetime = TimeSpan.FromDays(30);
 
     public static string Resource(string origin) => origin + McpPath;
+
+    public static string ApiResource(string origin) => origin + ApiPath;
+
+    /// <summary>The resource a bearer on this request must be for: <c>/api</c> under <c>/api</c>, <c>/mcp</c> elsewhere.</summary>
+    public static string ResourceFor(HttpContext context)
+        => context.Request.Path.StartsWithSegments(ApiPath) ? ApiResource(Origin(context)) : Resource(Origin(context));
 
     public static void Add(IServiceCollection services, string connectionString, string? publicUrl)
     {
@@ -72,7 +92,7 @@ public static class OAuthServer
                 // take it. With plain gone, a request naming it or naming no method is refused.
                 server.Configure(options => options.CodeChallengeMethods.Remove(CodeChallengeMethods.Plain));
 
-                server.RegisterScopes(Scopes.OpenId, Scopes.Profile, Scopes.OfflineAccess, McpScope);
+                server.RegisterScopes(Scopes.OpenId, Scopes.Profile, Scopes.OfflineAccess, McpScope, ReadScope, SessionsScope);
 
                 // RegisterResources takes a fixed list and the resource here follows the request's origin;
                 // RequireKnownResource below is the same check against that origin.
@@ -89,6 +109,7 @@ public static class OAuthServer
                 server.AddEventHandler(RequireKnownResourceOnAuthorize);
                 server.AddEventHandler(RequireKnownResourceOnToken);
                 server.AddEventHandler(AdvertiseRegistration);
+                server.AddEventHandler(RevokeAuthorizationWithRefreshToken);
             })
             .AddValidation(validation =>
             {
@@ -102,7 +123,7 @@ public static class OAuthServer
                 validation.EnableTokenEntryValidation();
                 validation.EnableAuthorizationEntryValidation();
 
-                validation.AddEventHandler(RequireMcpAudience);
+                validation.AddEventHandler(RequireSurfaceAudience);
             });
 
         // Here rather than through AddSigningKey, which wants the key at registration time; the ring
@@ -119,14 +140,17 @@ public static class OAuthServer
         {
             // Its default forwards authentication to "Bearer". This scheme only challenges; it admits no one.
             options.ForwardAuthenticate = null;
+            // The handler answers every path under the well-known prefix; /api is the one that is not /mcp's.
             options.Events.OnResourceMetadataRequest = context =>
             {
                 var origin = Origin(context.HttpContext);
+                var api = context.HttpContext.Request.Path.StartsWithSegments(ResourceMetadataPath + ApiPath, out var rest)
+                          && !rest.HasValue;
                 context.ResourceMetadata = new ProtectedResourceMetadata
                 {
-                    Resource = Resource(origin),
+                    Resource = api ? ApiResource(origin) : Resource(origin),
                     AuthorizationServers = [origin],
-                    ScopesSupported = [McpScope, Scopes.OfflineAccess],
+                    ScopesSupported = api ? [ReadScope, SessionsScope, Scopes.OfflineAccess] : [McpScope, Scopes.OfflineAccess],
                     BearerMethodsSupported = ["header"],
                 };
                 return Task.CompletedTask;
@@ -179,6 +203,10 @@ public static class OAuthServer
                 {
                     context.Reject(Errors.InvalidTarget, $"The resource '{unknown}' is not served here.");
                 }
+                else if (BothSurfaces(context.Transaction, context.Request))
+                {
+                    context.Reject(Errors.InvalidTarget, "A token is for /mcp or for /api, not both; ask for one of them.");
+                }
 
                 return default;
             })
@@ -226,34 +254,76 @@ public static class OAuthServer
             .Build();
 
     /// <summary>
-    /// The audience check, as <c>AddAudiences</c> would make it if the audience were fixed: OpenIddict's own
-    /// <c>ValidateAudiences</c> runs right after and refuses a token that names none of these.
+    /// RFC 7009 §2.1: revoking a refresh token may invalidate the grant, and here it does — the authorization,
+    /// every token under it, and every <c>wss_</c> session minted with one of them (see
+    /// <c>SessionStore.AuthenticateAsync</c>). That is a client's sign-out. Revoking an access token does not.
     /// </summary>
-    private static readonly OpenIddictValidationHandlerDescriptor RequireMcpAudience =
+    private static readonly OpenIddictServerHandlerDescriptor RevokeAuthorizationWithRefreshToken =
+        OpenIddictServerHandlerDescriptor.CreateBuilder<OpenIddictServerEvents.HandleRevocationRequestContext>()
+            .UseInlineHandler(async context =>
+            {
+                if (context.IsRejected
+                    || !context.GenericTokenPrincipal.HasTokenType(TokenTypeIdentifiers.RefreshToken)
+                    || context.GenericTokenPrincipal.GetAuthorizationId() is not { Length: > 0 } id)
+                {
+                    return;
+                }
+
+                var services = (context.Transaction.GetHttpRequest()
+                                ?? throw new InvalidOperationException("No HTTP request on the OpenIddict transaction."))
+                    .HttpContext.RequestServices;
+
+                var authorizations = services.GetRequiredService<IOpenIddictAuthorizationManager>();
+                if (await authorizations.FindByIdAsync(id, context.CancellationToken) is { } authorization)
+                {
+                    await authorizations.TryRevokeAsync(authorization, context.CancellationToken);
+                    await services.GetRequiredService<IOpenIddictTokenManager>()
+                        .RevokeByAuthorizationIdAsync(id, context.CancellationToken);
+                }
+            })
+            .SetOrder(OpenIddictServerHandlers.Revocation.RevokeToken.Descriptor.Order + 1000)
+            .SetType(OpenIddictServerHandlerType.Custom)
+            .Build();
+
+    /// <summary>
+    /// The audience check, as <c>AddAudiences</c> would make it if the audience were fixed: OpenIddict's own
+    /// <c>ValidateAudiences</c> runs right after and refuses a token that names none of these. One audience
+    /// per surface, so a token for <c>/mcp</c> is refused on <c>/api</c> and the other way round.
+    /// </summary>
+    private static readonly OpenIddictValidationHandlerDescriptor RequireSurfaceAudience =
         OpenIddictValidationHandlerDescriptor.CreateBuilder<OpenIddictValidationEvents.ValidateTokenContext>()
             .UseInlineHandler(context =>
             {
                 var request = context.Transaction.GetHttpRequest()
                               ?? throw new InvalidOperationException("No HTTP request on the OpenIddict transaction.");
 
-                context.ValidAudiences.Add(Resource(Origin(request.HttpContext)));
+                context.ValidAudiences.Add(ResourceFor(request.HttpContext));
                 return default;
             })
             .SetOrder(OpenIddictValidationHandlers.Protection.ValidateAudiences.Descriptor.Order - 500)
             .SetType(OpenIddictValidationHandlerType.Custom)
             .Build();
 
-    /// <summary>The first requested resource that is neither this origin's <c>/mcp</c> nor registered.</summary>
+    /// <summary>The first requested resource that is neither one of this origin's surfaces nor registered.</summary>
     private static string? UnknownResource(OpenIddictServerTransaction transaction, OpenIddictRequest request)
+    {
+        var known = transaction.Options.Resources.Select(resource => resource.AbsoluteUri)
+            .Concat(Surfaces(transaction))
+            .ToHashSet(StringComparer.Ordinal);
+
+        return request.GetResources().FirstOrDefault(resource => !known.Contains(resource));
+    }
+
+    private static bool BothSurfaces(OpenIddictServerTransaction transaction, OpenIddictRequest request)
+        => Surfaces(transaction).All(request.GetResources().Contains);
+
+    private static string[] Surfaces(OpenIddictServerTransaction transaction)
     {
         var http = transaction.GetHttpRequest()
                    ?? throw new InvalidOperationException("No HTTP request on the OpenIddict transaction.");
 
-        var known = transaction.Options.Resources.Select(resource => resource.AbsoluteUri)
-            .Append(Resource(Origin(http.HttpContext)))
-            .ToHashSet(StringComparer.Ordinal);
-
-        return request.GetResources().FirstOrDefault(resource => !known.Contains(resource));
+        var origin = Origin(http.HttpContext);
+        return [Resource(origin), ApiResource(origin)];
     }
 
     private static bool IsLoopbackHttp(string origin)
