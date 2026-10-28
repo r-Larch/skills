@@ -1,5 +1,6 @@
 using Dapper;
 using Npgsql;
+using WorkState.Core.Data;
 using WorkState.Core.Domain;
 
 namespace WorkState.Api.Auth;
@@ -50,6 +51,8 @@ public enum MemberChange
 /// </summary>
 public sealed class AdminStore(NpgsqlDataSource dataSource)
 {
+    private readonly WorkStateConnections _connections = new(dataSource);
+
     private sealed record RightsRow(string Name, bool IsSystemAdmin);
 
     private sealed record MembershipRow(Guid UserId, Guid Id, string Slug, string Role);
@@ -59,7 +62,7 @@ public sealed class AdminStore(NpgsqlDataSource dataSource)
     /// <summary>The rights of <paramref name="user"/> as the table has them now; null once they are gone or disabled.</summary>
     public async Task<AdminRights?> RightsAsync(Guid user, CancellationToken cancellationToken)
     {
-        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        await using var connection = await _connections.OwnerBypassAsync(Bypass.Administration, cancellationToken);
         var found = await connection.QuerySingleOrDefaultAsync<RightsRow>(new CommandDefinition(
             """
             SELECT name AS "Name", is_system_admin AS "IsSystemAdmin"
@@ -85,7 +88,7 @@ public sealed class AdminStore(NpgsqlDataSource dataSource)
     /// <summary>Every workspace for a system administrator, otherwise the ones they are an admin of; oldest first.</summary>
     public async Task<IReadOnlyList<AdminTenant>> TenantsAsync(AdminRights rights, CancellationToken cancellationToken)
     {
-        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        await using var connection = await _connections.OwnerBypassAsync(Bypass.Administration, cancellationToken);
         return (await connection.QueryAsync<AdminTenant>(new CommandDefinition(
             """
             SELECT w.id AS "Id", w.slug AS "Slug", w.created_at AS "CreatedAt",
@@ -110,7 +113,7 @@ public sealed class AdminStore(NpgsqlDataSource dataSource)
     /// <summary>The workspace's slug; null when there is no such workspace.</summary>
     public async Task<string?> SlugAsync(Guid tenant, CancellationToken cancellationToken)
     {
-        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        await using var connection = await _connections.OwnerBypassAsync(Bypass.Administration, cancellationToken);
         return await connection.QuerySingleOrDefaultAsync<string>(new CommandDefinition(
             "SELECT slug FROM workspace WHERE id = @tenant;",
             new { tenant },
@@ -120,7 +123,7 @@ public sealed class AdminStore(NpgsqlDataSource dataSource)
     /// <summary>The new workspace, or null when the slug is taken. The slug is already judged (<see cref="AccountRules"/>).</summary>
     public async Task<AdminTenant?> CreateTenantAsync(string slug, CancellationToken cancellationToken)
     {
-        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        await using var connection = await _connections.OwnerBypassAsync(Bypass.Administration, cancellationToken);
         return await connection.QuerySingleOrDefaultAsync<AdminTenant>(new CommandDefinition(
             """
             INSERT INTO workspace (id, slug) VALUES (@id, @slug)
@@ -135,7 +138,7 @@ public sealed class AdminStore(NpgsqlDataSource dataSource)
     /// <summary>The workspace's members, admins first, then by name.</summary>
     public async Task<IReadOnlyList<AdminMember>> MembersAsync(Guid tenant, CancellationToken cancellationToken)
     {
-        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        await using var connection = await _connections.OwnerBypassAsync(Bypass.Administration, cancellationToken);
         return (await connection.QueryAsync<AdminMember>(new CommandDefinition(
             """
             SELECT u.id AS "UserId", u.name AS "Name", m.role AS "Role", u.is_system_admin AS "IsSystemAdmin",
@@ -164,8 +167,8 @@ public sealed class AdminStore(NpgsqlDataSource dataSource)
     /// </summary>
     private async Task<MemberChange> ChangeAsync(Guid tenant, Guid user, string? role, CancellationToken cancellationToken)
     {
-        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
-        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+        await using var bypass = await _connections.OwnerBypassTransactionAsync(Bypass.Administration, cancellationToken);
+        var (connection, transaction) = bypass;
 
         await connection.ExecuteAsync(new CommandDefinition(
             "SELECT 1 FROM workspace WHERE id = @tenant FOR NO KEY UPDATE;",
@@ -218,7 +221,7 @@ public sealed class AdminStore(NpgsqlDataSource dataSource)
     /// <summary>Every user with their memberships, by name.</summary>
     public async Task<IReadOnlyList<AdminUser>> UsersAsync(CancellationToken cancellationToken)
     {
-        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        await using var connection = await _connections.OwnerBypassAsync(Bypass.Administration, cancellationToken);
         var users = await connection.QueryAsync<UserRow>(new CommandDefinition(
             """
             SELECT id AS "Id", name AS "Name", is_system_admin AS "IsSystemAdmin", created_at AS "CreatedAt",
@@ -252,7 +255,7 @@ public sealed class AdminStore(NpgsqlDataSource dataSource)
     /// <summary>One user with their memberships; null for an unknown id.</summary>
     public async Task<AdminUser?> UserAsync(Guid id, CancellationToken cancellationToken)
     {
-        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        await using var connection = await _connections.OwnerBypassAsync(Bypass.Administration, cancellationToken);
         var user = await connection.QuerySingleOrDefaultAsync<UserRow>(new CommandDefinition(
             """
             SELECT id AS "Id", name AS "Name", is_system_admin AS "IsSystemAdmin", created_at AS "CreatedAt",
@@ -291,7 +294,7 @@ public sealed class AdminStore(NpgsqlDataSource dataSource)
         bool disabled,
         CancellationToken cancellationToken)
     {
-        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        await using var connection = await _connections.OwnerBypassAsync(Bypass.Administration, cancellationToken);
         var found = (await connection.QueryAsync<DateTimeOffset?>(new CommandDefinition(
             """
             UPDATE app_user

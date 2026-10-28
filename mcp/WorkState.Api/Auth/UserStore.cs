@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using Dapper;
 using Microsoft.AspNetCore.Identity;
 using Npgsql;
+using WorkState.Core.Data;
 using WorkState.Core.Domain;
 
 namespace WorkState.Api.Auth;
@@ -32,6 +33,8 @@ public sealed record UserTenant(Guid Id, string Slug, string Role)
 /// </summary>
 public sealed class UserStore(NpgsqlDataSource dataSource)
 {
+    private readonly WorkStateConnections _connections = new(dataSource);
+
     private static readonly PasswordHasher<AppUser> Hasher = new();
 
     private static readonly AppUser Nobody = new();
@@ -72,7 +75,7 @@ public sealed class UserStore(NpgsqlDataSource dataSource)
     /// </summary>
     public async Task<DashboardUser?> EnterAsync(Guid id, Guid tenant, CancellationToken cancellationToken)
     {
-        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        await using var connection = await _connections.OwnerBypassAsync(Bypass.Users, cancellationToken);
         return await connection.QuerySingleOrDefaultAsync<DashboardUser>(new CommandDefinition(
             """
             SELECT u.id AS "Id", u.name AS "Name", u.is_system_admin AS "IsSystemAdmin"
@@ -92,7 +95,7 @@ public sealed class UserStore(NpgsqlDataSource dataSource)
     /// </summary>
     public async Task<DashboardSession?> SessionAsync(Guid id, Guid tenant, CancellationToken cancellationToken)
     {
-        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        await using var connection = await _connections.OwnerBypassAsync(Bypass.Users, cancellationToken);
         var row = await connection.QuerySingleOrDefaultAsync<SessionRow>(new CommandDefinition(
             """
             SELECT u.id AS "Id", u.name AS "Name", u.is_system_admin AS "IsSystemAdmin",
@@ -112,7 +115,7 @@ public sealed class UserStore(NpgsqlDataSource dataSource)
     /// <summary>The stamp a cookie issued to <paramref name="id"/> now carries; null for a user who is gone.</summary>
     public async Task<Guid?> StampAsync(Guid id, CancellationToken cancellationToken)
     {
-        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        await using var connection = await _connections.OwnerBypassAsync(Bypass.Users, cancellationToken);
         return await connection.QuerySingleOrDefaultAsync<Guid?>(new CommandDefinition(
             "SELECT security_stamp FROM app_user WHERE id = @id;",
             new { id },
@@ -127,7 +130,7 @@ public sealed class UserStore(NpgsqlDataSource dataSource)
     /// </summary>
     public async Task<Guid?> ChangePasswordAsync(Guid id, string current, string next, CancellationToken cancellationToken)
     {
-        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        await using var connection = await _connections.OwnerBypassAsync(Bypass.Users, cancellationToken);
         var hash = await connection.QuerySingleOrDefaultAsync<string>(new CommandDefinition(
             "SELECT password_hash FROM app_user WHERE id = @id AND disabled_at IS NULL;",
             new { id },
@@ -163,7 +166,7 @@ public sealed class UserStore(NpgsqlDataSource dataSource)
     /// </summary>
     public async Task<IReadOnlyList<UserTenant>> TenantsAsync(DashboardUser user, CancellationToken cancellationToken)
     {
-        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        await using var connection = await _connections.OwnerBypassAsync(Bypass.Users, cancellationToken);
         return (await connection.QueryAsync<UserTenant>(new CommandDefinition(
             """
             SELECT w.id AS "Id", w.slug AS "Slug", coalesce(m.role, @systemAdmin) AS "Role"
@@ -188,7 +191,7 @@ public sealed class UserStore(NpgsqlDataSource dataSource)
         Guid? claimed,
         CancellationToken cancellationToken)
     {
-        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        await using var connection = await _connections.OwnerBypassAsync(Bypass.Users, cancellationToken);
         if (claimed is { } tenant)
         {
             if (!Guid.TryParse(subject, out var id)
@@ -244,7 +247,7 @@ public sealed class UserStore(NpgsqlDataSource dataSource)
     /// </summary>
     public async Task<bool> ManagesAsync(Guid user, Guid tenant, CancellationToken cancellationToken)
     {
-        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        await using var connection = await _connections.OwnerBypassAsync(Bypass.Users, cancellationToken);
         return await connection.ExecuteScalarAsync<bool>(new CommandDefinition(
             """
             SELECT EXISTS (
@@ -260,7 +263,7 @@ public sealed class UserStore(NpgsqlDataSource dataSource)
 
     private async Task<bool> AnyAsync(CancellationToken cancellationToken)
     {
-        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        await using var connection = await _connections.OwnerBypassAsync(Bypass.Users, cancellationToken);
         return await connection.ExecuteScalarAsync<bool>("SELECT EXISTS (SELECT 1 FROM app_user);");
     }
 
@@ -273,8 +276,8 @@ public sealed class UserStore(NpgsqlDataSource dataSource)
     {
         var hash = Hasher.HashPassword(Nobody, password);
 
-        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
-        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+        await using var bypass = await _connections.OwnerBypassTransactionAsync(Bypass.Users, cancellationToken);
+        var (connection, transaction) = bypass;
 
         // SHARE ROW EXCLUSIVE conflicts with itself: two first sign-ins queue here, and the second finds the
         // first one's user below and creates none.
@@ -307,7 +310,7 @@ public sealed class UserStore(NpgsqlDataSource dataSource)
 
     private async Task<DashboardUser?> VerifyAsync(string? name, string password, CancellationToken cancellationToken)
     {
-        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        await using var connection = await _connections.OwnerBypassAsync(Bypass.Users, cancellationToken);
         var row = string.IsNullOrEmpty(name)
             ? null
             : await connection.QuerySingleOrDefaultAsync<Row>(

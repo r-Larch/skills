@@ -72,6 +72,7 @@ public sealed class ClaimMigrationTests(PostgresFixture fixture)
 
             // The claim taken before the upgrade still holds its run's tree after it.
             await using var source = WorkStateDataSource.Create(connectionString);
+            using var scope = TenantScope.Enter(workspace);
             var writer = new WorkWriter(source, new BoardQueries(source), new Housekeeping(source));
             var refused = await writer.StatusAsync(
                 workspace, "1.2", "in_progress", WriteSeed.Other, new StatusArgs(), Ct);

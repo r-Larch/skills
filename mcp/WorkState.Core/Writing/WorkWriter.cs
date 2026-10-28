@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Dapper;
 using Npgsql;
+using WorkState.Core.Data;
 using WorkState.Core.Domain;
 using WorkState.Core.Queries;
 using WorkState.Core.Rendering;
@@ -40,6 +41,8 @@ public sealed record StatusArgs(
 /// </summary>
 public sealed partial class WorkWriter(NpgsqlDataSource dataSource, BoardQueries board, Housekeeping housekeeping)
 {
+    private readonly WorkStateConnections _connections = new(dataSource);
+
     /// <summary>doc 07 §5 — 30 minutes unless <c>workspace.settings</c> says otherwise.</summary>
     internal const int DefaultTtlMinutes = 30;
 
@@ -102,8 +105,8 @@ public sealed partial class WorkWriter(NpgsqlDataSource dataSource, BoardQueries
             return WriteResult.No(unresolved!);
         }
 
-        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
-        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+        await using var tenant = await _connections.TenantAsync(cancellationToken);
+        var (connection, transaction) = tenant;
 
         var item = await LoadAsync(connection, transaction, scope.Id, cancellationToken);
 
@@ -137,7 +140,7 @@ public sealed partial class WorkWriter(NpgsqlDataSource dataSource, BoardQueries
         if (refused.ConstraintName is "claim_one_live_per_item" or "claim_one_writer_per_tree"
             or "claim_one_session_per_tree")
         {
-            await using var reread = await connection.BeginTransactionAsync(cancellationToken);
+            await using var reread = await _connections.BeginTenantAsync(connection, cancellationToken);
             var held = await ClaimRefusalAsync(connection, reread, item, actor, args.Tree, cancellationToken);
             if (held is not null)
             {

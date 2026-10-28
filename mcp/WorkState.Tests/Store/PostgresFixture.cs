@@ -35,6 +35,10 @@ public sealed class PostgresFixture : IAsyncLifetime
         }
 
         _dataSource = WorkStateDataSource.Create(ConnectionString);
+
+        // The suite's direct store calls are no request and enter no tenant: on this data source they run as the
+        // owner, as before RLS. Every HTTP test goes through the API's own data source, which has no such exception.
+        WorkStateConnections.RunUnscopedAsOwner(_dataSource);
     }
 
     public WorkStateDbContext NewContext()

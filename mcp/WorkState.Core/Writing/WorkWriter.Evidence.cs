@@ -56,8 +56,8 @@ public sealed partial class WorkWriter
                 + "run_by:\"orchestrator\")"));
         }
 
-        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
-        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+        await using var tenant = await _connections.TenantAsync(cancellationToken);
+        var (connection, transaction) = tenant;
 
         var item = await LoadAsync(connection, transaction, scope.Id, cancellationToken);
         var runner = actor.RunnerFor(runBy);
@@ -171,8 +171,8 @@ public sealed partial class WorkWriter
                 + "not_done:\"…\")"));
         }
 
-        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
-        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+        await using var tenant = await _connections.TenantAsync(cancellationToken);
+        var (connection, transaction) = tenant;
 
         var item = await LoadAsync(connection, transaction, scope.Id, cancellationToken);
 

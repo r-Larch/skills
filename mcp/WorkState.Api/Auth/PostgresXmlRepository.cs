@@ -2,6 +2,7 @@ using System.Xml.Linq;
 using Dapper;
 using Microsoft.AspNetCore.DataProtection.Repositories;
 using Npgsql;
+using WorkState.Core.Data;
 
 namespace WorkState.Api.Auth;
 
@@ -24,11 +25,13 @@ namespace WorkState.Api.Auth;
 /// </summary>
 public sealed class PostgresXmlRepository(NpgsqlDataSource dataSource) : IXmlRepository
 {
+    private readonly WorkStateConnections _connections = new(dataSource);
+
     public IReadOnlyCollection<XElement> GetAllElements()
     {
         const string sql = """SELECT "xml" FROM data_protection_key ORDER BY id;""";
 
-        using var connection = dataSource.OpenConnection();
+        using var connection = _connections.OwnerBypass(Bypass.Keys);
         return connection.Query<string>(sql).Select(XElement.Parse).ToList();
     }
 
@@ -40,7 +43,7 @@ public sealed class PostgresXmlRepository(NpgsqlDataSource dataSource) : IXmlRep
             VALUES (@friendlyName, @xml);
             """;
 
-        using var connection = dataSource.OpenConnection();
+        using var connection = _connections.OwnerBypass(Bypass.Keys);
         connection.Execute(sql, new
         {
             friendlyName,

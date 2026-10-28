@@ -183,6 +183,16 @@ public static class ApiHost
         app.UseAuthentication();
         app.UseAuthorization();
 
+        // doc 02 §15. After authorization, which is where an endpoint policy's schemes (the cookie, OAuth) put
+        // their principal on the request: from here on a tenant connection acts in its workspace, or in none.
+        app.Use(async (context, next) =>
+        {
+            using (TenantScope.Enter(RequestTenant.Of(context.User)))
+            {
+                await next(context);
+            }
+        });
+
         app.MapGet("/health", () => Results.Ok(new { status = "ok" })).AllowAnonymous();
 
         app.MapMcp(OAuthServer.McpPath).RequireAuthorization(WorkStatePolicies.Any);
@@ -222,7 +232,7 @@ public static class ApiHost
         // not have. The service owns this database outright, so it brings it up itself.
         if (builder.Configuration.GetValue("WorkState:Migrate", true))
         {
-            builder.Services.AddSingleton(new SchemaOwner(connectionString));
+            builder.Services.AddSingleton(sp => new SchemaOwner(connectionString, sp.GetRequiredService<ILogger<SchemaOwner>>()));
         }
 
         builder.Services.AddSingleton(_ => WorkStateDataSource.Create(connectionString));
