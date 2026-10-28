@@ -106,10 +106,20 @@ public static class ApiHost
 
             // doc 10 rule 5: the read API is the one surface both audiences share, so it is the one
             // policy that names both schemes. It still grants nothing either scheme lacks on its own.
+            // OAuth is the third, for a token whose audience is <origin>/api; the scope binds it alone.
             .AddPolicy(ApiV1.Policy, policy => policy
-                .AddAuthenticationSchemes(DashboardAuth.SchemeName, StaticTokenHandler.SchemeName)
+                .AddAuthenticationSchemes(DashboardAuth.SchemeName, StaticTokenHandler.SchemeName, OAuthTokenHandler.SchemeName)
                 .RequireAuthenticatedUser()
-                .RequireRole(DashboardAuth.Role, WorkStatePolicies.Worker, WorkStatePolicies.Reader));
+                .RequireRole(DashboardAuth.Role, WorkStatePolicies.Worker, WorkStatePolicies.Reader)
+                .AddRequirements(new OAuthScopeRequirement(OAuthServer.ReadScope)))
+
+            // WorkStatePolicies.Orchestrator plus OAuth, kept apart from it because the tool policies must
+            // stay static-only; the cookie is still not a bearer here.
+            .AddPolicy(AgentSessionEndpoints.Policy, policy => policy
+                .AddAuthenticationSchemes(StaticTokenHandler.SchemeName, OAuthTokenHandler.SchemeName)
+                .RequireAuthenticatedUser()
+                .RequireRole(WorkStatePolicies.Orchestrator)
+                .AddRequirements(new OAuthScopeRequirement(OAuthServer.SessionsScope)));
 
         RateLimits.Add(builder.Services);
 

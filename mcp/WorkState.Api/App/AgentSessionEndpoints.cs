@@ -1,5 +1,7 @@
 using System.Security.Claims;
 using Microsoft.AspNetCore.Mvc;
+using OpenIddict.Abstractions;
+using WorkState.Api.Auth.OAuth;
 using WorkState.Core.Domain;
 using WorkState.Core.Queries;
 using WorkState.Core.Writing;
@@ -27,13 +29,16 @@ public sealed record PatchSessionRequest(string? ClaudeSessionId);
 /// <summary>
 /// doc 14 §2 — per-session tokens. A write surface for launchers, so it sits beside the App API and
 /// not under <c>/api/v1</c>, which is read-only by rule. Every call needs an orchestrator or
-/// controller bearer; a worker is forbidden and the dashboard cookie is not a bearer at all.
+/// controller bearer, or an OAuth token for <c>/api</c> with <c>workstate.sessions</c>; a worker is
+/// forbidden and the dashboard cookie is not a bearer at all.
 /// </summary>
 public static class AgentSessionEndpoints
 {
+    public const string Policy = "agent-sessions";
+
     public static void MapAgentSessions(this RouteGroupBuilder api)
     {
-        var sessions = api.MapGroup("/agent-sessions").RequireAuthorization(WorkStatePolicies.Orchestrator);
+        var sessions = api.MapGroup("/agent-sessions").RequireAuthorization(Policy);
 
         sessions.MapPost("", MintAsync);
         sessions.MapPatch("/{id:guid}", PatchAsync);
@@ -108,7 +113,9 @@ public static class AgentSessionEndpoints
                 request.ExternalRole,
                 request.ClaudeSessionId,
                 request.Repo,
-                grants),
+                grants,
+                OAuthClaim(context.User, OpenIddictConstants.Claims.Subject),
+                OAuthClaim(context.User, OAuthTokenHandler.AuthorizationClaim)),
             cancellationToken);
 
         if (result.Minted is not { } minted)
@@ -220,6 +227,12 @@ public static class AgentSessionEndpoints
 
     private static Guid? CallerSessionId(ClaimsPrincipal user)
         => Guid.TryParse(user.FindFirst(CallerSession.SessionIdClaim)?.Value, out var id) ? id : null;
+
+    /// <summary>The human, or the authorization, behind an OAuth caller; a static or <c>wss_</c> token names neither.</summary>
+    private static string? OAuthClaim(ClaimsPrincipal user, string type)
+        => user.Identities
+            .FirstOrDefault(identity => identity.AuthenticationType == OAuthTokenHandler.SchemeName)?
+            .FindFirst(type)?.Value;
 
     private static string Pg(ActorRole role) => role.ToString().ToLowerInvariant();
 
