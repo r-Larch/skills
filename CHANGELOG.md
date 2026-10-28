@@ -8,6 +8,11 @@ What changes for someone who has the `rlarch` plugin installed, newest first. Fo
 
 ### Changed
 
+- WorkState server **1.0.1** (no plugin change; one migration): projects and runs get unique refs.
+  A run created without a ref is numbered `1`, `2`, … under its project (every one was `1` before),
+  a project `project-1`, `project-2`, …, and a second run or project with a ref its siblings already
+  hold is refused. The migration renames each existing duplicate but the oldest to `<ref>-2`, …, and
+  journals the rename. Back up first.
 - WorkState server **1.0.0** (no plugin change; seven migrations): one server, several
   tenants. The dashboard has users, tenant memberships and a system administrator; the configured
   dashboard credential creates the first user at its first sign-in and is not read after that.

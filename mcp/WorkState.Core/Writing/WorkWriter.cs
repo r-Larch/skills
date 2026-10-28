@@ -692,7 +692,7 @@ public sealed partial class WorkWriter(NpgsqlDataSource dataSource, BoardQueries
     }
 
     /// <summary>The first ref of the given shape that is free inside this item's ref scope.</summary>
-    private static async Task<string> FreeRefAsync(
+    private static Task<string> FreeRefAsync(
         NpgsqlConnection connection,
         NpgsqlTransaction transaction,
         Guid workspaceId,
@@ -708,12 +708,54 @@ public sealed partial class WorkWriter(NpgsqlDataSource dataSource, BoardQueries
                 AND ref_scope_id IS NOT DISTINCT FROM @scope AND lower(ref) = lower(@ref));
             """;
 
+        return FirstFreeAsync(
+            connection, transaction, sql, shape, r => new { workspace = workspaceId, scope = refScopeId, @ref = r },
+            cancellationToken);
+    }
+
+    /// <summary>
+    /// A project or a run is its own ref scope, so the probe above never sees its siblings. Its ref is free
+    /// when no sibling of a self-scoping kind holds it (the <see cref="Migrations.ScopeRefUnique"/> index) and
+    /// nothing numbered in the parent's scope does either, since <c>parent/ref</c> reaches both.
+    /// </summary>
+    private static Task<string> FreeSiblingRefAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        Guid workspaceId,
+        Guid? parentId,
+        Guid? parentScopeId,
+        Func<int, string> shape,
+        CancellationToken cancellationToken)
+    {
+        const string sql =
+            """
+            SELECT EXISTS (
+              SELECT 1 FROM item
+              WHERE workspace_id = @workspace AND lower(ref) = lower(@ref)
+                AND ((ref_scope_id = id AND parent_id IS NOT DISTINCT FROM @parent)
+                     OR ref_scope_id IS NOT DISTINCT FROM @scope));
+            """;
+
+        return FirstFreeAsync(
+            connection, transaction, sql, shape,
+            r => new { workspace = workspaceId, parent = parentId, scope = parentScopeId, @ref = r },
+            cancellationToken);
+    }
+
+    private static async Task<string> FirstFreeAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        string takenSql,
+        Func<int, string> shape,
+        Func<string, object> parameters,
+        CancellationToken cancellationToken)
+    {
         for (var n = 1; n < 500; n++)
         {
             var candidate = shape(n);
             var taken = await connection.ExecuteScalarAsync<bool>(new CommandDefinition(
-                sql,
-                new { workspace = workspaceId, scope = refScopeId, @ref = candidate },
+                takenSql,
+                parameters(candidate),
                 transaction,
                 cancellationToken: cancellationToken));
 

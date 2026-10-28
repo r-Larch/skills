@@ -515,7 +515,8 @@ public sealed partial class WorkWriter
         var refScope = parent.RefScopeId == parent.Id ? parent.Id : parent.RefScopeId;
         var reference = Blank(record.Ref)
             ? await DerivedRefAsync(
-                connection, transaction, workspaceId, new ScopeRefLite(parent.Id, parent.Ref, parent.RefScopeId), refScope, kind, cancellationToken)
+                connection, transaction, workspaceId, new ScopeRefLite(parent.Id, parent.Ref, parent.RefScopeId), refScope, kind,
+                ladder[kind].ScopesRefs, cancellationToken)
             : record.Ref!.Trim();
 
         var row = new NewRow(
