@@ -7,8 +7,10 @@ One JSON contract for two clients: the :5290 dashboard and Foreman (native gpui)
 MCP tools are the agents' only write path. The pre-v1 routes (`/api/projects`, `/api/watch`,
 `/api/runs/{ref}/tree|brief|journal`) were removed once the new dashboard stopped calling them (unit
 `mature/prev1-removal`). Outside v1, `/api` keeps `POST|DELETE /api/session` (sign-in), the cookie's
-tenant (`GET /api/session/tenants`, `POST /api/session/tenant`, below), `/api/stream`,
-`/api/agent-sessions` (doc 14, bearer only) and the dashboard's two writes:
+tenant (`GET /api/session/tenants`, `POST /api/session/tenant`, below) and its user (`GET
+/api/session/me`), `/api/stream`, `/api/agent-sessions` (doc 14, bearer only), the admin API
+(`/api/admin/*`) and the invite link (`/api/invite/{token}`), both below, and the dashboard's two
+writes:
 
 ### `POST /api/projects/{id}/archive` · `POST /api/projects/{id}/unarchive` (outside v1)
 
@@ -45,7 +47,45 @@ that workspace: `204`, or `403 {error}` unless the user is a member of it or a s
 id that is no workspace is the same 403). A sign-in lands in the user's first membership — a system
 administrator with none, in the oldest workspace — and a user with no membership cannot sign in (`403
 {error}`). A user whose membership of the cookie's tenant is removed is signed out on their next request
-(`401`). The dashboard has no switcher yet; unit admin-ui adds it.
+(`401`). The sidebar's workspace switcher calls it (doc 13).
+
+### `GET /api/session/me` (outside v1)
+
+Cookie only. `200 { "id", "name", "systemAdmin": bool, "administers": bool }` — `administers` is
+true for a system administrator and for an admin of any workspace. It decides only what the sidebar
+offers (the Admin link); the admin API judges every call itself.
+
+### `/api/admin/*` (outside v1)
+
+The Admin page's API (doc 08 §4 "Administration"). **Cookie only** — a bearer token gets 401 — and
+every write carries the `X-WorkState-Write` guard. Each call is judged against the caller's rights as
+the table has them on that request: a user who administers nothing gets `403 {error}` on every route;
+a tenant admin gets 403 for a workspace that is not theirs (asked before whether it exists); a system
+administrator gets 404 for an id that is no workspace. Errors are `{ "error": "…" }` and say what to do.
+
+| Route | Who | Answers |
+|---|---|---|
+| `GET /api/admin/tenants` | admin, system admin | `[{ id, slug, createdAt, members, admins, pendingInvites, current }]` — every workspace for a system administrator, the ones they are an admin of otherwise, oldest first |
+| `POST /api/admin/tenants` `{slug}` | system admin | `201` the same shape; `400` for a slug unlike `default` (lowercase letters and digits, words joined by single hyphens, ≤ 63); `409` when it exists |
+| `GET /api/admin/tenants/{id}/members` | admin of it | `[{ userId, name, role, systemAdmin, joinedAt, disabledAt }]`, admins first |
+| `PUT /api/admin/tenants/{id}/members/{user}` `{role}` | admin of it | `200 { userId, role, changed }`; `400` for a role other than `admin` / `member`; `404` when the user is not a member; `409` demoting the last admin |
+| `DELETE /api/admin/tenants/{id}/members/{user}` | admin of it | `204`; `404`; `409` removing the last admin |
+| `GET /api/admin/tenants/{id}/invites` | admin of it | the unused, unexpired invites, newest first: `[{ id, role, createdBy, createdAt, expiresAt }]` — never a token |
+| `POST /api/admin/tenants/{id}/invites` `{role}` | admin of it | `201 { id, token, url, role, tenant, expiresAt }` — the **only** answer that carries the token; `url` is `<origin>/join/<token>` |
+| `DELETE /api/admin/tenants/{id}/invites/{invite}` | admin of it | `204`; `404` when that workspace has no such unused invite |
+| `GET /api/admin/users` | system admin | `[{ id, name, systemAdmin, createdAt, disabledAt, tenants: [{ id, slug, role }] }]`, by name |
+| `POST /api/admin/users/{id}/disable` · `/enable` | system admin | `200 { id, disabledAt }`; `404`; `409` disabling oneself |
+
+### `GET /api/invite/{token}` · `POST /api/invite/{token}/accept` (outside v1)
+
+The invite page's two calls (doc 08 §4 "Invite links"). **No session needed**, rate-limited per
+client (10 a minute, `429` with `Retry-After`). `GET` answers `200 { tenantId, tenant, role,
+expiresAt, signedInAs, member }` — `signedInAs` the dashboard cookie's user, if the request carries
+one, and `member` whether they already are one. `POST`, with the `X-WorkState-Write` guard, takes
+`{ name, password }` without a session and nothing with one: `200 { name, tenantId }` with the
+cookie set in that workspace; `400 {error}` for a blank name or a password under 12 characters; `409
+{error}` for a name already taken (the link stays unused). A used, revoked, expired or unknown token
+is `404 {error}` on both.
 
 ## Rules
 
