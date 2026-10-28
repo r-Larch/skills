@@ -1,9 +1,11 @@
 using System.Buffers.Text;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using Dapper;
 using Npgsql;
 using WorkState.Core.Domain;
+using WorkState.Core.Rendering;
 
 namespace WorkState.Core.Writing;
 
@@ -93,12 +95,22 @@ public sealed partial class SessionStore
             transaction,
             cancellationToken: cancellationToken));
 
-        if (!string.Equals(row.LaunchedBy, launchedBy, StringComparison.Ordinal))
+        // doc 11 — a launcher may adopt a launcher-less row only by proving it is the same Claude session.
+        var takeover = request.Replace
+            && launchedBy is not null
+            && row.LaunchedBy is null
+            && row.ClaudeSessionId is not null
+            && string.Equals(row.ClaudeSessionId, claudeId, StringComparison.Ordinal);
+
+        if (!takeover && !string.Equals(row.LaunchedBy, launchedBy, StringComparison.Ordinal))
         {
             return new MintResult(null,
                 $"the session name \"{name}\" is held by a session launched by {row.LaunchedBy ?? "no launcher"}, "
                 + $"and this mint says {launchedBy ?? "no launcher"}; two launchers' sessions cannot share a name, "
-                + "and replace does not override that");
+                + "and replace does not override that. A launcher takes over a name with no launcher only with "
+                + "replace: true and the claudeSessionId that row records. If that session is gone, a controller "
+                + $"frees the name with {ReleasePath(row.Id)} (or Release on the dashboard's Sessions page), "
+                + "and the next mint creates it fresh");
         }
 
         if (row.Live && !request.Replace)
@@ -121,6 +133,7 @@ public sealed partial class SessionStore
                    minted_by_subject    = @mintedBySubject,
                    minted_by_authorization_id = @mintedByAuthorization,
                    role                 = @role::actor_role,
+                   launched_by          = @launchedBy,
                    claude_session_id    = coalesce(@claude, s.claude_session_id),
                    external_role        = CASE WHEN @external IS NULL OR @external = @role THEN s.external_role
                                                ELSE @external END,
@@ -142,6 +155,7 @@ public sealed partial class SessionStore
                 hash = SessionToken.Hash(token),
                 role = Pg.Label(request.Role),
                 ttl = request.TtlHours,
+                launchedBy,
                 mintedBy = request.MintedBy,
                 mintedBySubject = request.MintedBySubject,
                 mintedByAuthorization = request.MintedByAuthorizationId,
@@ -158,6 +172,27 @@ public sealed partial class SessionStore
 
         await ClaudeIdChangedAsync(
             connection, transaction, workspaceId, row.Id, name, row.ClaudeSessionId, claudeId, request.Role, cancellationToken);
+
+        if (takeover)
+        {
+            await connection.ExecuteAsync(new CommandDefinition(
+                """
+                INSERT INTO event (workspace_id, item_id, actor, role, kind, payload, summary, session_id)
+                VALUES (@workspace, NULL, @actor, @role::actor_role, 'session_launcher_taken_over',
+                        @payload::jsonb, @summary, @session);
+                """,
+                new
+                {
+                    workspace = workspaceId,
+                    actor = Pg.Label(request.Role),
+                    role = Pg.Label(request.Role),
+                    payload = JsonSerializer.Serialize(new { from = (string?)null, to = launchedBy, claudeSessionId = claudeId }),
+                    summary = Glyph.Flat($"session {name} taken over by launcher {launchedBy}, same Claude session {claudeId}"),
+                    session = row.Id,
+                },
+                transaction,
+                cancellationToken: cancellationToken));
+        }
 
         await transaction.CommitAsync(cancellationToken);
 

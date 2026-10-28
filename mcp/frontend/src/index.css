@@ -189,8 +189,8 @@ a.row:hover { background: var(--bg); }
 .proj-act:hover:not([disabled]) { color: var(--ink); border-color: var(--ink-3); }
 .proj-act[disabled] { opacity: 0.6; cursor: default; }
 .proj-act.danger { background: var(--stop); border-color: var(--stop); color: #fff; }
-.proj-h .confirm { flex-basis: 100%; padding: 12px 14px; border-radius: 10px; background: var(--panel); border: 1px solid var(--line); font-size: 13px; color: var(--ink-2); }
-.proj-h .confirm p { margin: 0 0 10px; overflow-wrap: anywhere; }
+.proj-h .confirm, .row .confirm { flex-basis: 100%; padding: 12px 14px; border-radius: 10px; background: var(--panel); border: 1px solid var(--line); font-size: 13px; color: var(--ink-2); }
+.proj-h .confirm p, .row .confirm p { margin: 0 0 10px; overflow-wrap: anywhere; }
 .confirm-b { display: flex; gap: 8px; flex-wrap: wrap; }
 .proj-h .confirm-err { flex-basis: 100%; margin: 0; }
 .panel.archived .proj-h { opacity: 0.85; }
