@@ -14,7 +14,7 @@ namespace WorkState.Mcp.Resources;
 /// model composing one for itself.
 /// </summary>
 [McpServerResourceType]
-public sealed class WorkResources(BoardReader reader, WorkspaceOptions workspace, CallerIdentity caller)
+public sealed class WorkResources(BoardReader reader, RequestTenant tenant, CallerIdentity caller)
 {
     [Authorize(Policy = WorkStatePolicies.Worker)]
     [McpServerResource(
@@ -45,8 +45,8 @@ public sealed class WorkResources(BoardReader reader, WorkspaceOptions workspace
     public async Task<string> BriefAsync(CancellationToken cancellationToken)
     {
         // Resolved as a bare work_brief() is: the session's project, else a chooser among several.
-        var scope = await reader.ResolveRepoAsync(workspace.Slug, [], caller.Actor.SessionId, cancellationToken)
-                    ?? await reader.ResolveUnscopedBriefAsync(workspace.Slug, cancellationToken);
+        var scope = await reader.ResolveRepoAsync(tenant.Id, [], caller.Actor.SessionId, cancellationToken)
+                    ?? await reader.ResolveUnscopedBriefAsync(tenant.Id, cancellationToken);
         return scope is ScopeResult.Found found
             ? await reader.BriefAsync(found, "resume", cancellationToken)
             : ScopeExplain.Text(scope, "work_brief", null);
@@ -113,7 +113,7 @@ public sealed class WorkResources(BoardReader reader, WorkspaceOptions workspace
 
     private async Task<string> AttentionOfAsync(string? scope, CancellationToken cancellationToken)
     {
-        var resolved = await reader.ResolveDefaultAsync(workspace.Slug, scope, caller.Actor.SessionId, cancellationToken);
+        var resolved = await reader.ResolveDefaultAsync(tenant.Id, scope, caller.Actor.SessionId, cancellationToken);
         if (resolved is not ScopeResult.Found found)
         {
             return scope is null ? BriefRenderer.Onboarding() : ScopeExplain.Text(resolved, "work_threads", scope);
@@ -124,7 +124,7 @@ public sealed class WorkResources(BoardReader reader, WorkspaceOptions workspace
     }
 
     private Task<ScopeResult> DefaultAsync(CancellationToken cancellationToken)
-        => reader.ResolveDefaultAsync(workspace.Slug, null, caller.Actor.SessionId, cancellationToken);
+        => reader.ResolveDefaultAsync(tenant.Id, null, caller.Actor.SessionId, cancellationToken);
 
     /// <summary>
     /// <c>{+ref}</c> rather than <c>{ref}</c>: reserved expansion lets the value carry a <c>/</c>, so
@@ -172,7 +172,7 @@ public sealed class WorkResources(BoardReader reader, WorkspaceOptions workspace
         [Description("The item's ref, exactly as a tool result printed it.")] string @ref,
         CancellationToken cancellationToken)
     {
-        var scope = await reader.ResolveForCallerAsync(workspace.Slug, @ref, caller.Actor.SessionId, cancellationToken);
+        var scope = await reader.ResolveForCallerAsync(tenant.Id, @ref, caller.Actor.SessionId, cancellationToken);
         return scope is ScopeResult.Found found
             ? await reader.BriefAsync(found, "worker", cancellationToken)
             : ScopeExplain.Text(scope, "work_brief", @ref, "for:\"worker\"");

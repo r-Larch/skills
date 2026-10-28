@@ -234,14 +234,43 @@ configured credential. `WorkState:Dashboard:{Username,Password}` (`WORKSTATE_DAS
 `_PASSWORD`) is a **bootstrap credential**: the first `POST /api/session` that presents it while
 `app_user` is empty creates the first user — named after the configured username, the presented
 password stored only as an ASP.NET Core `PasswordHasher` hash, system administrator, admin of every
-workspace that exists then. Two first sign-ins at once create one user (`LOCK TABLE app_user`). From
+workspace that exists then — on an empty database a new `default` one, so they have a tenant to sign in
+to. Two first sign-ins at once create one user (`LOCK TABLE app_user`). From
 then on only the table decides: **changing or removing the configured password changes nothing**, and
 the dashboard keeps working with neither set. A wrong password, an unknown name and a disabled user
 get the same 401 and each runs one hash verification. Every cookie request re-reads its user
 (the `sub` claim): a user deleted or disabled (`disabled_at`) is signed out on their next request,
-and a cookie issued before m48 (no `sub`) has to sign in again. The configured username still names
+and a cookie issued before m48 (no `sub`) or before m50 (no tenant) has to sign in again. The configured username still names
 the OAuth subject (`/connect/authorize` refuses while it is unset), until OAuth carries the user.
 There is no user management yet: a second user, a password change or a disable is SQL for now.
+
+**Tenants (m50).** A tenant is a `workspace` row, and every request acts in exactly one: its
+credential's, never one a header, a query parameter or a server default names (C62). Every
+authentication path puts it on the principal as the claim `workstate:tenant`:
+
+- **Dashboard cookie** — at sign-in, the user's first membership (oldest grant first); a system
+  administrator who is a member of nothing lands in the oldest workspace; a user who is a member of
+  nothing cannot sign in (403). `GET /api/session/tenants` lists the workspaces the user may enter and
+  `POST /api/session/tenant {id}` re-issues the cookie in another, if they are a member of it or a
+  system administrator (doc 10). The dashboard has no switcher for it yet; unit admin-ui adds one.
+  Every cookie request re-checks: a user whose membership of the cookie's tenant is removed is signed
+  out there on their next request.
+- **`wss_` token** — its session's workspace. A mint creates the session in the minting credential's
+  own tenant (doc 11).
+- **OAuth access token** — the token's `workstate:tenant` claim, once unit user-oauth issues one;
+  until then the one workspace its user is a member of. A token whose user is a member of none, or
+  of several, is refused 403 with "sign in again".
+- **Static role tokens and the reader token** — bound to the workspace `WorkState:Workspace` names,
+  or, unset, the oldest workspace. That slug is these credentials' own configured binding, not a
+  default for anyone else: only their handler reads it, and it goes when static tokens are retired
+  (unit static-tokens). A configured workspace that does not exist yet is created at the token's
+  first use, so a fresh install's first `work_create` has somewhere to write.
+
+A principal with no tenant — including a request carrying two credentials that name different
+workspaces — gets `403 {"error": "…"}` saying what to do. No request creates its own tenant:
+workspaces are created only by the first user's bootstrap (`default`, when there is none) and by a
+static token's first use (its configured slug, or `default` on an empty database). A tree lock is
+per tenant too: a path claimed in one workspace does not hold the same path in another (doc 07 §5).
 
 **`WORKSTATE_PUBLIC_URL`** (`WorkState:PublicUrl`, **optional**; compose passes
 `${WORKSTATE_PUBLIC_URL:-}`) is the base of the `web` line `work_brief` and `work_get` print

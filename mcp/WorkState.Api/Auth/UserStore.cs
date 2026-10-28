@@ -8,6 +8,12 @@ namespace WorkState.Api.Auth;
 
 public sealed record DashboardUser(Guid Id, string Name, bool IsSystemAdmin);
 
+/// <summary>A workspace a user may enter, and why: their membership's role, or <see cref="SystemAdmin"/>.</summary>
+public sealed record UserTenant(Guid Id, string Slug, string Role)
+{
+    public const string SystemAdmin = "system-admin";
+}
+
 /// <summary>
 /// The dashboard's users (<c>app_user</c>, <c>tenant_membership</c>). Passwords are kept only as
 /// <see cref="PasswordHasher{TUser}"/> hashes (C64).
@@ -52,17 +58,97 @@ public sealed class UserStore(NpgsqlDataSource dataSource)
         return await VerifyAsync(name, password ?? string.Empty, cancellationToken);
     }
 
-    /// <summary>The user a cookie names, while they still exist and are not disabled.</summary>
-    public async Task<DashboardUser?> FindActiveAsync(Guid id, CancellationToken cancellationToken)
+    /// <summary>
+    /// The user a cookie names, while they still exist, are not disabled, and may enter
+    /// <paramref name="tenant"/>: a member of it, or a system administrator while it exists.
+    /// </summary>
+    public async Task<DashboardUser?> EnterAsync(Guid id, Guid tenant, CancellationToken cancellationToken)
     {
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
-        return await connection.QuerySingleOrDefaultAsync<DashboardUser>(
+        return await connection.QuerySingleOrDefaultAsync<DashboardUser>(new CommandDefinition(
+            """
+            SELECT u.id AS "Id", u.name AS "Name", u.is_system_admin AS "IsSystemAdmin"
+            FROM app_user u
+            JOIN workspace w ON w.id = @tenant
+            WHERE u.id = @id AND u.disabled_at IS NULL
+              AND (u.is_system_admin
+                   OR EXISTS (SELECT 1 FROM tenant_membership m WHERE m.user_id = u.id AND m.workspace_id = w.id));
+            """,
+            new { id, tenant },
+            cancellationToken: cancellationToken));
+    }
+
+    /// <summary>
+    /// Where a sign-in lands: the user's first membership, else, for a system administrator, the oldest
+    /// workspace. Null for a user who is a member of nothing.
+    /// </summary>
+    public async Task<Guid?> HomeTenantAsync(DashboardUser user, CancellationToken cancellationToken)
+        => (await TenantsAsync(user, cancellationToken)).FirstOrDefault()?.Id;
+
+    /// <summary>
+    /// The workspaces <paramref name="user"/> may enter, memberships first in the order they were granted,
+    /// then — for a system administrator — every other workspace, oldest first.
+    /// </summary>
+    public async Task<IReadOnlyList<UserTenant>> TenantsAsync(DashboardUser user, CancellationToken cancellationToken)
+    {
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        return (await connection.QueryAsync<UserTenant>(new CommandDefinition(
+            """
+            SELECT w.id AS "Id", w.slug AS "Slug", coalesce(m.role, @systemAdmin) AS "Role"
+            FROM workspace w
+            LEFT JOIN tenant_membership m ON m.workspace_id = w.id AND m.user_id = @Id
+            WHERE m.user_id IS NOT NULL OR @IsSystemAdmin
+            ORDER BY m.created_at NULLS LAST, w.created_at, w.slug;
+            """,
+            new { user.Id, user.IsSystemAdmin, systemAdmin = UserTenant.SystemAdmin },
+            cancellationToken: cancellationToken))).AsList();
+    }
+
+    /// <summary>
+    /// The tenant an OAuth token acts in. A token that names one keeps it while its user may still enter it;
+    /// one that names none — every token before user-oauth — takes its user's only membership. Otherwise the
+    /// refusal says what to do.
+    /// </summary>
+    public async Task<(Guid? Tenant, string? Refusal)> OAuthTenantAsync(
+        string subject,
+        Guid? claimed,
+        CancellationToken cancellationToken)
+    {
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        var user = await connection.QuerySingleOrDefaultAsync<DashboardUser>(new CommandDefinition(
             """
             SELECT id AS "Id", name AS "Name", is_system_admin AS "IsSystemAdmin"
             FROM app_user
-            WHERE id = @id AND disabled_at IS NULL;
+            WHERE lower(name) = lower(@subject) AND disabled_at IS NULL;
             """,
-            new { id });
+            new { subject },
+            cancellationToken: cancellationToken));
+
+        if (user is null)
+        {
+            return (null, $"The token's user \"{subject}\" no longer signs in to this server. Sign in again.");
+        }
+
+        if (claimed is { } tenant)
+        {
+            return await EnterAsync(user.Id, tenant, cancellationToken) is not null
+                ? (tenant, null)
+                : (null, $"{user.Name} may no longer enter the workspace this token was issued for. Sign in again.");
+        }
+
+        var memberships = (await connection.QueryAsync<Guid>(new CommandDefinition(
+            "SELECT workspace_id FROM tenant_membership WHERE user_id = @Id LIMIT 2;",
+            new { user.Id },
+            cancellationToken: cancellationToken))).AsList();
+
+        return memberships switch
+        {
+            [var only] => (only, null),
+            [] => (null, $"This token names no workspace, and {user.Name} is a member of none. A system administrator "
+                         + "adds the membership; then sign in again."),
+            _ => (null, $"This token names no workspace, and {user.Name} is a member of several, so it cannot be "
+                        + "told which one to act in. Sign in again to get a token for one workspace."),
+        };
     }
 
     private async Task<bool> AnyAsync(CancellationToken cancellationToken)
@@ -72,8 +158,9 @@ public sealed class UserStore(NpgsqlDataSource dataSource)
     }
 
     /// <summary>
-    /// The first user: system administrator, and admin of every workspace that exists. Null when another
-    /// sign-in created a user first; the caller then verifies against that one like any other.
+    /// The first user: system administrator, and admin of every workspace that exists — of a new
+    /// <c>default</c> one on a fresh install, so they have a tenant to sign in to. Null when another sign-in
+    /// created a user first; the caller then verifies against that one like any other.
     /// </summary>
     private async Task<DashboardUser?> BootstrapAsync(string name, string password, CancellationToken cancellationToken)
     {
@@ -97,10 +184,14 @@ public sealed class UserStore(NpgsqlDataSource dataSource)
             INSERT INTO app_user (id, name, password_hash, is_system_admin)
             VALUES (@Id, @Name, @hash, @IsSystemAdmin);
 
+            INSERT INTO workspace (id, slug)
+            SELECT @workspace, 'default' WHERE NOT EXISTS (SELECT 1 FROM workspace)
+            ON CONFLICT (slug) DO NOTHING;
+
             INSERT INTO tenant_membership (user_id, workspace_id, role)
             SELECT @Id, id, @role FROM workspace;
             """,
-            new { user.Id, user.Name, hash, user.IsSystemAdmin, role = TenantMembership.Admin },
+            new { user.Id, user.Name, hash, user.IsSystemAdmin, role = TenantMembership.Admin, workspace = Guid.CreateVersion7() },
             transaction);
 
         await transaction.CommitAsync(cancellationToken);

@@ -63,17 +63,13 @@ public static partial class ApiV1
     /// </summary>
     private sealed record Snapshot(Guid WorkspaceId, DateTimeOffset AsOf, long Seq);
 
-    private static async Task<Snapshot?> SnapshotAsync(
-        BoardQueries board,
+    private static async Task<Snapshot> SnapshotAsync(
         ApiQueries api,
-        WorkspaceOptions workspace,
+        RequestTenant tenant,
         CancellationToken cancellationToken)
     {
         var asOf = DateTimeOffset.UtcNow;
-
-        return await board.WorkspaceAsync(workspace.Slug, cancellationToken) is { } id
-            ? new Snapshot(id, asOf, await api.SeqAsync(id, cancellationToken))
-            : null;
+        return new Snapshot(tenant.Id, asOf, await api.SeqAsync(tenant.Id, cancellationToken));
     }
 
     /// <summary>The item, if it exists in this workspace — an id from another one is as unknown as a typo.</summary>

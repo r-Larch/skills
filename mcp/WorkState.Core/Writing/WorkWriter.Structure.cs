@@ -44,22 +44,16 @@ public sealed record UpdateArgs(
 public sealed partial class WorkWriter
 {
     /// <summary>
-    /// The cold start. <c>work_brief</c> on an empty server tells the agent to call
-    /// <c>work_create</c>, so that call has to work before anything exists — otherwise the
-    /// onboarding names a route that refuses (doc 04 §4).
+    /// The workspace with this slug, created when missing; a null slug is <c>default</c>. No request creates
+    /// its own tenant: this is the static-token binding's first use on a fresh install, so the
+    /// <c>work_create</c> that <c>work_brief</c>'s onboarding names has somewhere to write (doc 04 §4).
     /// </summary>
     public async Task<Guid> EnsureWorkspaceAsync(string? slug, CancellationToken cancellationToken = default)
     {
         const string sql =
             """
-            WITH existing AS (
-              SELECT id FROM workspace WHERE slug = @slug
-            ), created AS (
-              INSERT INTO workspace (id, slug)
-              SELECT @id, @slug WHERE NOT EXISTS (SELECT 1 FROM existing)
-              RETURNING id
-            )
-            SELECT id FROM existing UNION ALL SELECT id FROM created;
+            INSERT INTO workspace (id, slug) VALUES (@id, @slug) ON CONFLICT (slug) DO NOTHING;
+            SELECT id FROM workspace WHERE slug = @slug;
             """;
 
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);

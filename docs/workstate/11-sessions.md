@@ -25,7 +25,9 @@ reconnects, resumes and compaction.
 
 **Or from a minted token (doc 14 §2).** A launcher can mint a session instead of naming it:
 `POST /api/agent-sessions {name, role, launchedBy?, origin?, cwd?, externalRole?, claudeSessionId?,
-ttlHours?, replace?, repo?}` creates (or reuses) the row for `name` and returns a `wss_` token once;
+ttlHours?, replace?, repo?}` creates (or reuses) the row for `name` in the minting credential's own
+tenant — never a workspace the request names (doc 08 §4) — and returns a `wss_` token once, whose calls
+act in that workspace;
 `repo` is the session's repository, which its bare `work_brief()` resolves to a project (doc 02);
 `ttlHours` (default 72) is an idle window that every use renews, with no hard cap. A call
 with that token *is* that session: the name comes from the credential, `X-WorkState-Agent` is ignored,

@@ -22,7 +22,7 @@ namespace WorkState.Mcp.Tools;
 [McpServerToolType]
 public sealed class WorkReadTools(
     BoardReader reader,
-    WorkspaceOptions workspace,
+    RequestTenant tenant,
     Housekeeping housekeeping,
     CallerIdentity caller,
     WebBase web)
@@ -48,12 +48,12 @@ public sealed class WorkReadTools(
         CancellationToken cancellationToken = default)
     {
         var byRepo = string.IsNullOrWhiteSpace(scope)
-            ? await reader.ResolveRepoAsync(workspace.Slug, repo?.Keys() ?? [], caller.Actor.SessionId, cancellationToken)
+            ? await reader.ResolveRepoAsync(tenant.Id, repo?.Keys() ?? [], caller.Actor.SessionId, cancellationToken)
             : null;
 
         var resolved = byRepo ?? (string.IsNullOrWhiteSpace(scope)
-            ? await reader.ResolveUnscopedBriefAsync(workspace.Slug, cancellationToken)
-            : await reader.ResolveForCallerAsync(workspace.Slug, scope, caller.Actor.SessionId, cancellationToken));
+            ? await reader.ResolveUnscopedBriefAsync(tenant.Id, cancellationToken)
+            : await reader.ResolveForCallerAsync(tenant.Id, scope, caller.Actor.SessionId, cancellationToken));
         if (resolved is not ScopeResult.Found found)
         {
             return Text(ScopeExplain.Text(
@@ -159,7 +159,7 @@ public sealed class WorkReadTools(
         string? include = null,
         CancellationToken cancellationToken = default)
     {
-        var resolved = await reader.ResolveDefaultAsync(workspace.Slug, null, caller.Actor.SessionId, cancellationToken);
+        var resolved = await reader.ResolveDefaultAsync(tenant.Id, null, caller.Actor.SessionId, cancellationToken);
         if (resolved is not ScopeResult.Found found)
         {
             return Text(ScopeExplain.Text(resolved, "work_get", null));
@@ -188,7 +188,7 @@ public sealed class WorkReadTools(
         CancellationToken cancellationToken = default)
     {
         var scoped = !string.IsNullOrWhiteSpace(scope);
-        var resolved = await reader.ResolveDefaultAsync(workspace.Slug, scoped ? scope : null, caller.Actor.SessionId, cancellationToken);
+        var resolved = await reader.ResolveDefaultAsync(tenant.Id, scoped ? scope : null, caller.Actor.SessionId, cancellationToken);
         if (resolved is not ScopeResult.Found found)
         {
             var asked = $"q:\"{Glyph.Flat(q).Replace("\"", "\\\"", StringComparison.Ordinal)}\"";
@@ -266,7 +266,7 @@ public sealed class WorkReadTools(
         int limit = 20,
         CancellationToken cancellationToken = default)
     {
-        var resolved = await reader.ResolveDefaultAsync(workspace.Slug, scope, caller.Actor.SessionId, cancellationToken);
+        var resolved = await reader.ResolveDefaultAsync(tenant.Id, scope, caller.Actor.SessionId, cancellationToken);
         if (resolved is not ScopeResult.Found found)
         {
             return Text(ScopeExplain.Text(resolved, "work_history", scope));
@@ -289,7 +289,7 @@ public sealed class WorkReadTools(
         CancellationToken cancellationToken,
         bool sweep = false)
     {
-        var resolved = await reader.ResolveDefaultAsync(workspace.Slug, scope, caller.Actor.SessionId, cancellationToken);
+        var resolved = await reader.ResolveDefaultAsync(tenant.Id, scope, caller.Actor.SessionId, cancellationToken);
         if (resolved is not ScopeResult.Found found)
         {
             return Text(ScopeExplain.Text(resolved, call, scope));

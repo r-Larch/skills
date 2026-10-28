@@ -23,8 +23,7 @@ namespace WorkState.Mcp.Tools;
 public sealed class WorkWriteTools(
     WorkWriter writer,
     BoardReader reader,
-    BoardQueries board,
-    WorkspaceOptions workspace,
+    RequestTenant tenant,
     CallerIdentity caller)
 {
     [Authorize(Policy = WorkStatePolicies.Orchestrator)]
@@ -146,8 +145,7 @@ public sealed class WorkWriteTools(
     {
         return Result(await Guarded("work_create(items:[…])", async () =>
         {
-            var workspaceId = await writer.EnsureWorkspaceAsync(workspace.Slug, cancellationToken);
-            return await writer.CreateAsync(workspaceId, caller.Actor, items ?? [], cancellationToken);
+            return await writer.CreateAsync(tenant.Id, caller.Actor, items ?? [], cancellationToken);
         }));
     }
 
@@ -220,11 +218,7 @@ public sealed class WorkWriteTools(
         [Description("Delete this edge instead of creating it.")] bool remove = false,
         CancellationToken cancellationToken = default)
     {
-        var workspaceId = await board.WorkspaceAsync(workspace.Slug, cancellationToken);
-        if (workspaceId is not { } id)
-        {
-            return Result(WriteResult.No(Empty("work_link")));
-        }
+        var id = tenant.Id;
 
         var result = await Guarded(
             $"work_link(from:\"{from}\", to:\"{to}\", type:\"{type}\")",
@@ -249,11 +243,7 @@ public sealed class WorkWriteTools(
         [Description("The item this came out of.")] string? from = null,
         CancellationToken cancellationToken = default)
     {
-        var workspaceId = await board.WorkspaceAsync(workspace.Slug, cancellationToken);
-        if (workspaceId is not { } id)
-        {
-            return Result(WriteResult.No(Empty("work_note")));
-        }
+        var id = tenant.Id;
 
         return Result(await Guarded(
             $"work_note(kind:\"{kind}\", …)",
@@ -279,11 +269,7 @@ public sealed class WorkWriteTools(
         [Description("confirmed | disproven | obsolete")] string? resolve = null,
         CancellationToken cancellationToken = default)
     {
-        var workspaceId = await board.WorkspaceAsync(workspace.Slug, cancellationToken);
-        if (workspaceId is not { } id)
-        {
-            return Result(WriteResult.No(Empty("work_assume")));
-        }
+        var id = tenant.Id;
 
         return Result(await Guarded(
             $"work_assume(ref:\"{@ref}\", …)",
@@ -319,11 +305,7 @@ public sealed class WorkWriteTools(
         [Description("Required for retire: why it no longer binds.")] string? reason = null,
         CancellationToken cancellationToken = default)
     {
-        var workspaceId = await board.WorkspaceAsync(workspace.Slug, cancellationToken);
-        if (workspaceId is not { } id)
-        {
-            return Result(WriteResult.No(Empty("work_constrain")));
-        }
+        var id = tenant.Id;
 
         return Result(await Guarded(
             $"work_constrain(kind:\"{kind}\", …)",
@@ -347,11 +329,7 @@ public sealed class WorkWriteTools(
         NewFinding[] findings,
         CancellationToken cancellationToken = default)
     {
-        var workspaceId = await board.WorkspaceAsync(workspace.Slug, cancellationToken);
-        if (workspaceId is not { } id)
-        {
-            return Result(WriteResult.No(Empty("work_finding")));
-        }
+        var id = tenant.Id;
 
         return Result(await Guarded(
             "work_finding(findings:[…])",
@@ -378,11 +356,7 @@ public sealed class WorkWriteTools(
         bool dry_run = false,
         CancellationToken cancellationToken = default)
     {
-        var workspaceId = await board.WorkspaceAsync(workspace.Slug, cancellationToken);
-        if (workspaceId is not { } id)
-        {
-            return Result(WriteResult.No(Empty("work_import")));
-        }
+        var id = tenant.Id;
 
         return Result(await Guarded(
             $"work_import(project:\"{project}\", items:[…])",
@@ -395,11 +369,7 @@ public sealed class WorkWriteTools(
         Func<Guid, Task<WriteResult>> write,
         CancellationToken cancellationToken)
     {
-        var workspaceId = await board.WorkspaceAsync(workspace.Slug, cancellationToken);
-        if (workspaceId is not { } id)
-        {
-            return Result(WriteResult.No(Empty("this call")));
-        }
+        var id = tenant.Id;
 
         return await AttendAsync(
             await Guarded($"{tool}(ref:\"{reference}\", …)", () => write(id)),
@@ -438,7 +408,7 @@ public sealed class WorkWriteTools(
             return Result(result);
         }
 
-        var scope = await reader.ResolveAsync(workspace.Slug, reference, cancellationToken);
+        var scope = await reader.ResolveAsync(tenant.Id, reference, cancellationToken);
 
         return scope is ScopeResult.Found found
             ? Result(result with
@@ -447,14 +417,6 @@ public sealed class WorkWriteTools(
             })
             : Result(result);
     }
-
-    private static string Empty(string call)
-        => Refusal.Blocked(
-            $"{call} — this server holds no work yet.",
-            "there is no workspace to write into",
-            "work_create(items:[{kind:\"project\", ref:\"<slug>\", title:\"<what the repo is>\"}]) "
-            + "creates one",
-            "work_brief() for the onboarding payload");
 
     private static CallToolResult Result(WriteResult result) => new()
     {

@@ -9,13 +9,10 @@ public static partial class ApiV1
     private static async Task<IResult> OverviewAsync(
         BoardQueries board,
         ApiQueries api,
-        WorkspaceOptions workspace,
+        RequestTenant tenant,
         CancellationToken cancellationToken)
     {
-        if (await SnapshotAsync(board, api, workspace, cancellationToken) is not { } snapshot)
-        {
-            return Results.Ok(new OverviewView(DateTimeOffset.UtcNow, 0, [], [], 0, new HonestyView(0, 0, 0, 0)));
-        }
+        var snapshot = await SnapshotAsync(api, tenant, cancellationToken);
 
         var book = new V1Book(api, board);
         var projects = await board.ProjectsAsync(snapshot.WorkspaceId, cancellationToken);

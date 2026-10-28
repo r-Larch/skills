@@ -3,7 +3,6 @@ using Microsoft.Extensions.DependencyInjection;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 using WorkState.Core.Domain;
-using WorkState.Core.Queries;
 using WorkState.Core.Writing;
 
 namespace WorkState.Mcp;
@@ -70,10 +69,9 @@ public static class CallerSession
         var services = context.Services;
         var http = services?.GetService<IHttpContextAccessor>()?.HttpContext;
         var store = services?.GetService<SessionStore>();
-        var board = services?.GetService<BoardQueries>();
         var caller = services?.GetService<CallerIdentity>();
 
-        if (http is null || store is null || board is null || caller is null)
+        if (http is null || store is null || caller is null)
         {
             return null;
         }
@@ -112,8 +110,7 @@ public static class CallerSession
             return null;
         }
 
-        var workspace = await board.WorkspaceAsync(services!.GetService<WorkspaceOptions>()?.Slug, cancellationToken);
-        if (workspace is not { } workspaceId)
+        if (RequestTenant.Of(http.User) is not { } workspaceId)
         {
             return null;
         }

@@ -4,7 +4,6 @@ using OpenIddict.Abstractions;
 using WorkState.Api.Auth;
 using WorkState.Api.Auth.OAuth;
 using WorkState.Core.Domain;
-using WorkState.Core.Queries;
 using WorkState.Core.Writing;
 using WorkState.Mcp;
 
@@ -48,9 +47,9 @@ public static class AgentSessionEndpoints
         sessions.MapPatch("/{id:guid}", PatchAsync);
         sessions.MapDelete("/{id:guid}", RevokeAsync);
         sessions.MapPost("/{id:guid}/release", (Guid id, HttpContext context, [FromServices] SessionStore store,
-                [FromServices] BoardQueries board, [FromServices] WorkspaceOptions workspace, CancellationToken cancellationToken)
+                [FromServices] RequestTenant tenant, CancellationToken cancellationToken)
             => Rank(context.User) == ActorRole.Controller
-                ? ReleaseAsync(id, new Actor(Pg(ActorRole.Controller), ActorRole.Controller), store, board, workspace, cancellationToken)
+                ? ReleaseAsync(id, new Actor(Pg(ActorRole.Controller), ActorRole.Controller), store, tenant, cancellationToken)
                 : Task.FromResult(Error(StatusCodes.Status403Forbidden, "only a controller may release a session name")));
     }
 
@@ -59,13 +58,12 @@ public static class AgentSessionEndpoints
     {
         api.MapGroup("/sessions").DashboardWrite()
             .MapPost("/{id:guid}/release", (Guid id, HttpContext context, [FromServices] SessionStore store,
-                    [FromServices] BoardQueries board, [FromServices] WorkspaceOptions workspace, CancellationToken cancellationToken)
+                    [FromServices] RequestTenant tenant, CancellationToken cancellationToken)
                 => ReleaseAsync(
                     id,
                     new Actor(context.User.Identity?.Name ?? DashboardAuth.Role, ActorRole.Human),
                     store,
-                    board,
-                    workspace,
+                    tenant,
                     cancellationToken));
     }
 
@@ -73,8 +71,7 @@ public static class AgentSessionEndpoints
         MintSessionRequest request,
         HttpContext context,
         [FromServices] SessionStore store,
-        [FromServices] BoardQueries board,
-        [FromServices] WorkspaceOptions workspace,
+        [FromServices] RequestTenant tenant,
         CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(request.Name))
@@ -118,13 +115,9 @@ public static class AgentSessionEndpoints
                 "the import grant needs role orchestrator or controller; mint role: \"orchestrator\", grants: [\"import\"]");
         }
 
-        if (await board.WorkspaceAsync(workspace.Slug, cancellationToken) is not { } workspaceId)
-        {
-            return Error(StatusCodes.Status409Conflict, "no workspace exists yet to mint a session into");
-        }
-
+        // Into the caller's own tenant, never one the request names.
         var result = await store.MintAsync(
-            workspaceId,
+            tenant.Id,
             new MintRequest(
                 request.Name,
                 role,
@@ -157,8 +150,7 @@ public static class AgentSessionEndpoints
         PatchSessionRequest request,
         HttpContext context,
         [FromServices] SessionStore store,
-        [FromServices] BoardQueries board,
-        [FromServices] WorkspaceOptions workspace,
+        [FromServices] RequestTenant tenant,
         CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(request.ClaudeSessionId))
@@ -166,7 +158,7 @@ public static class AgentSessionEndpoints
             return Error(StatusCodes.Status400BadRequest, "claudeSessionId is required");
         }
 
-        if (await ManagedAsync(id, context.User, store, board, workspace, cancellationToken) is { } refused)
+        if (await ManagedAsync(id, context.User, store, tenant, cancellationToken) is { } refused)
         {
             return refused;
         }
@@ -179,11 +171,10 @@ public static class AgentSessionEndpoints
         Guid id,
         HttpContext context,
         [FromServices] SessionStore store,
-        [FromServices] BoardQueries board,
-        [FromServices] WorkspaceOptions workspace,
+        [FromServices] RequestTenant tenant,
         CancellationToken cancellationToken)
     {
-        if (await ManagedAsync(id, context.User, store, board, workspace, cancellationToken) is { } refused)
+        if (await ManagedAsync(id, context.User, store, tenant, cancellationToken) is { } refused)
         {
             return refused;
         }
@@ -200,16 +191,10 @@ public static class AgentSessionEndpoints
         Guid id,
         Actor actor,
         SessionStore store,
-        BoardQueries board,
-        WorkspaceOptions workspace,
+        RequestTenant tenant,
         CancellationToken cancellationToken)
     {
-        if (await board.WorkspaceAsync(workspace.Slug, cancellationToken) is not { } workspaceId)
-        {
-            return Error(StatusCodes.Status404NotFound, $"no agent session with id {id}");
-        }
-
-        var result = await store.ReleaseNameAsync(workspaceId, id, actor, cancellationToken);
+        var result = await store.ReleaseNameAsync(tenant.Id, id, actor, cancellationToken);
 
         return result.Outcome switch
         {
@@ -234,15 +219,10 @@ public static class AgentSessionEndpoints
         Guid id,
         ClaimsPrincipal user,
         SessionStore store,
-        BoardQueries board,
-        WorkspaceOptions workspace,
+        RequestTenant tenant,
         CancellationToken cancellationToken)
     {
-        var session = await board.WorkspaceAsync(workspace.Slug, cancellationToken) is { } workspaceId
-            ? await store.FindAsync(workspaceId, id, cancellationToken)
-            : null;
-
-        if (session is null)
+        if (await store.FindAsync(tenant.Id, id, cancellationToken) is not { } session)
         {
             return Error(StatusCodes.Status404NotFound, $"no agent session with id {id}");
         }

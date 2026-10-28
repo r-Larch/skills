@@ -2,7 +2,6 @@ using System.ComponentModel;
 using Microsoft.AspNetCore.Authorization;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
-using WorkState.Core.Queries;
 using WorkState.Core.Writing;
 
 namespace WorkState.Mcp.Tools;
@@ -14,8 +13,7 @@ namespace WorkState.Mcp.Tools;
 [McpServerToolType]
 public sealed class WorkSessionTools(
     SessionStore sessions,
-    BoardQueries board,
-    WorkspaceOptions workspace,
+    RequestTenant tenant,
     CallerIdentity caller)
 {
     [Authorize(Policy = WorkStatePolicies.SelfNamer)]
@@ -38,13 +36,8 @@ public sealed class WorkSessionTools(
             return Text(SessionStore.NoKey(), refused: true);
         }
 
-        if (await board.WorkspaceAsync(workspace.Slug, cancellationToken) is not { } workspaceId)
-        {
-            return Text("work_session — this server holds no work yet; work_brief() for the onboarding payload.", refused: true);
-        }
-
         var bound = await sessions.BindAsync(
-            workspaceId,
+            tenant.Id,
             caller.Actor.Role,
             name,
             new SessionFacts(ClaudeSessionId: claude_session_id, ClientKey: key),
