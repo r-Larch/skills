@@ -144,6 +144,15 @@ metadata-document ones; until then only the latter had it.
 `form-action` names the requested loopback origin, so Approve reaches the client's listener, and the
 page no longer flags that callback as unregistered.
 
+`1.0.0` (no plugin change) makes the server multi-tenant (§4): users and memberships, the request's
+tenant from its sign-in only, row-level security, OAuth tokens and agent sessions per user and
+tenant, admin pages and invite links, password change and reset, and the Ctrl+P palette. Its seven
+migrations (TenantRefs, Users, ClaimKeyWorkspace, AgentSessionUser, UserLinks, SecurityStamp,
+TenantRls) add tables, columns, keys and policies; ClaimKeyWorkspace also backfills live claims, and
+TenantRls marks four built-in functions LEAKPROOF (§4, doc 02 §15). After the upgrade the operator
+signs in to the dashboard once, before the OAuth clients refresh: that sign-in creates the first
+user, under whose name their tokens carry over.
+
 ---
 
 ## 3. Should the skills use it? — Yes, and as a **hard** dependency

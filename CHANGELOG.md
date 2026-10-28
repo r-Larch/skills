@@ -8,6 +8,16 @@ What changes for someone who has the `rlarch` plugin installed, newest first. Fo
 
 ### Changed
 
+- WorkState server **1.0.0** (no plugin change; seven migrations): one server, several
+  tenants. The dashboard has users, tenant memberships and a system administrator; the configured
+  dashboard credential creates the first user at its first sign-in and is not read after that.
+  Every request acts in its sign-in's tenant only, enforced in the queries and by Postgres row-level
+  security. OAuth tokens and minted agent sessions belong to a user and one tenant; the consent page
+  names the tenant. New: admin pages (workspaces, members, copyable invite links), a workspace
+  switcher, password change and admin reset links, and a Ctrl+P command palette that finds any ref
+  across projects. A server deploy accepts no static role token; a local install keeps them. After
+  upgrading, sign in to the dashboard once; existing OAuth connections carry over on their next
+  refresh.
 - WorkState server **0.9.2** (no plugin change, no migration): the consent page lets the browser
   return to such a client's actual port (its `form-action` blocked the redirect, so Approve hung) and
   no longer warns that the address is unregistered.
