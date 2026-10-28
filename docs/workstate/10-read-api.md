@@ -7,10 +7,10 @@ One JSON contract for two clients: the :5290 dashboard and Foreman (native gpui)
 MCP tools are the agents' only write path. The pre-v1 routes (`/api/projects`, `/api/watch`,
 `/api/runs/{ref}/tree|brief|journal`) were removed once the new dashboard stopped calling them (unit
 `mature/prev1-removal`). Outside v1, `/api` keeps `POST|DELETE /api/session` (sign-in), the cookie's
-tenant (`GET /api/session/tenants`, `POST /api/session/tenant`, below) and its user (`GET
-/api/session/me`), `/api/stream`, `/api/agent-sessions` (doc 14, bearer only), the admin API
-(`/api/admin/*`) and the invite link (`/api/invite/{token}`), both below, and the dashboard's two
-writes:
+tenant (`GET /api/session/tenants`, `POST /api/session/tenant`, below), its user (`GET
+/api/session/me`) and password (`POST /api/session/password`), `/api/stream`, `/api/agent-sessions`
+(doc 14, bearer only), the admin API (`/api/admin/*`) and the invite and reset links
+(`/api/invite/{token}`, `/api/reset/{token}`), all below, and the dashboard's two writes:
 
 ### `POST /api/projects/{id}/archive` · `POST /api/projects/{id}/unarchive` (outside v1)
 
@@ -55,6 +55,15 @@ Cookie only. `200 { "id", "name", "systemAdmin": bool, "administers": bool }` �
 true for a system administrator and for an admin of any workspace. It decides only what the sidebar
 offers (the Admin link); the admin API judges every call itself.
 
+### `POST /api/session/password` (outside v1)
+
+Cookie only, with the `X-WorkState-Write` guard, rate-limited like sign-in (5 a minute per client, its
+own window). `{ "current", "next" }`: `204` when `current` is the user's password, the cookie
+re-issued with the user's new security stamp; a bare `401`, as sign-in gives, when it is not (the
+dashboard tells it from a lapsed session by asking `GET /api/session`); `400 {error}` for a `next`
+under 12 characters. The user's other cookies are signed out at their next request (doc 08 §4
+"Passwords"); OAuth tokens and minted sessions are not.
+
 ### `/api/admin/*` (outside v1)
 
 The Admin page's API (doc 08 §4 "Administration"). **Cookie only** — a bearer token gets 401 — and
@@ -75,6 +84,7 @@ administrator gets 404 for an id that is no workspace. Errors are `{ "error": "�
 | `DELETE /api/admin/tenants/{id}/invites/{invite}` | admin of it | `204`; `404` when that workspace has no such unused invite |
 | `GET /api/admin/users` | system admin | `[{ id, name, systemAdmin, createdAt, disabledAt, tenants: [{ id, slug, role }] }]`, by name |
 | `POST /api/admin/users/{id}/disable` · `/enable` | system admin | `200 { id, disabledAt }`; `404`; `409` disabling oneself |
+| `POST /api/admin/users/{id}/reset-link` | system admin; an admin of every workspace the user is in, for a user who is no system admin | `201 { userId, name, token, url, expiresAt }` — the only answer that carries the token; `url` is `<origin>/reset/<token>`, valid 24 hours, replacing the user's unused older link; `403` for anyone else's user, an unknown id included; `404` an unknown id, to a system admin |
 
 ### `GET /api/invite/{token}` · `POST /api/invite/{token}/accept` (outside v1)
 
@@ -86,6 +96,14 @@ one, and `member` whether they already are one. `POST`, with the `X-WorkState-Wr
 cookie set in that workspace; `400 {error}` for a blank name or a password under 12 characters; `409
 {error}` for a name already taken (the link stays unused). A used, revoked, expired or unknown token
 is `404 {error}` on both.
+
+### `GET /api/reset/{token}` · `POST /api/reset/{token}` (outside v1)
+
+The reset page's two calls (doc 08 §4 "Passwords"), shaped like the invite's: no session needed,
+rate-limited per client, the `POST` with the `X-WorkState-Write` guard. `GET` answers `200 { name,
+expiresAt }`. `POST { password }` answers `200 { name }` once the password is set — every cookie of
+that user is signed out, and the browser is not signed in — or `400 {error}` for a password under 12
+characters. A used, replaced, expired or unknown token is `404 {error}` on both.
 
 ## Rules
 

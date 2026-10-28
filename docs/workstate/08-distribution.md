@@ -242,11 +242,13 @@ then on only the table decides: **changing or removing the configured password c
 the dashboard keeps working with neither set. A wrong password, an unknown name and a disabled user
 get the same 401 and each runs one hash verification. Every cookie request re-reads its user
 (the `sub` claim): a user deleted or disabled (`disabled_at`) is signed out on their next request,
-and a cookie issued before m48 (no `sub`) or before m50 (no tenant) has to sign in again. The
+and so is a cookie whose security stamp (`workstate:stamp`) is no longer the user's
+`app_user.security_stamp`, which a password change or reset draws anew (m52). A cookie issued before
+m48 (no `sub`), before m50 (no tenant) or before m52 (no stamp) has to sign in again. The
 configured credential has nothing to do with OAuth (m51): `/connect/authorize` is gated by a
 signed-in cookie, and a fresh install with no user has none to present.
-Users are managed on the dashboard's Admin page (m52, below); a password change is still SQL until
-unit passwords.
+Users are managed on the dashboard's Admin page and change their own password on its Account page
+(m52, below).
 
 **Tenants (m50).** A tenant is a `workspace` row, and every request acts in exactly one: its
 credential's, never one a header, a query parameter or a server default names (C62). Every
@@ -323,6 +325,24 @@ refused (409) and leaves the link unused. `GET /api/invite/{token}` and `POST
 /api/invite/{token}/accept` take no session and are rate-limited per client address (10 a minute,
 sign-in's window doubled because the page reads the link before it uses it); the accept also needs
 the `X-WorkState-Write` header. A used, revoked, expired or unknown token is one answer, 404.
+
+**Passwords (m52).** A password is at least **12 characters** (and at most 1024) wherever one is
+set: accepting an invite, changing one's own, using a reset link. `POST /api/session/password
+{current, next}` (the cookie and the `X-WorkState-Write` header) changes the signed-in user's
+password; a wrong current password is sign-in's bare 401, and it is rate-limited like sign-in, in a
+window of its own. Success rehashes and draws a new security stamp, which **ends every other cookie
+of that user** at its next request, and re-issues the requesting cookie with the new stamp, so it
+stays. **OAuth grants and minted `wss_` sessions stay**: their tokens are not cookies and carry no
+stamp. A **reset link** is the invite's mechanism for one user: `POST
+/api/admin/users/{id}/reset-link` returns `<origin>/reset/<token>` once (only the SHA-256 kept, C64),
+valid **24 hours**, used once by the same conditional `UPDATE`; a newer link for the same user
+replaces an unused older one. Using it (`POST /api/reset/{token} {password}`, no session needed,
+rate-limited like an invite) sets the password and draws a new stamp, which **ends all of the
+user's cookies**, the browser's own included; OAuth grants stay. A reset hands its holder the whole
+account, so a system administrator makes one for anyone, and a tenant admin only for a user who is
+no system administrator and every one of whose workspaces they administer — never for someone with
+a membership in a workspace that is not theirs (C63); every refusal, an unknown id included, is the
+same 403.
 
 **`WORKSTATE_PUBLIC_URL`** (`WorkState:PublicUrl`, **optional**; compose passes
 `${WORKSTATE_PUBLIC_URL:-}`) is the base of the `web` line `work_brief` and `work_get` print
