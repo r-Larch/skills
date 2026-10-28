@@ -7,6 +7,7 @@ import { ADMIN, tenantAdminHref } from '../nav.ts'
 import { day } from '../format.ts'
 import { roleLabel } from '../admin.ts'
 import { Dot, Known } from '../ui.tsx'
+import { ResetLink } from './Admin.tsx'
 
 const message = (failure: unknown) => (failure instanceof Error ? failure.message : String(failure))
 
@@ -92,6 +93,7 @@ function UserRow(props: { user: AdminUser; onChanged: () => void }) {
             )}
           </For>
         </div>
+        <ResetLink user={u().id} name={u().name} />
         <Show when={confirming()}>
           <div class="confirm" role="alertdialog" aria-label={`Disable ${u().name}?`}>
             <p>

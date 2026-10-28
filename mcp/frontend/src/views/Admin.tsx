@@ -3,9 +3,9 @@ import { A, useNavigate } from '@solidjs/router'
 import * as api from '../api.ts'
 import { account, load, refreshAccount } from '../store.ts'
 import { USERS, tenantAdminHref } from '../nav.ts'
-import { plural } from '../format.ts'
+import { clock, day, plural } from '../format.ts'
 import { slugFrom, slugProblem } from '../admin.ts'
-import { Dot, Known } from '../ui.tsx'
+import { Dot, Known, OnceLink } from '../ui.tsx'
 
 /** `/admin` (doc 13): the workspaces the user administers, and for a system administrator a new one. */
 export default function Admin() {
@@ -78,6 +78,46 @@ export function NotAdmin() {
         neither. A workspace admin can make you one.
       </div>
     </Show>
+  )
+}
+
+/**
+ * Create reset link, on a member or user row: the link shown once, under the row. The server decides who may
+ * make one; a refusal is shown in its words.
+ */
+export function ResetLink(props: { user: string; name: string }) {
+  const [created, setCreated] = createSignal<api.CreatedReset>()
+  const [busy, setBusy] = createSignal(false)
+  const [error, setError] = createSignal<string>()
+
+  const create = async () => {
+    setBusy(true)
+    setError(undefined)
+    try {
+      setCreated(await api.createResetLink(props.user))
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : String(failure))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div class="admin-reset">
+      <button type="button" class="proj-act" disabled={busy()} onClick={() => void create()} title="A link that sets a new password, once, within 24 hours">
+        {busy() ? 'Creating…' : 'Create reset link'}
+      </button>
+      <Show when={created()}>
+        {(reset) => (
+          <OnceLink url={reset().url} onDismiss={() => setCreated(undefined)}>
+            Reset link for <strong>{reset().name}</strong>, until {day(reset().expiresAt)} {clock(reset().expiresAt)}. It sets
+            a new password once, within 24 hours, and signs {reset().name} out everywhere. Copy it now: it is shown once,
+            and a newer one replaces it.
+          </OnceLink>
+        )}
+      </Show>
+      <Show when={error()}>{(text) => <div class="failure confirm-err">{text()}</div>}</Show>
+    </div>
   )
 }
 

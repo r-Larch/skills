@@ -1,5 +1,5 @@
 import { createSignal } from 'solid-js'
-import type { InviteView } from './admin.ts'
+import type { InviteView, PasswordChange, ResetView } from './admin.ts'
 import type { AppInfo, SessionTenant } from './connect.ts'
 
 /** doc 10 — the frozen v1 shapes, as `WorkState.Api/App/V1/V1Contract.cs` serialises them. */
@@ -458,10 +458,56 @@ export const acceptInvite = (token: string, body: { name: string; password: stri
     }),
   )
 
-/** Ends this browser's session; the page decides what to show next. */
+/** Ends this browser's session; the dashboard falls back to its sign-in gate, a public page reloads itself. */
 export async function signOut(): Promise<void> {
   await fetch('/api/session', { method: 'DELETE', credentials: 'same-origin' }).catch(() => undefined)
+  setSignedIn(false)
 }
+
+/** The only answer that carries a reset token: the server keeps its hash. */
+export type CreatedReset = { userId: string; name: string; token: string; url: string; expiresAt: string }
+
+export const createResetLink = async (user: string): Promise<CreatedReset> =>
+  (await send('POST', `/api/admin/users/${id(user)}/reset-link`)).json() as Promise<CreatedReset>
+
+/**
+ * `POST /api/session/password`. A wrong current password is sign-in's bare 401, the same status a lapsed
+ * session gets, so a 401 asks whether the session is still there before it says which one it was.
+ */
+export async function changePassword(current: string, next: string): Promise<PasswordChange> {
+  const response = await fetch('/api/session/password', {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json', 'X-WorkState-Write': '1' },
+    body: JSON.stringify({ current, next }),
+  })
+
+  if (response.status === 204) return { k: 'ok' }
+  if (response.status === 429) return { k: 'throttled' }
+  if (response.status === 401) {
+    if (await hasSession()) return { k: 'wrong' }
+    setSignedIn(false)
+    throw new Unauthorized()
+  }
+
+  const body = (await response.json().catch(() => null)) as { error?: string } | null
+  return { k: 'refused', error: body?.error ?? `The password was not changed (${response.status}).` }
+}
+
+/** The reset page's read: whose password the link sets. No session needed. */
+export const resetInfo = (token: string) =>
+  answer<ResetView>(fetch(`/api/reset/${id(token)}`, { credentials: 'same-origin' }))
+
+/** Sets the new password; every session of that user ends, this browser's too. */
+export const useReset = (token: string, password: string) =>
+  answer<{ name: string }>(
+    fetch(`/api/reset/${id(token)}`, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json', 'X-WorkState-Write': '1' },
+      body: JSON.stringify({ password }),
+    }),
+  )
 
 export async function setArchived(project: string, archived: boolean): Promise<void> {
   await write(`/api/projects/${id(project)}/${archived ? 'archive' : 'unarchive'}`)

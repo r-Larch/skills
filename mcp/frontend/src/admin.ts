@@ -1,5 +1,5 @@
 /**
- * The admin pages and the invite page as plain functions, so `verify/state-cases.mjs` can walk them without a
+ * The admin pages, the account page and the invite and reset pages as plain functions, so `verify/state-cases.mjs` can walk them without a
  * browser. The server judges every one of these first (`WorkState.Api/Auth/AccountRules.cs`,
  * `App/AdminEndpoints.cs`); these are the pages' own copy of the rules, for hints before a round trip.
  */
@@ -63,6 +63,8 @@ export function expiresIn(expiresAt: string, now: number): string {
 /** The public pages: no router, no store, no stream, and no sign-in gate in front of them. */
 export const JOIN = '/join/'
 
+export const RESET = '/reset/'
+
 const tokenAfter = (prefix: string, pathname: string): string | null => {
   if (!pathname.startsWith(prefix)) return null
   const token = pathname.slice(prefix.length)
@@ -72,7 +74,10 @@ const tokenAfter = (prefix: string, pathname: string): string | null => {
 /** The token of an invite page's path, or null when the path is not one. */
 export const joinToken = (pathname: string): string | null => tokenAfter(JOIN, pathname)
 
-export const isLinkPath = (pathname: string): boolean => joinToken(pathname) !== null
+/** The token of a reset page's path, or null when the path is not one. */
+export const resetToken = (pathname: string): string | null => tokenAfter(RESET, pathname)
+
+export const isLinkPath = (pathname: string): boolean => joinToken(pathname) !== null || resetToken(pathname) !== null
 
 /** `GET /api/invite/{token}`, as `InviteEndpoints` serialises it. */
 export type InviteView = {
@@ -132,5 +137,60 @@ export function joinStep(state: JoinState, event: JoinEvent): JoinState {
       }
     case 'accepted':
       return state.k === 'accepting' ? { k: 'joined', tenant: state.invite.tenant } : state
+  }
+}
+
+/** `GET /api/reset/{token}`: whose password the link sets. */
+export type ResetView = { name: string; expiresAt: string }
+
+export type ResetState =
+  | { k: 'loading' }
+  | { k: 'invalid'; message: string }
+  | { k: 'shown'; reset: ResetView; error: string | null }
+  | { k: 'saving'; reset: ResetView }
+  | { k: 'done'; name: string }
+
+export type ResetEvent =
+  | { t: 'loaded'; reset: ResetView }
+  | { t: 'failed'; status: number; error: string | null }
+  | { t: 'save' }
+  | { t: 'refused'; status: number; error: string | null }
+  | { t: 'saved' }
+
+/** The reset page, step by step: the same shape as the invite page, without its modes. */
+export function resetStep(state: ResetState, event: ResetEvent): ResetState {
+  switch (event.t) {
+    case 'loaded':
+      return state.k === 'loading' ? { k: 'shown', reset: event.reset, error: null } : state
+    case 'failed':
+      return state.k === 'loading' ? { k: 'invalid', message: joinFailure(event.status, event.error) } : state
+    case 'save':
+      return state.k === 'shown' ? { k: 'saving', reset: state.reset } : state
+    case 'refused':
+      if (state.k !== 'saving') return state
+      if (event.status === 404) return { k: 'invalid', message: joinFailure(404, event.error) }
+      return {
+        k: 'shown',
+        reset: state.reset,
+        error: event.status === 429 ? 'Too many attempts. Wait a minute, then try again.' : (event.error ?? `Refused (${event.status}).`),
+      }
+    case 'saved':
+      return state.k === 'saving' ? { k: 'done', name: state.reset.name } : state
+  }
+}
+
+/** What the account page says after a password change: the server's 401 is told apart from a lapsed session first. */
+export type PasswordChange = { k: 'ok' } | { k: 'wrong' } | { k: 'throttled' } | { k: 'refused'; error: string }
+
+export function passwordMessage(result: PasswordChange): string {
+  switch (result.k) {
+    case 'ok':
+      return 'Password changed. Your other sessions are signed out; this one stays, and so do your OAuth connections.'
+    case 'wrong':
+      return 'The current password is not right. Nothing changed.'
+    case 'throttled':
+      return 'Too many attempts. Wait a minute, then try again.'
+    case 'refused':
+      return result.error
   }
 }

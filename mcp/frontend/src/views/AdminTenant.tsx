@@ -7,7 +7,7 @@ import { ADMIN } from '../nav.ts'
 import { ago, day } from '../format.ts'
 import { ROLES, expiresIn, isLastAdmin, roleLabel } from '../admin.ts'
 import { Dot, Known, OnceLink } from '../ui.tsx'
-import { NotAdmin } from './Admin.tsx'
+import { NotAdmin, ResetLink } from './Admin.tsx'
 
 const message = (failure: unknown) => (failure instanceof Error ? failure.message : String(failure))
 
@@ -104,6 +104,7 @@ function MemberRow(props: { tenant: string; member: AdminMember; members: AdminM
           {m().systemAdmin ? ' · system administrator' : ''} · joined {day(m().joinedAt)}
           {m().disabledAt ? ` · disabled ${day(m().disabledAt!)}` : ''}
         </div>
+        <ResetLink user={m().userId} name={m().name} />
         <Show when={confirming()}>
           <div class="confirm" role="alertdialog" aria-label={`Remove ${m().name}?`}>
             <p>

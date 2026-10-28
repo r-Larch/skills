@@ -448,6 +448,23 @@ a.chip:hover { color: var(--ink); background: var(--line); }
 .linkish:hover:not([disabled]) { text-decoration: underline; }
 .gate .join-go { width: 100%; margin-top: 16px; background: var(--accent); color: #fff; border-radius: 8px; padding: 7px 14px; font-weight: 600; }
 .gate form button[type='submit'] { width: 100%; }
+.gate a.join-go { display: block; text-align: center; }
+.admin-reset { margin-top: 8px; }
+.admin-reset .once { margin: 8px 0 0; }
+.admin-reset .confirm-err { margin: 8px 0 0; }
+.account-form { max-width: 560px; }
+.account-form .admin-form { display: grid; gap: 4px; }
+.account-form label { font-size: 12.5px; color: var(--ink-2); margin-top: 8px; }
+.account-form .admin-form input { flex: none; padding: 6px 10px; }
+.account-form button[type='submit'] { justify-self: start; margin-top: 12px; padding: 5px 14px; }
+.account-form .confirm-err { margin-top: 10px; }
+.done-note { margin-top: 10px; padding: 10px 14px; border-radius: 10px; background: var(--proven-soft); color: var(--proven); font-size: 13px; }
+.side-account { padding-top: 10px; }
+.side-account .side-toggle { padding: 6px 10px; text-transform: none; letter-spacing: 0; font-size: 13px; color: var(--side-ink); }
+.side-account-n { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.side-account-m { display: grid; gap: 2px; padding: 2px 0 0 20px; }
+.side-account-m a, .side-account-m button { text-align: left; padding: 5px 10px; border-radius: 8px; font-size: 13px; color: var(--side-ink); }
+.side-account-m a:hover, .side-account-m button:hover { background: var(--side-2); }
 
 @media (max-width: 1100px) {
   .grid-2 { grid-template-columns: minmax(0, 1fr); }

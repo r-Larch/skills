@@ -5,12 +5,19 @@ import App from './App.tsx'
 import Connect from './Connect.tsx'
 import { isConnectPath } from './connect.ts'
 import Join from './Join.tsx'
-import { isLinkPath } from './admin.ts'
+import Reset from './Reset.tsx'
+import { joinToken, resetToken } from './admin.ts'
 import { initTheme } from './theme.ts'
 
 initTheme()
 
-// The OAuth pages and the invite page are not the dashboard: no router, no store, no stream behind them.
-const page = () => (isConnectPath(location.pathname) ? <Connect /> : isLinkPath(location.pathname) ? <Join /> : <App />)
+// The OAuth pages and the link pages are not the dashboard: no router, no store, no stream behind them.
+const page = () => {
+  const path = location.pathname
+  if (isConnectPath(path)) return <Connect />
+  if (joinToken(path) !== null) return <Join />
+  if (resetToken(path) !== null) return <Reset />
+  return <App />
+}
 
 render(page, document.getElementById('root')!)
