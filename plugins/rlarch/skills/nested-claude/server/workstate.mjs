@@ -1,7 +1,7 @@
 // workstate.mjs — mint, bind and revoke per-session WorkState tokens (docs/workstate/14 §2).
 //
-// The controller token is read from the env FILE by this process and goes nowhere but an
-// Authorization header. A minted token goes nowhere but the mcp-<name>.json it is written to.
+// The controller token (read from the env FILE) or the OAuth access token (oauth.mjs) goes nowhere
+// but an Authorization header. A minted token goes nowhere but the mcp-<name>.json it is written to.
 // Error messages are built from status codes and server error text, never from a header or body
 // this code sent.
 // @ts-check
@@ -51,7 +51,7 @@ export function readControllerToken(envFile) {
 /**
  * @param {Response} res
  */
-async function serverReason(res) {
+export async function serverReason(res) {
     let detail = ''
     try {
         const body = await res.text()
@@ -69,7 +69,7 @@ async function serverReason(res) {
  * @param {string} url
  * @param {RequestInit} init
  */
-async function call(url, init) {
+export async function call(url, init) {
     try {
         return await fetch(url, { ...init, signal: AbortSignal.timeout(15000) })
     } catch (e) {
@@ -84,7 +84,7 @@ async function call(url, init) {
 
 /**
  * POST /api/agent-sessions. Throws Refusal with the reason on any failure.
- * @param {{url: string, controllerToken: string, name: string, role: string, launchedBy: string, cwd: string, ttlHours?: number, grants?: string[], repo?: {remote?: string, root?: string}}} a
+ * @param {{url: string, controllerToken: string, signedIn?: boolean, name: string, role: string, launchedBy: string, cwd: string, ttlHours?: number, grants?: string[], repo?: {remote?: string, root?: string}}} a
  * @returns {Promise<Minted>}
  */
 export async function mintSession(a) {
@@ -107,7 +107,9 @@ export async function mintSession(a) {
         const hint = res.status === 409
             ? ` A live token already exists for "${a.name}": agent_stop that agent first, or pick another name.`
             : res.status === 401 || res.status === 403
-                ? ' The env file token was refused, or it may not mint this role (a role is never raised).'
+                ? a.signedIn
+                    ? ` The sign-in was refused, or it may not mint this role (a role is never raised); if it was signed out, run agent_signin {"url": "${a.url}"}.`
+                    : ' The env file token was refused, or it may not mint this role (a role is never raised).'
                 : ''
         throw new Refusal(`minting a WorkState token failed: ${await serverReason(res)}.${hint} Nothing was launched.`)
     }

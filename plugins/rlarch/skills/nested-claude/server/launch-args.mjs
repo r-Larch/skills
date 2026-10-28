@@ -32,7 +32,7 @@ const QUOTE_RE = /['"`]/
 /**
  * @typedef {object} WorkstateParams
  * @property {'worker'|'orchestrator'|'controller'|'none'} role
- * @property {string|undefined} envFile
+ * @property {string|undefined} envFile  undefined: mint with the stored agent_signin grant
  * @property {string} url
  * @property {number|undefined} ttlHours
  * @property {string[]} grants
@@ -216,22 +216,29 @@ export function validateLaunch(input) {
 
 /**
  * @param {unknown} v
+ * @param {string} param
+ * @returns {string} the url without a trailing slash; DEFAULT_WORKSTATE_URL when v is absent
+ */
+export function workstateUrl(v, param) {
+    if (v === undefined || v === null) return DEFAULT_WORKSTATE_URL
+    if (typeof v !== 'string' || !/^https?:\/\/[^\s/]+/.test(v)) throw new Refusal(`${param} must be an http(s) URL, e.g. http://127.0.0.1:5290`)
+    return v.replace(/\/+$/, '')
+}
+
+/**
+ * @param {unknown} v
  * @param {string} repoRoot
  * @returns {WorkstateParams}
  */
 function validateWorkstate(v, repoRoot) {
     if (v === undefined || v === null) v = {}
-    if (!isObject(v)) throw new Refusal('workstate must be an object: {role, env_file, url?, ttl_hours?, grants?}')
+    if (!isObject(v)) throw new Refusal('workstate must be an object: {role, env_file?, url?, ttl_hours?, grants?}')
     const w = /** @type {Record<string, unknown>} */ (v)
     rejectUnknown(w, WORKSTATE_KEYS, 'workstate')
 
     const role = /** @type {WorkstateParams['role']} */ (oneOf(w.role, ROLES, 'workstate.role', 'worker'))
 
-    let url = DEFAULT_WORKSTATE_URL
-    if (w.url !== undefined && w.url !== null) {
-        if (typeof w.url !== 'string' || !/^https?:\/\/[^\s/]+/.test(w.url)) throw new Refusal('workstate.url must be an http(s) URL, e.g. http://127.0.0.1:5290')
-        url = w.url.replace(/\/+$/, '')
-    }
+    const url = workstateUrl(w.url, 'workstate.url')
 
     let ttlHours
     if (w.ttl_hours !== undefined && w.ttl_hours !== null) {
@@ -258,10 +265,6 @@ function validateWorkstate(v, repoRoot) {
         if (typeof w.env_file !== 'string' || w.env_file.trim() === '') throw new Refusal('workstate.env_file must be a path')
         envFile = path.resolve(repoRoot, w.env_file)
     }
-    if (role !== 'none' && envFile === undefined) {
-        throw new Refusal(`workstate.role is "${role}", so a per-session token must be minted, and that needs workstate.env_file: the PATH of WorkState's .env - ~/.workstate/.env, or <clone>/mcp/.env (never its contents). Pass workstate.role "none" to launch without WorkState.`)
-    }
-
     return { role, envFile, url, ttlHours, grants }
 }
 

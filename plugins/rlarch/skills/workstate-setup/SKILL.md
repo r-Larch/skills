@@ -146,8 +146,9 @@ hand-started session that shares this registration. A new install gets it; an ex
 
 The roles nest — a controller token also satisfies orchestrator and worker. Register a worker token
 (`--role worker`) only for a session that just executes tasks handed to it. Sessions launched by
-`nested-claude`'s `agent_launch` get their own minted token and name instead; give it `workstate.env_file` = the `.env`
-this script names (`<home>/.env` or `<clone>/mcp/.env`) — a path, which is all it needs.
+`nested-claude`'s `agent_launch` get their own minted token and name instead; sign it in once with
+`agent_signin`, or, headless, give it `workstate.env_file` = the `.env` this script names
+(`<home>/.env` or `<clone>/mcp/.env`) — a path, which is all it needs.
 
 Each step prints one line; every step is idempotent, so running it again is always safe:
 

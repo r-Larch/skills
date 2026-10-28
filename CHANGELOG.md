@@ -14,6 +14,27 @@ What changes for someone who has the `rlarch` plugin installed, newest first. Fo
   Claude session id, and the dashboard's new Sessions page releases a stuck name. Rebuild or
   `--update` to get it; one additive migration (`OAuthMintedSession`). Back up first.
 
+## [2.8.0] - 2026-10-28
+
+### Added
+
+- **`agent_signin`: sign in once, no `.env` for `agent_launch`.** Run `agent_signin` (default
+  `http://127.0.0.1:5290`, or `{url}` for another WorkState server) once: it opens your browser on
+  the WorkState sign-in page, you sign in with the dashboard user and approve, and from then on
+  `agent_launch` and `agent_stop` mint and revoke each agent's token with that grant. The grant
+  lives in `~/.workstate/grants.json` (`0600` on macOS and Linux; on Windows your user profile's
+  ACL protects it) and never appears in a tool result. It is refreshed as needed and lasts 30 days
+  unused. A launch without a grant, or with an expired one, is refused with the `agent_signin`
+  call to make. Needs WorkState server 0.9.0 or later.
+- **`agent_signout`** revokes the grant at the server and deletes it. Every agent session minted with
+  it stops working at its next request.
+
+### Changed
+
+- **`workstate.env_file` is optional.** Leave it out once you have signed in. Pass it for headless
+  use (CI, a machine nobody can sign in on): it works exactly as before and wins over a stored
+  grant.
+
 ## [2.7.0] - 2026-10-28
 
 ### Added

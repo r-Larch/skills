@@ -39,7 +39,7 @@ async function dispatch(method, params) {
                 protocolVersion: SUPPORTED.includes(asked) ? asked : LATEST,
                 capabilities: { tools: { listChanged: false } },
                 serverInfo: { name: 'agents', version: SERVER_VERSION },
-                instructions: 'Launch, list and stop nested Claude Code background sessions. See the rlarch nested-claude skill.',
+                instructions: 'Launch, list and stop nested Claude Code background sessions. agent_signin once per WorkState server lets agent_launch mint without an env file. See the rlarch nested-claude skill.',
             }
         }
         case 'ping':
