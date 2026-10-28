@@ -32,7 +32,7 @@ public static partial class ApiV1
     public static IApplicationBuilder UseApiVersionHeader(this IApplicationBuilder app)
         => app.Use(async (context, next) =>
         {
-            if (context.Request.Path.StartsWithSegments("/api/v1"))
+            if (context.Request.Path.StartsWithSegments("/api/v1") || context.Request.Path.StartsWithSegments("/api/stream"))
             {
                 context.Response.Headers[Header] = Version;
             }
