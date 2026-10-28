@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Globalization;
 using System.Text;
 using Dapper;
+using Microsoft.EntityFrameworkCore;
 using Npgsql;
 using WorkState.Core.Data;
 using WorkState.Core.Queries;
@@ -17,6 +18,8 @@ namespace WorkState.Tests.Store;
 /// The same real query methods run as the owner (no policy applies) and as the tenant role in the largest
 /// workspace, interleaved call by call. Wall time per call includes the tenant transaction's extra round trip;
 /// the server's own execution time per statement comes from <c>pg_stat_statements</c> when the server loads it.
+/// With <c>-e WORKSTATE_RLS_PERF_SEED=1</c> the target must be an empty database: it is migrated and given doc 15's
+/// 5,000-item seed first, so the seed is measured the same way, interleaved in one database.
 /// </summary>
 public sealed class RlsPerfTests
 {
@@ -30,6 +33,19 @@ public sealed class RlsPerfTests
     public async Task Rls_the_hot_reads_cost_the_same_with_and_without_row_level_security()
     {
         CultureInfo.CurrentCulture = CultureInfo.InvariantCulture;
+        if (Environment.GetEnvironmentVariable("WORKSTATE_RLS_PERF_SEED") == "1")
+        {
+            await using (var context = new WorkStateDbContext(WorkStateDbContextOptions.Build(Target!)))
+            {
+                await context.Database.MigrateAsync(Ct);
+            }
+
+            await using var seed = new NpgsqlConnection(Target);
+            await seed.OpenAsync(Ct);
+            await PlanSeed.CreateAsync(seed, Ct);
+            await seed.ExecuteAsync("VACUUM ANALYZE;");
+        }
+
         await using var ownerSource = WorkStateDataSource.Create(Target!);
         await using var tenantSource = WorkStateDataSource.Create(Target!);
         WorkStateConnections.RunUnscopedAsOwner(ownerSource);
@@ -146,6 +162,9 @@ public sealed class RlsPerfTests
             ("default-scope/workspace", () => board.DefaultScopeAsync(ws, Ct)),
             ("threads/workspace", () => queries.OpenThreadsAsync(ws, null, Ct)),
             ("attention.done-unverified", () => board.DoneUnverifiedAsync(project, Ct)),
+            ("attention.expired-claims", () => board.ExpiredClaimsAsync(project, Ct)),
+            ("attention.stale", () => board.StaleInProgressAsync(project, 4, Ct)),
+            ("search/two-words", () => queries.SearchAsync(ws, "flaky migration", 20, Ct)),
             ("journal/head", () => api.EventsAsync(ws, null, false, 0, 51, false, null, Ct)),
         ];
     }

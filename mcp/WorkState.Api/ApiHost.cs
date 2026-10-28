@@ -232,7 +232,7 @@ public static class ApiHost
         // not have. The service owns this database outright, so it brings it up itself.
         if (builder.Configuration.GetValue("WorkState:Migrate", true))
         {
-            builder.Services.AddSingleton(new SchemaOwner(connectionString));
+            builder.Services.AddSingleton(sp => new SchemaOwner(connectionString, sp.GetRequiredService<ILogger<SchemaOwner>>()));
         }
 
         builder.Services.AddSingleton(_ => WorkStateDataSource.Create(connectionString));

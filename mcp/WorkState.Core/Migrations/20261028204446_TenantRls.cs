@@ -1,4 +1,4 @@
-﻿using Microsoft.EntityFrameworkCore.Migrations;
+using Microsoft.EntityFrameworkCore.Migrations;
 using WorkState.Core.Data;
 
 #nullable disable
@@ -14,7 +14,10 @@ namespace WorkState.Core.Migrations
     /// </summary>
     public partial class TenantRls : Migration
     {
-        /// <summary>The setting unset, or reset to <c>''</c> once a transaction that set it ended, admits no row.</summary>
+        /// <summary>
+        /// The setting unset, or reset to <c>''</c> once a transaction that set it ended, admits no row. A scalar
+        /// subquery, so a plan reads it once (an InitPlan) rather than once per row.
+        /// </summary>
         public const string Tenant = $"(SELECT NULLIF(current_setting('{WorkStateConnections.WorkspaceSetting}', true), '')::uuid)";
 
         public const string Policy = "tenant_isolation";
@@ -64,6 +67,15 @@ namespace WorkState.Core.Migrations
             "\"__EFMigrationsHistory\"", "data_protection_key", "oauth_key",
             "openiddict_application", "openiddict_authorization", "openiddict_scope", "openiddict_token",
         ];
+
+        /// <summary>
+        /// The functions behind the subtree (<c>item_subtree_idx</c>), ref (<c>item_ref_lower_idx</c>) and search
+        /// (<c>item_search_idx</c>, <c>note_search_idx</c>) indexes. Under a policy, Postgres uses a function as an index condition only if it
+        /// is LEAKPROOF, and these are not by default: every subtree read became a scan of the workspace (doc 15 §7).
+        /// Superuser-only, per database, and not carried by pg_dump, so <c>SchemaOwner</c> re-asserts them at startup.
+        /// </summary>
+        public static readonly IReadOnlyList<string> Leakproof =
+            ["arraycontains(anyarray, anyarray)", "lower(text)", "ts_match_vq(tsvector, tsquery)", "to_tsvector(regconfig, text)"];
 
         /// <summary>A view runs as its owner unless told otherwise, and the owner is not confined.</summary>
         public static readonly IReadOnlyList<string> Views = ["item_rollup", "open_thread"];
@@ -115,11 +127,21 @@ namespace WorkState.Core.Migrations
             {
                 migrationBuilder.Sql($"ALTER VIEW {view} SET (security_invoker = true);");
             }
+
+            foreach (var function in Leakproof)
+            {
+                migrationBuilder.Sql($"ALTER FUNCTION {function} LEAKPROOF;");
+            }
         }
 
         /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
+            foreach (var function in Leakproof)
+            {
+                migrationBuilder.Sql($"ALTER FUNCTION {function} NOT LEAKPROOF;");
+            }
+
             foreach (var view in Views)
             {
                 migrationBuilder.Sql($"ALTER VIEW {view} RESET (security_invoker);");

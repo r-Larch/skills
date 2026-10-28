@@ -1,4 +1,5 @@
 using Dapper;
+using Microsoft.EntityFrameworkCore;
 using Npgsql;
 using WorkState.Core.Data;
 using WorkState.Core.Migrations;
@@ -202,6 +203,84 @@ public sealed class RlsTests(PostgresFixture fixture) : IAsyncLifetime
                     new { a = a.WorkspaceId }));
                 Assert.Equal(PostgresErrorCodes.InsufficientPrivilege, error.SqlState);
             }
+        }
+    }
+
+    /// <summary>
+    /// doc 15 §7: under a policy, a function that is not LEAKPROOF cannot be an index condition, and the subtree,
+    /// ref and search reads fell back to scanning the workspace. Each predicate must be the index's own condition,
+    /// not a filter over an index scan by workspace. A database of its own, with one workspace: the tenant is an
+    /// InitPlan, so the planner sizes it as an average workspace, which in the shared database is a few rows.
+    /// </summary>
+    [Fact]
+    public async Task Rls_the_subtree_ref_and_search_indexes_still_serve_reads_under_the_tenant_role()
+    {
+        var database = $"rls_{Guid.CreateVersion7():n}";
+        await using (var admin = await fixture.DataSource.OpenConnectionAsync(Ct))
+        {
+            await admin.ExecuteAsync($"CREATE DATABASE {database};");
+        }
+
+        var connectionString = new NpgsqlConnectionStringBuilder(fixture.ConnectionString) { Database = database }
+            .ConnectionString;
+        var (ws, project, run) = (Guid.CreateVersion7(), Guid.CreateVersion7(), Guid.CreateVersion7());
+
+        (string Sql, string Index, string Condition)[] reads =
+        [
+            ("SELECT count(*) FROM item c WHERE c.ancestors @> ARRAY[@run]::uuid[];", "item_subtree_idx", "(ancestors @>"),
+            ("SELECT id FROM item WHERE workspace_id = @ws AND lower(ref) = lower('RUN-A');", "item_ref_lower_idx", "lower(ref) ="),
+            ("SELECT id FROM item WHERE search @@ websearch_to_tsquery('english', 'quokka');", "item_search_idx", "(search @@"),
+            ("SELECT id FROM note WHERE to_tsvector('english', body) @@ websearch_to_tsquery('english', 'quokka');",
+                "note_search_idx", "(to_tsvector("),
+        ];
+
+        try
+        {
+            await using (var context = new WorkStateDbContext(WorkStateDbContextOptions.Build(connectionString)))
+            {
+                await context.Database.MigrateAsync(Ct);
+            }
+
+            // Enough rows that each index is the cheap path whenever the planner may take it.
+            await using (var owner = new NpgsqlConnection(connectionString))
+            {
+                await owner.ExecuteAsync(
+                    """
+                    INSERT INTO workspace (id, slug) VALUES (@ws, 'rls-guard');
+                    INSERT INTO item (id, workspace_id, kind, ref, seq, title) VALUES (@project, @ws, 'project', 'guard', 1, 'guard');
+                    INSERT INTO item (id, workspace_id, parent_id, kind, ref, seq, title)
+                    VALUES (@run, @ws, @project, 'run', 'run-a', 1, 'run a');
+                    INSERT INTO item (id, workspace_id, parent_id, kind, ref, seq, title)
+                    SELECT gen_random_uuid(), @ws, @project, 'followup', 'bulk-' || n, 10 + n, 'bulk ' || n
+                    FROM   generate_series(1, 2000) AS n;
+                    INSERT INTO note (id, workspace_id, kind, body)
+                    SELECT gen_random_uuid(), @ws, 'observation', 'bulk note ' || n
+                    FROM   generate_series(1, 2000) AS n;
+                    ANALYZE;
+                    """,
+                    new { ws, project, run });
+            }
+
+            await using var source = WorkStateDataSource.Create(connectionString);
+            var connections = new WorkStateConnections(source);
+            using var scope = TenantScope.Enter(ws);
+            foreach (var (sql, index, condition) in reads)
+            {
+                await using var tenant = await connections.TenantAsync(Ct);
+                await tenant.Connection.ExecuteAsync("SET LOCAL enable_seqscan = off;");
+                var plan = (await tenant.Connection.QueryAsync<string>($"EXPLAIN (COSTS OFF) {sql}", new { run, ws })).ToList();
+
+                Assert.True(
+                    plan.Any(line => line.Contains(index, StringComparison.Ordinal))
+                    && plan.Any(line => line.Contains("Index Cond:", StringComparison.Ordinal) && line.Contains(condition, StringComparison.Ordinal)),
+                    $"{index} does not serve {condition} as the tenant role:\n{string.Join("\n", plan)}");
+            }
+        }
+        finally
+        {
+            NpgsqlConnection.ClearAllPools();
+            await using var admin = await fixture.DataSource.OpenConnectionAsync(Ct);
+            await admin.ExecuteAsync($"DROP DATABASE IF EXISTS {database} WITH (FORCE);");
         }
     }
 
