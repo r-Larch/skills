@@ -33,7 +33,8 @@ A project's members (doc 02 §12b, doc 08 §4 "Projects"), for the dashboard's s
 `X-WorkState-Write` guard. Allowed to a member of the project and to an admin of the workspace (a
 system administrator is one of every workspace). **Anyone else gets the same `404 {error}` as an id
 that is no project** — a member of the workspace who is not in the project, a user of another
-workspace — so a private project's existence is not revealed.
+workspace — so a private project's existence is not revealed. An admin manages the members of a project
+they are not in, and still reads none of its work (rule 8).
 
 | Route | Answers |
 |---|---|
@@ -188,6 +189,14 @@ characters. A used, replaced, expired or unknown token is `404 {error}` on both.
    like a typo, `/resolve` and `/search` look nowhere else, and `/api/stream` carries only its events.
    A credential with no tenant — an OAuth token whose user is a member of several workspaces, or of
    none — is `403 {"error": "…"}`, the error saying what to do.
+8. **The project.** Within its tenant, a request whose credential names a user sees the projects that
+   user is a member of, and the workspace's projects no one has joined yet (doc 02 §15b, doc 08 §4); a
+   static or reader token, which names none, sees every project of its workspace. To a user who is not a
+   member, a project's items, runs and events do not exist, and the answer is the one a typo gets: an id
+   of theirs is `404` with the unknown id's body, `/overview` and `/inbox` leave the project out,
+   `/resolve` and `/search` find nothing in it, `/journal` without a scope leaves its events out, and
+   `/api/stream` does not send them — read per event, so a member added sees the next one on a stream
+   already open. Never `403`: a private project's existence is not revealed.
 
 ## Shared shapes
 

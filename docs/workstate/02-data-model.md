@@ -896,15 +896,16 @@ project with every member of its workspace is the tenant-wide one (doc 08 §4 "P
   the caller's tenant.
 - **New projects are private.** `work_create(kind:"project")` makes the caller's user its one member
   (`CallerIdentity.UserId`: an OAuth token or a user-minted `wss_` session). With no user — a static
-  token, the offline importer — or a user who is not in the workspace, every current member of the
-  workspace becomes a member instead.
+  token, the offline importer — every current member of the workspace becomes a member instead. A user
+  who is not in the workspace (a system administrator visiting it) is refused (m59): they could not be a
+  member, so the project would be hidden from them the moment it existed (§15b).
 - **The migration** gave every project that existed every member of its workspace (`added_by` null):
   nothing that was visible to a member before became private.
 - **A project keeps one member.** Removing its last member is refused, and so is removing that user
   from the workspace (`AdminStore`), naming the projects; both take the workspace row's lock, so the
   two cannot each remove one of a project's last two members. Disabling a user removes nothing.
-- **Nothing filters on it yet.** Membership is recorded and managed (doc 10 "Outside v1"); enforcing
-  it on every read and write path is the project-access unit's.
+- **It decides who sees the project** (m59, §15b): a project's rows reach its members only, enforced in
+  the database on every read and write path.
 
 ---
 
@@ -959,6 +960,7 @@ CREATE VIEW open_thread AS
 | A verify command that can never go red | `verification (workspace_id, command, passed)` |
 | "The record disagrees with the code" | the record *is* what the transitions produced, and every transition required evidence |
 | A query that forgets its `workspace_id` filter | row-level security: the database returns the request's tenant's rows and no other's (§15) |
+| A query that forgets the caller is not a member of the project | `project_access`: the database hides a project's rows from everyone but its members (§15b) |
 
 ---
 
@@ -1129,3 +1131,115 @@ with the first statement was considered and left out. Npgsql 10 has no per-open 
 `UsePhysicalConnectionInitializer` runs once per physical connection, not per tenant, and nothing public
 prepends to the `BEGIN` it holds back. It would take a connection wrapper in place of `NpgsqlConnection`
 in every store.
+
+---
+
+## 15b. Project access — the database keeps the project
+
+m59, migration `ProjectAccess`. A project's data is reachable only by its members (C66): within one
+tenant, a user who is not a member of a project reads, searches, streams, resolves and writes nothing of
+it, and is answered as for a ref or an id that does not exist. As with the tenant (§15), every path still
+names what it reads, and the database is the line that holds when one forgets.
+
+### The user, and who has none
+
+The tenant helper sets a second transaction-local setting with the first:
+
+```sql
+SELECT set_config('role', 'workstate_app', true), set_config('app.workspace_id', $tenant, true),
+       set_config('app.user_id', $user, true);
+```
+
+`$user` is the `TenantScope`'s user, which the API enters with the tenant, from the principal and from
+nothing else (`RequestUser`): the cookie's `sub`, or the `workstate:user-id` of an OAuth token or of a
+`wss_` session a user minted. A principal that names two different users — a cookie beside another
+user's bearer token — enters no tenant at all. `/r/{path}` enters the cookie's user, in the cookie's
+tenant and in each other one it looks in. The server enters a scope only with
+`TenantScope.EnterAs(tenant, user)`; `Enter(tenant)`, which has no user, is the test suite's
+(`ProjectAccessRlsTests` guards it).
+
+**A credential with no user sees every project of its tenant**: a static role token, the reader token,
+the offline importer (the owner) and the test suite's direct store calls. Static role tokens are for a
+local single-user install (doc 08 §4); the server deploy configures none. A reader token configured on a
+shared server reads every project of its workspace.
+
+### What is hidden, and what stays the tenant's
+
+```sql
+CREATE FUNCTION workstate_hidden_projects() RETURNS uuid[]
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public AS $fn$
+  SELECT coalesce(array_agg(DISTINCT m.project_item_id), ARRAY[]::uuid[])
+  FROM   project_member m
+  WHERE  m.workspace_id = <app.workspace_id> AND <app.user_id> IS NOT NULL
+    AND  NOT EXISTS (SELECT 1 FROM project_member me
+                     WHERE me.project_item_id = m.project_item_id AND me.user_id = <app.user_id>);
+$fn$;
+
+CREATE POLICY project_access ON item AS RESTRICTIVE
+  USING      (NOT (coalesce(item.ancestors[1], item.id) = ANY ((SELECT workstate_hidden_projects())::uuid[])))
+  WITH CHECK (NOT (coalesce(item.ancestors[1], item.id) = ANY ((SELECT workstate_hidden_projects())::uuid[])));
+```
+
+A project is **hidden** from the caller when it has members and the caller is not one. An item belongs
+to its root — the project at the top of its tree, or itself — so a whole subtree is hidden or not with
+its project. Hidden from no one:
+
+- **A project with no member** — a static token's project on an install that has no user yet, or one
+  the importer wrote into an empty tenant. It is the tenant's until its first member joins, which makes
+  it private from the next statement on; so it is never orphaned.
+- **A root that is no project**, which has no members: a parentless feature and everything under it.
+- **Workspace rows that name no item**: an assumption, a rule or an agent token with no scope, a
+  document with no item, a note addressed to nothing and from nothing, an event with no item. They
+  belong to the workspace, not to a project, so every member of it reads them.
+
+The policy is `RESTRICTIVE`, ANDed with `tenant_isolation`, and is a second policy beside it, so the
+tenant's stays as §15 lists it. It is on these tables:
+
+| policy | tables |
+|---|---|
+| its root is not hidden | `item` |
+| its project is not hidden | `project_member` |
+| its item is visible — `EXISTS (SELECT 1 FROM item p WHERE p.id = <column>)`, read under `item`'s policies | `verification` (`item_id`), `project_repo` and `import_record` (`project_item_id`), `item_link` (both ends) |
+| the same, or the reference is null: a workspace row | `doc` (`item_id`), `event` (`item_id`), `assumption` and `constraint_rule` (`scope_item_id`), `agent_token` (`scope_item_id`), `note` (`to_item_id` and `from_item_id`) |
+| none of its own: its tenant policy already reads its parent, which reads `item` | `item_criterion`, `attempt`, `artifact`, `claim`, `project_config`, `run_config`, `report`, `doc_block`, `doc_block_revision` |
+| none — no project | `workspace`, `tenant_membership`, `user_link`, `agent_session` |
+
+`TenantTables.ByProject` lists the first four rows; `ProjectAccessRlsTests` reads it. The views run as
+their caller (§15), so `item_rollup` and `open_thread` count and list only what the caller may see.
+
+**Why a function.** The caller's hidden projects are computed once per statement — `(SELECT f())` is an
+InitPlan — and every row then pays one comparison against a short array. A policy that read
+`project_member` itself would need a grant on it for every role a policy applies to (an owner that is no
+superuser, `RlsTests`), and `project_member`'s own policy could not read it without recursing.
+`SECURITY DEFINER` runs it as the owner, the superuser §15 requires, which no policy confines. `STABLE`
+makes it read the statement's snapshot, the same one the rows it filters come from: a project and its
+first member are inserted in one transaction, so no statement sees the project without its members. It
+reads two settings and takes no argument, so no caller can point it elsewhere.
+
+### The paths that see every project, and the ones the database cannot keep
+
+- **A project's member list.** `GET|POST|DELETE /api/projects/{id}/members` run in a tenant transaction
+  that hides nothing (`WorkStateConnections.TenantEveryProjectAsync(ProjectBypass.Membership)`), because a
+  workspace admin manages a project's members without being one. The writer checks that the caller is a
+  member or an admin, and reads the project's ref and its members, never its work. The admin pages run as
+  the owner (§15) and name a project only in the refusal to remove its last member.
+- **The live stream.** `/api/stream`'s one `LISTEN` connection is the owner's. Each event is read back
+  through the subscriber's tenant scope before it is sent (`ApiQueries.StreamPlacementAsync`): an event of
+  a hidden project is not sent. Membership is read per event, so a member added sees the project's next
+  event on a stream they already hold, and a member removed stops seeing them from the next one.
+  `member_added` and `member_removed` are events of their project and are routed like any other: the user
+  removed does not see their own removal.
+- **Unique indexes** are checked across every row, visible or not. Three names are workspace-wide and
+  can meet a hidden project: a top-level project's ref, a repository key (`project_repo`), and a claim's
+  tree key. A project ref the server numbers skips a number a hidden project holds (a savepoint, then the
+  next number). A ref the caller chose, or a repository another project holds, is refused as taken — the
+  repository's by a project the caller is not a member of, never which — so a non-member learns that a
+  name is taken and nothing else. A tree a hidden project's claim holds is refused as the index refuses it.
+- **Triggers** run as their caller and see what the caller sees. `item_tree_before` refuses a parent the
+  caller cannot see as a parent that does not exist. The `blocks` cycle check walks only the links the
+  caller can see: a cycle closed through a project the caller cannot see is not caught.
+
+### What it costs
+
+One more setting in the statement the tenant helper already sends, and one InitPlan per table a
+statement reads. Measured on the live-data copy in doc 15 §8.

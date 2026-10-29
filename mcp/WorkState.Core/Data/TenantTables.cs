@@ -14,4 +14,10 @@ public static class TenantTables
 
     /// <summary>Tables with no workspace of their own: a row is the tenant's when its parent is.</summary>
     public static IReadOnlyDictionary<string, string> ThroughParent => TenantRls.ThroughParent;
+
+    /// <summary>
+    /// Tenant tables whose rows belong to a project, and their <c>project_access</c> policy (doc 02 §15b). The
+    /// <see cref="ThroughParent"/> tables follow their item through their tenant policy instead.
+    /// </summary>
+    public static IReadOnlyDictionary<string, string> ByProject => ProjectAccess.Tables;
 }

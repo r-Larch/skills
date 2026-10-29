@@ -380,8 +380,9 @@ write; there is no read-only member. A project is **private to its creator** unt
 whose OAuth token or minted `wss_` session ran `work_create` is its one member. A credential with no
 user — a static token on a local install, or the offline importer — has no creator to name, so the
 project gets **every current member of the workspace**, the same rule the migration applied to every
-project that existed before members did. So does a user who is not a member of the workspace they act
-in (a system administrator visiting it), since only a workspace's members can be project members.
+project that existed before members did. A user who is not a member of the workspace they act in (a
+system administrator visiting it) cannot create a project there (m59): only a workspace's members can be
+project members, so it would be hidden from its creator.
 Sharing is the dashboard's: `GET|POST /api/projects/{id}/members`, `DELETE
 /api/projects/{id}/members/{user}` (doc 10 "Outside v1"), allowed to a member of the project and to
 an admin of its workspace (a system administrator is one of every workspace). Anyone else — a
@@ -391,9 +392,17 @@ true}`) is how a project becomes tenant-wide; a member who joins the workspace l
 to its projects. A project keeps at least one member: removing its last is refused (409), and so is
 removing that user from the workspace, naming the projects, until someone else is in each.
 Otherwise leaving a workspace ends its project memberships with it; **disabling a user does not**
-(they may be enabled again). Membership is recorded and shared here; reads and writes are not yet
-filtered by it — every member of a workspace still sees all of its projects until the project-access
-unit enforces it on every path.
+(they may be enabled again).
+
+**Only a project's members reach it (m59, doc 02 §15b).** Membership decides every read and write, in
+the database: a member of the workspace who is not in a project finds none of it — not in the overview,
+the inbox, a search, the journal, the live stream, a `/r/` link or a ref that names it — and is answered
+as for a ref or an id that does not exist. A default scope (`work_brief()`, `work_next()`) lands only in
+a project the caller is in. There is no read-only member and no read-only share. A workspace admin
+manages any project's members without being one, and reads no project they are not in. A project no one
+has joined yet — a static token's on an install with no user — is every member's until its first member
+joins. A credential with no user — a static role token or the reader token — sees every project of its
+workspace; the server deploy configures no static role token, so there every client is a user.
 
 **`WORKSTATE_PUBLIC_URL`** (`WorkState:PublicUrl`, **optional**; compose passes
 `${WORKSTATE_PUBLIC_URL:-}`) is the base of the `web` line `work_brief` and `work_get` print

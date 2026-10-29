@@ -75,6 +75,22 @@ public sealed class ApiQueries(NpgsqlDataSource dataSource)
         return ids.Count == 0 ? [] : await ListAsync<Placement>(sql, new { ids = ids.ToArray() }, cancellationToken);
     }
 
+    /// <summary>
+    /// One journal event as the stream sends it (doc 10): null when the caller may not see it — an event of a project
+    /// they are not a member of (doc 02 §15b) — else its item's run. Read per event, so a membership added or removed
+    /// applies from the next event on.
+    /// </summary>
+    public async Task<StreamPlacement?> StreamPlacementAsync(long seq, CancellationToken cancellationToken = default)
+        => await SingleAsync<StreamPlacement>(
+            $"""
+             SELECT e.item_id AS "ItemId", ({Nearest("run")}) AS "RunId"
+             FROM   event e
+             LEFT   JOIN item i ON i.id = e.item_id
+             WHERE  e.seq = @seq;
+             """,
+            new { seq },
+            cancellationToken);
+
     private static string Nearest(string kind)
         => $"""
             SELECT a.id FROM item a

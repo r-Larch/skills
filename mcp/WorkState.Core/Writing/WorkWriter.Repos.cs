@@ -84,6 +84,25 @@ public sealed partial class WorkWriter
                     $"work_brief(scope:\"{held.ProjectRef}\") to work in it",
                     $"work_brief(repo:{RepoKeys.Literal(keys)}) — the same project, found from the repo"));
             }
+
+            var own = await connection.ExecuteScalarAsync<bool>(new CommandDefinition(
+                "SELECT EXISTS (SELECT 1 FROM project_repo WHERE workspace_id = @workspace AND key = @key AND project_item_id = @project);",
+                new { workspace = workspaceId, key = key.Key, project = projectId },
+                transaction,
+                cancellationToken: cancellationToken));
+
+            if (own)
+            {
+                continue;
+            }
+
+            // Held, but by a project the caller is not a member of (doc 02 §15b): the key is the workspace's to give
+            // once, so the refusal says it is taken and names nothing of the project that took it.
+            return ([], Refusal.Blocked(
+                $"{key.Kind} \"{key.Key}\" is already bound to a project of this workspace that you are not a member of.",
+                $"one project per repository, so {projectRef} cannot hold it too; that project's members can add you",
+                $"work_brief(repo:{RepoKeys.Literal(keys)}) once a member has added you — it finds that project",
+                $"the same call without repo: to leave {projectRef} unbound"));
         }
 
         return (added, null);

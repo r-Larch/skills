@@ -1,5 +1,6 @@
 using Dapper;
 using Npgsql;
+using WorkState.Core.Data;
 
 namespace WorkState.Core.Writing;
 
@@ -39,9 +40,9 @@ public sealed partial class WorkWriter
 {
     /// <summary>
     /// doc 02 §12b — a project is private to its creator until shared. A credential without a user (a static
-    /// token), or a user who is not a member of the workspace (a system administrator visiting it), gives the
-    /// project every member of the workspace instead, the rule the ProjectMembers migration applied to every
-    /// project that existed before members did.
+    /// token) gives the project every member of the workspace instead, the rule the ProjectMembers migration applied
+    /// to every project that existed before members did. A user who is not a member of the workspace is refused
+    /// before this (<see cref="InWorkspaceAsync"/>): the project would be invisible to them (doc 02 §15b).
     /// </summary>
     private static async Task FirstMembersAsync(
         NpgsqlConnection connection,
@@ -77,9 +78,24 @@ public sealed partial class WorkWriter
         await connection.ExecuteAsync(new CommandDefinition(everyone, args, transaction, cancellationToken: cancellationToken));
     }
 
+    private static Task<bool> InWorkspaceAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        Guid workspaceId,
+        Guid userId,
+        CancellationToken cancellationToken)
+        => connection.ExecuteScalarAsync<bool>(new CommandDefinition(
+            "SELECT EXISTS (SELECT 1 FROM tenant_membership WHERE workspace_id = @workspace AND user_id = @user);",
+            new { workspace = workspaceId, user = userId },
+            transaction,
+            cancellationToken: cancellationToken));
+
     /// <summary>
     /// The project's members and the workspace's other users; null unless <paramref name="caller"/> is one of its
-    /// members or <paramref name="administers"/> its workspace — so a private project is as unknown as a typo.
+    /// members or <paramref name="administers"/> its workspace — so a private project is as unknown as a typo. The
+    /// three member calls see every project of the tenant (<see cref="ProjectBypass.Membership"/>), because an admin
+    /// manages a project's members without being one; this check is what keeps everyone else out, and they read the
+    /// project's ref and its members, never its work.
     /// </summary>
     public async Task<ProjectMembership?> ProjectMembersAsync(
         Guid workspaceId,
@@ -88,7 +104,7 @@ public sealed partial class WorkWriter
         bool administers,
         CancellationToken cancellationToken = default)
     {
-        await using var tenant = await _connections.TenantAsync(cancellationToken);
+        await using var tenant = await _connections.TenantEveryProjectAsync(ProjectBypass.Membership, cancellationToken);
         var (connection, transaction) = tenant;
 
         var project = await VisibleProjectAsync(connection, transaction, workspaceId, projectId, caller, administers, cancellationToken);
@@ -111,7 +127,7 @@ public sealed partial class WorkWriter
         bool everyone,
         CancellationToken cancellationToken = default)
     {
-        await using var tenant = await _connections.TenantAsync(cancellationToken);
+        await using var tenant = await _connections.TenantEveryProjectAsync(ProjectBypass.Membership, cancellationToken);
         var (connection, transaction) = tenant;
 
         var project = await VisibleProjectAsync(connection, transaction, workspaceId, projectId, caller, administers, cancellationToken);
@@ -177,7 +193,7 @@ public sealed partial class WorkWriter
         Guid userId,
         CancellationToken cancellationToken = default)
     {
-        await using var tenant = await _connections.TenantAsync(cancellationToken);
+        await using var tenant = await _connections.TenantEveryProjectAsync(ProjectBypass.Membership, cancellationToken);
         var (connection, transaction) = tenant;
 
         await connection.ExecuteAsync(new CommandDefinition(

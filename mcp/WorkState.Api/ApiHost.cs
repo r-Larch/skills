@@ -184,10 +184,11 @@ public static class ApiHost
         app.UseAuthorization();
 
         // doc 02 §15. After authorization, which is where an endpoint policy's schemes (the cookie, OAuth) put
-        // their principal on the request: from here on a tenant connection acts in its workspace, or in none.
+        // their principal on the request: from here on a tenant connection acts in its workspace, or in none, and
+        // sees its user's projects (§15b).
         app.Use(async (context, next) =>
         {
-            using (TenantScope.Enter(RequestTenant.Of(context.User)))
+            using (RequestUser.Enter(context.User))
             {
                 await next(context);
             }
