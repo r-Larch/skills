@@ -9,8 +9,8 @@ using static WorkState.Tests.Store.Tokens;
 namespace WorkState.Tests.Write;
 
 /// <summary>
-/// m47. A ref is unique per workspace (a tenant). A project or a run scopes its own refs, so the
-/// rows that carry no ref scope are a feature with no parent and an assumption on no item; before
+/// m47. A ref is unique per workspace (a tenant). The top-level refs are the projects', and the rows that carry no ref
+/// scope are an assumption on no item and a parentless feature stored before m63 made a project the only root; before
 /// TenantRefs those collided with the same ref in every other workspace.
 /// </summary>
 [Collection(StoreCollection.Name)]
@@ -24,7 +24,7 @@ public sealed class TenantRefTests(PostgresFixture fixture)
         foreach (var world in new[] { a, b })
         {
             var created = await world.Writer.CreateAsync(world.WorkspaceId, WriteSeed.Orchestrator,
-                [new NewItemArg("project", "Project x", Ref: "x"), new NewItemArg("feature", "Feature f", Ref: "f")], Ct);
+                [new NewItemArg("project", "Project x", Ref: "x"), new NewItemArg("project", "Project f", Ref: "f")], Ct);
             Assert.False(created.Refused, created.Text);
 
             await WorkspaceAssumptionAsync(world, "A1");
@@ -46,14 +46,16 @@ public sealed class TenantRefTests(PostgresFixture fixture)
         var (a, b) = (await WriteSeed.CreateAsync(fixture), await WriteSeed.CreateAsync(fixture));
 
         Assert.False((await a.Writer.CreateAsync(a.WorkspaceId, WriteSeed.Orchestrator,
-            [new NewItemArg("feature", "Taken by hand", Ref: "feature-1")], Ct)).Refused);
+            [new NewItemArg("project", "Taken by hand", Ref: "project-1")], Ct)).Refused);
 
         var dupe = await a.Writer.CreateAsync(a.WorkspaceId, WriteSeed.Orchestrator,
-            [new NewItemArg("feature", "The same ref again", Ref: "feature-1")], Ct);
+            [new NewItemArg("project", "The same ref again", Ref: "project-1")], Ct);
         Assert.True(dupe.Refused, dupe.Text);
 
-        Assert.Equal("feature-2", await DerivedFeatureAsync(a));
-        Assert.Equal("feature-1", await DerivedFeatureAsync(b));
+        Assert.Equal("project-2", await DerivedProjectAsync(a));
+        Assert.Equal("project-1", await DerivedProjectAsync(b));
+        await LegacyRootFeatureAsync(a, "feature-1");
+        await LegacyRootFeatureAsync(b, "feature-1");
 
         await WorkspaceAssumptionAsync(a, "A1");
         var error = await Seed.RefusedAsync(() => WorkspaceAssumptionAsync(a, "A1"));
@@ -68,14 +70,14 @@ public sealed class TenantRefTests(PostgresFixture fixture)
     public async Task A_ref_lookup_in_one_workspace_never_returns_another_workspaces_row()
     {
         var (a, b) = (await WriteSeed.CreateAsync(fixture), await WriteSeed.CreateAsync(fixture));
-        var features = new Dictionary<Guid, Guid>();
+        var projects = new Dictionary<Guid, Guid>();
 
         foreach (var world in new[] { a, b })
         {
             Assert.False((await world.Writer.CreateAsync(world.WorkspaceId, WriteSeed.Orchestrator,
-                [new NewItemArg("project", "Project x", Ref: "x"), new NewItemArg("feature", "Feature f", Ref: "f")], Ct)).Refused);
+                [new NewItemArg("project", "Project x", Ref: "x"), new NewItemArg("project", "Project f", Ref: "f")], Ct)).Refused);
             await WorkspaceAssumptionAsync(world, "A1");
-            features[world.WorkspaceId] = (await world.ItemAsync("f")).Id;
+            projects[world.WorkspaceId] = (await world.ItemAsync("f")).Id;
         }
 
         var board = new BoardQueries(fixture.DataSource);
@@ -98,7 +100,7 @@ public sealed class TenantRefTests(PostgresFixture fixture)
             Assert.False(moved.Refused, moved.Text);
 
             var carried = await world.ItemAsync("1.1-d");
-            Assert.Equal(features[world.WorkspaceId], carried.ParentId);
+            Assert.Equal(projects[world.WorkspaceId], carried.ParentId);
         }
 
         // work_assume(resolve:) locks the open assumption it resolves by ref.
@@ -111,16 +113,24 @@ public sealed class TenantRefTests(PostgresFixture fixture)
         Assert.Equal(AssumptionState.Confirmed, (await db.Assumptions.SingleAsync(s => s.WorkspaceId == b.WorkspaceId, Ct)).State);
     }
 
-    private static async Task<string> DerivedFeatureAsync(WriteWorld world)
+    private static async Task<string> DerivedProjectAsync(WriteWorld world)
     {
         var created = await world.Writer.CreateAsync(world.WorkspaceId, WriteSeed.Orchestrator,
-            [new NewItemArg("feature", "Numbered by the server")], Ct);
+            [new NewItemArg("project", "Numbered by the server")], Ct);
         Assert.False(created.Refused, created.Text);
 
         await using var db = world.Fixture.NewContext();
         return (await db.Items
             .Where(i => i.WorkspaceId == world.WorkspaceId && i.Title == "Numbered by the server")
             .SingleAsync(Ct)).Ref;
+    }
+
+    /// <summary>Seeded directly: work_create refuses a parentless feature since m63, but a store can still hold one.</summary>
+    private static async Task LegacyRootFeatureAsync(WriteWorld world, string reference)
+    {
+        await using var db = world.Fixture.NewContext();
+        db.Items.Add(Seed.NewItem(world.WorkspaceId, null, "feature", reference, 9m));
+        await db.SaveChangesAsync(Ct);
     }
 
     private static async Task<string> AssumeOnAsync(WriteWorld world, string scope)
