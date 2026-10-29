@@ -160,6 +160,15 @@ siblings (doc 02 "Ref scoping"): a ref-less run is `1`, `2`, … under its paren
 journalled as `updated`, then adds the index `item_sibling_ref_unique`. It also issues refresh
 tokens as opaque reference handles (§4), so a Windows client can keep one in Credential Manager.
 
+`1.1.0` (no plugin change) makes projects private or shared (§4 "Projects"; doc 02 §12b, §15b): a
+project's work is visible only to its members, enforced by row-level security with a fast path
+keyed on `workspace.access_seq`, and the dashboard shows and manages members. Root repo keys and
+path tree locks are per user. Its four migrations (ProjectMembers, ProjectAccess, ProjectAccessSeq,
+MachineKeys) add `project_member` and make every workspace member a member of each existing project.
+They also add the project policies, the access seq with its triggers, and per-user `project_repo`
+rows and claim keys. Each existing root binding is copied to every user who can see its project.
+`/api/stream` also carries the `X-WorkState-Api` header now.
+
 ---
 
 ## 3. Should the skills use it? — Yes, and as a **hard** dependency

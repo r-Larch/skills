@@ -8,6 +8,15 @@ What changes for someone who has the `rlarch` plugin installed, newest first. Fo
 
 ### Changed
 
+- WorkState server **1.1.0** (no plugin change; four migrations): private and shared projects. A
+  project's work is visible only to its members, which Postgres row-level security enforces; a
+  non-member gets the same "not found" as for a ref that doesn't exist. Every existing project
+  starts with every member of its workspace as a member. New projects are private to their creator.
+  The overview marks each project Private, Shared with N, or Open to the workspace, and a project's
+  Members panel adds people (one at a time, or everyone) and removes them. Repo folder paths
+  (`work_brief(repo:{root})`) and path tree locks are now per user, so two people with the same path
+  on different machines no longer collide; repo remotes stay shared. `/api/stream` now carries the
+  `X-WorkState-Api` header. Back up first.
 - WorkState server **1.0.1** (no plugin change; one migration): projects and runs get unique refs.
   A run created without a ref is numbered `1`, `2`, … under its project (every one was `1` before),
   a project `project-1`, `project-2`, …, and a second run or project with a ref its siblings already
