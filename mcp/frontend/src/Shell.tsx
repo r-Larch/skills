@@ -49,7 +49,8 @@ export default function Shell(props: ParentProps) {
 
   const openMenu = () => {
     setMenu(true)
-    queueMicrotask(() => side?.querySelector<HTMLElement>('a[href], button, input, select')?.focus())
+    // A frame later: until the overlay is styled visible, focus() on its first link does nothing.
+    requestAnimationFrame(() => side?.querySelector<HTMLElement>('a[href], button, input, select')?.focus())
   }
   const closeMenu = (refocus = true) => {
     if (!menu()) return
