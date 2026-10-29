@@ -55,6 +55,16 @@ What changes for someone who has the `rlarch` plugin installed, newest first. Fo
   Claude session id, and the dashboard's new Sessions page releases a stuck name. Rebuild or
   `--update` to get it; one additive migration (`OAuthMintedSession`). Back up first.
 
+## [2.8.1] - 2026-10-29
+
+### Fixed
+
+- **`workstate-setup`: the pulled server reads `WORKSTATE_PUBLIC_URL` and `WORKSTATE_TRUSTED_PROXIES`.**
+  The compose file the setup copies to `~/.workstate/compose.yml` didn't pass them to the server, so
+  setting them in `~/.workstate/.env` changed nothing: the `web` line kept the request's host, and a
+  reverse proxy's `X-Forwarded-*` headers weren't believed. It now passes both, as `mcp/compose.yml`
+  does. The next run of the setup replaces the copied file.
+
 ## [2.8.0] - 2026-10-28
 
 ### Added
