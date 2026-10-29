@@ -13,6 +13,7 @@ import { formerName, isReleased, releasable, tokenLabel } from '../src/sessions.
 import { arrange, chordLabel, commands, entryHref, isPaletteChord, isSlash, matchCommands } from '../src/palette.ts'
 import { HANDLE, LIST_MIN, PANEL_MIN, PANEL_SHARE, WIDTH_KEY, clampWidth, docks, panelWidth, rememberWidth, rememberedWidth } from '../src/split.ts'
 import { MEMBERS_ANCHOR, memberLine, membersHref, projectOnPath, shareMarker } from '../src/sharing.ts'
+import { PHONE_QUERY, closesOnMove, pageName } from '../src/menu.ts'
 import { expiresIn, isLastAdmin, isLinkPath, joinStep, joinToken, nameProblem, passwordMessage, passwordProblem, resetStep, resetToken, roleLabel, showSwitcher, slugFrom, slugProblem } from '../src/admin.ts'
 
 let failures = 0
@@ -69,6 +70,23 @@ check('a decision from another item is not its answer', answer(question('done', 
 check('an observation is not an answer', answer(question('done', [decision('seen', '2026-10-29T10:00:00Z', 'q', 'observation')])), null)
 check('an open question has no answer yet', answer(question('open', [decision('early', '2026-10-29T10:00:00Z')])), null)
 check('a task has no answer', answer({ ...question('done', [decision('d', '2026-10-29T10:00:00Z')]), item: { id: 'q', kind: 'task', status: 'done' } }), null)
+
+console.log('\n── the phone menu: the page name in its top bar, and what closes it ──────────')
+const sidebar = [{ item: { id: 'p1', title: 'Skills' }, runs: [{ item: { id: 'r1', title: 'm64 backlog polish' } }] }]
+check('the overview', pageName('/', sidebar), 'Overview')
+check('needs you', pageName('/inbox', sidebar), 'Needs you')
+check('a run, by its title', pageName('/runs/r1', sidebar), 'm64 backlog polish')
+check('a run with an item open, by the run', pageName('/runs/r1/i9', sidebar), 'm64 backlog polish')
+check('a run the overview has not loaded', pageName('/runs/r1', undefined), 'Run')
+check('a project, by its title', pageName('/projects/p1', sidebar), 'Skills')
+check('a project backlog', pageName('/projects/p1/backlog', sidebar), 'Skills · Backlog')
+check('an admin page', pageName('/admin/users', sidebar), 'Admin')
+check('an item page', pageName('/items/i9', sidebar), 'Item')
+check('an unknown path', pageName('/nowhere', sidebar), 'WorkState')
+check('another page closes it', closesOnMove('/inbox', '/runs/r1'), true)
+check('another query closes it', closesOnMove('/runs/r1', '/runs/r1?filter=all'), true)
+check('the same URL keeps it open', closesOnMove('/runs/r1', '/runs/r1'), false)
+check('the breakpoint matches index.css', PHONE_QUERY, '(max-width: 760px)')
 
 console.log('\n── independent(): who may prove a leaf ──────────────────────────────────────')
 check('passed, run by orchestrator', independent({ passed: true, runBy: 'orchestrator' }), true)

@@ -1,4 +1,4 @@
-import { For, Show, createEffect, createSignal, on as onChange, type ParentProps } from 'solid-js'
+import { For, Show, createEffect, createSignal, on as onChange, onCleanup, onMount, type ParentProps } from 'solid-js'
 import { A, useLocation } from '@solidjs/router'
 import { account, boards, failure, overview } from './store.ts'
 import { link } from './live.ts'
@@ -7,7 +7,8 @@ import { countTitle, counted, tally } from './state.ts'
 import { ACCOUNT, ADMIN, projectHref, runHref } from './nav.ts'
 import { clock, short } from './format.ts'
 import { ProjectName } from './ui.tsx'
-import { ActivityIcon, AdminIcon, CheckIcon, InboxIcon, OverviewIcon, SearchIcon, SessionsIcon } from './icons.tsx'
+import { ActivityIcon, AdminIcon, CheckIcon, InboxIcon, MenuIcon, OverviewIcon, SearchIcon, SessionsIcon } from './icons.tsx'
+import { PHONE_QUERY, closesOnMove, pageName } from './menu.ts'
 import { showSwitcher } from './admin.ts'
 import { switchFailure, switchWorkspace } from './tenant.ts'
 import Palette, { openPalette } from './Palette.tsx'
@@ -41,9 +42,87 @@ export default function Shell(props: ParentProps) {
     ),
   )
 
+  // Below 760px the sidebar is an overlay behind the top bar's Menu button.
+  const [menu, setMenu] = createSignal(false)
+  let menuButton: HTMLButtonElement | undefined
+  let side: HTMLElement | undefined
+
+  const openMenu = () => {
+    setMenu(true)
+    queueMicrotask(() => side?.querySelector<HTMLElement>('a[href], button, input, select')?.focus())
+  }
+  const closeMenu = (refocus = true) => {
+    if (!menu()) return
+    setMenu(false)
+    if (refocus) queueMicrotask(() => menuButton?.focus())
+  }
+
+  createEffect(
+    onChange(
+      () => location.pathname + location.search,
+      (to, from) => {
+        if (from !== undefined && closesOnMove(from, to)) closeMenu()
+      },
+    ),
+  )
+
+  onMount(() => {
+    // Captured on the document: under the palette's window capture, which stops an Escape meant for
+    // it, and ahead of a run sheet's own Escape, so one press closes one thing.
+    const key = (e: KeyboardEvent) => {
+      if (menu() && e.key === 'Escape') {
+        e.stopPropagation()
+        closeMenu()
+      }
+    }
+    const phone = window.matchMedia(PHONE_QUERY)
+    const widened = () => {
+      if (!phone.matches) closeMenu(false)
+    }
+    document.addEventListener('keydown', key, true)
+    phone.addEventListener('change', widened)
+    onCleanup(() => {
+      document.removeEventListener('keydown', key, true)
+      phone.removeEventListener('change', widened)
+    })
+  })
+
   return (
-    <div class="app">
-      <aside class="side">
+    <div class={`app${menu() ? ' menu-open' : ''}`}>
+      <header class="topbar" inert={menu() || undefined}>
+        <button
+          type="button"
+          class="topbar-menu"
+          aria-label="Menu"
+          aria-controls="side"
+          aria-expanded={menu()}
+          ref={menuButton}
+          onClick={openMenu}
+        >
+          <MenuIcon />
+        </button>
+        <A href="/" class="brand-mark" aria-label="WorkState overview">
+          <CheckIcon size={16} weight={2.6} />
+        </A>
+        <span class="topbar-page">{pageName(location.pathname, overview()?.projects)}</span>
+        <button
+          type="button"
+          class="topbar-find"
+          aria-label="Search refs, items, commands"
+          aria-haspopup="dialog"
+          aria-keyshortcuts="Control+P Meta+P /"
+          onClick={openPalette}
+        >
+          <SearchIcon />
+          <kbd>{chordLabel(navigator.userAgent)}</kbd>
+        </button>
+      </header>
+
+      <Show when={menu()}>
+        <div class="scrim" aria-hidden="true" onClick={() => closeMenu()} />
+      </Show>
+
+      <aside class="side" id="side" ref={side}>
         <A href="/" class="brand">
           <span class="brand-mark">
             <CheckIcon size={16} weight={2.6} />
@@ -147,7 +226,7 @@ export default function Shell(props: ParentProps) {
         <AccountMenu />
       </aside>
 
-      <main class="main" ref={main}>
+      <main class="main" ref={main} inert={menu() || undefined}>
         <Show when={failure()}>
           {(message) => (
             <div class="page" style={{ 'padding-bottom': 0 }}>
