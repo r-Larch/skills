@@ -106,6 +106,12 @@ public class Claim
     /// </summary>
     public Guid? KeyWorkspaceId { get; set; }
 
+    /// <summary>
+    /// Whose machine a path key is on: a path names a folder on one person's machine, so it locks per user. Null for a
+    /// name key (a branch, the ref scope), which locks per workspace, and for a path claimed by a credential with no user.
+    /// </summary>
+    public Guid? KeyUserId { get; set; }
+
     /// <summary>The normalised <c>tree</c> the caller passed to <c>work_status</c>, if it passed one.</summary>
     public string? Tree { get; set; }
 

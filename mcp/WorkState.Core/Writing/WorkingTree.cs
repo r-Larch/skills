@@ -4,8 +4,8 @@ namespace WorkState.Core.Writing;
 
 /// <summary>
 /// The <c>tree</c> a caller passes to <c>work_status(in_progress)</c>, reduced to one spelling per
-/// working tree. A path is a place on disk, so its lock is server-wide; a branch is a name, so its
-/// lock is per workspace.
+/// working tree. A path is a place on one person's disk, so its lock is per workspace and user; a
+/// branch is a name, so its lock is per workspace.
 /// </summary>
 public sealed partial record WorkingTree(string Key, bool IsPath)
 {

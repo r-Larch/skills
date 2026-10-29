@@ -325,6 +325,11 @@ workspaces are created only by the first user's bootstrap (`default`, when there
 static token's first use (its configured slug, or `default` on an empty database), and by a system
 administrator on the Admin page (`POST /api/admin/tenants`). A tree lock is
 per tenant too: a path claimed in one workspace does not hold the same path in another (doc 07 §5).
+Within one tenant a path is also per **user** (m60): it names a folder on one person's machine, so a
+path lock and a repository's `root` binding are the signed-in user's own, and two users' same path are
+two checkouts. A remote, a branch and the ref scope name the same thing for everyone and stay the
+tenant's. A credential with no user — a static token on a local install — keeps the tenant-wide
+behaviour (doc 02 §project_repo, §10).
 
 **Administration (m52).** Roles govern administration only: every member of a workspace has full
 work rights there, whatever its role. A **system administrator** (`app_user.is_system_admin`) sees

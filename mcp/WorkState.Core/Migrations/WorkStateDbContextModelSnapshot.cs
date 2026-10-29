@@ -785,6 +785,10 @@ namespace WorkState.Core.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("item_id");
 
+                    b.Property<Guid?>("KeyUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("key_user_id");
+
                     b.Property<Guid?>("KeyWorkspaceId")
                         .HasColumnType("uuid")
                         .HasColumnName("key_workspace_id");
@@ -834,12 +838,12 @@ namespace WorkState.Core.Migrations
                     b.HasIndex("SessionId")
                         .HasDatabaseName("ix_claim_session_id");
 
-                    b.HasIndex("SerializationKey", "KeyWorkspaceId")
+                    b.HasIndex("SerializationKey", "KeyWorkspaceId", "KeyUserId")
                         .IsUnique()
                         .HasDatabaseName("claim_one_writer_per_tree")
                         .HasFilter("released_at IS NULL AND writes AND session_id IS NULL");
 
-                    NpgsqlIndexBuilderExtensions.AreNullsDistinct(b.HasIndex("SerializationKey", "KeyWorkspaceId"), false);
+                    NpgsqlIndexBuilderExtensions.AreNullsDistinct(b.HasIndex("SerializationKey", "KeyWorkspaceId", "KeyUserId"), false);
 
                     b.ToTable("claim", (string)null);
                 });
@@ -1039,7 +1043,7 @@ namespace WorkState.Core.Migrations
                         .ValueGeneratedOnAddOrUpdate()
                         .HasColumnType("tsvector")
                         .HasColumnName("search")
-                        .HasComputedColumnSql("setweight(to_tsvector('english', coalesce(heading, '')), 'A') ||\nsetweight(to_tsvector('english', body), 'B')", true);
+                        .HasComputedColumnSql("setweight(to_tsvector('english', coalesce(heading, '')), 'A') ||\r\nsetweight(to_tsvector('english', body), 'B')", true);
 
                     b.Property<decimal>("Seq")
                         .HasColumnType("numeric")
@@ -1386,7 +1390,7 @@ namespace WorkState.Core.Migrations
                         .ValueGeneratedOnAddOrUpdate()
                         .HasColumnType("tsvector")
                         .HasColumnName("search")
-                        .HasComputedColumnSql("setweight(to_tsvector('simple', coalesce(ref, '')), 'A') ||\nsetweight(to_tsvector('english', coalesce(title, '')), 'B') ||\nsetweight(to_tsvector('english', coalesce(intent, '')), 'C')", true);
+                        .HasComputedColumnSql("setweight(to_tsvector('simple', coalesce(ref, '')), 'A') ||\r\nsetweight(to_tsvector('english', coalesce(title, '')), 'B') ||\r\nsetweight(to_tsvector('english', coalesce(intent, '')), 'C')", true);
 
                     b.Property<decimal>("Seq")
                         .HasColumnType("numeric")
@@ -1851,6 +1855,10 @@ namespace WorkState.Core.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("project_item_id");
 
+                    b.Property<Guid?>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
                     b.Property<Guid>("WorkspaceId")
                         .HasColumnType("uuid")
                         .HasColumnName("workspace_id");
@@ -1861,9 +1869,14 @@ namespace WorkState.Core.Migrations
                     b.HasIndex("ProjectItemId")
                         .HasDatabaseName("project_repo_project_idx");
 
-                    b.HasIndex("WorkspaceId", "Key")
+                    b.HasIndex("UserId", "WorkspaceId")
+                        .HasDatabaseName("ix_project_repo_user_id_workspace_id");
+
+                    b.HasIndex("WorkspaceId", "UserId", "Key")
                         .IsUnique()
                         .HasDatabaseName("project_repo_key_unique");
+
+                    NpgsqlIndexBuilderExtensions.AreNullsDistinct(b.HasIndex("WorkspaceId", "UserId", "Key"), false);
 
                     b.ToTable("project_repo", null, t =>
                         {
@@ -2634,6 +2647,12 @@ namespace WorkState.Core.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("fk_project_repo_workspace_workspace_id");
+
+                    b.HasOne("WorkState.Core.Domain.TenantMembership", null)
+                        .WithMany()
+                        .HasForeignKey("UserId", "WorkspaceId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .HasConstraintName("fk_project_repo_tenant_membership_user_id_workspace_id");
                 });
 
             modelBuilder.Entity("WorkState.Core.Domain.Report", b =>
