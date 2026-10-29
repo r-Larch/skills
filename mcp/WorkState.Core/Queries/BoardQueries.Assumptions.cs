@@ -35,6 +35,22 @@ public sealed partial class BoardQueries
     public const string WorkspaceQualifier = "workspace";
 
     /// <summary>
+    /// The SQL twin of <see cref="CallableAssumptionRefAsync"/> for an open assumption <c>a</c> joined to
+    /// its ref scope <c>s</c>, so a list resolves every row's callable form in its one query. It counts
+    /// open assumptions only, as <c>work_assume</c>'s lookup does.
+    /// </summary>
+    internal const string CallableAssumptionSql =
+        """
+        CASE WHEN (SELECT count(*) FROM assumption o
+                   WHERE  o.workspace_id = a.workspace_id
+                     AND  o.state = 'open'
+                     AND  lower(o.ref) = lower(a.ref)) < 2 THEN a.ref
+             WHEN s.ref IS NOT NULL THEN s.ref || '/' || a.ref
+             ELSE 'workspace/' || a.ref
+        END
+        """;
+
+    /// <summary>
     /// The read twin of <c>work_assume</c>'s lookup: <c>A1</c> anywhere in the workspace,
     /// <c>run-a/A1</c> inside that run only, <c>workspace/A1</c> on no item. More than one row back
     /// is an ambiguous bare ref.

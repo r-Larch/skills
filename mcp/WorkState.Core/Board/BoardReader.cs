@@ -464,7 +464,7 @@ public sealed partial class BoardReader(WorkStateQueries queries, BoardQueries b
             lines.Add(new AttentionLine(
                 AttentionRank.AssumptionPastRevisit,
                 $"{assumption.Ref} is past revisit_when ({assumption.RevisitRef} is closed)",
-                $"work_assume(ref:\"{assumption.Ref}\", resolve:\"confirmed\", evidence:\"…\")",
+                $"work_assume(ref:\"{assumption.Callable}\", resolve:\"confirmed\", evidence:\"…\")",
                 assumption.Ref,
                 assumption.QualifiedRef));
         }
