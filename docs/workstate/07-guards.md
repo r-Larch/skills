@@ -220,7 +220,10 @@ Two Postgres guarantees from U1 carry this, and both are tested in **both direct
 
 - `claim_one_live_per_item` — one live claim per item;
 - `claim_one_writer_per_tree` — one live **write** claim per working tree (`serialization_key`,
-  scoped to its workspace when the key is a name rather than a path).
+  scoped to its workspace, and a path to its user as well: a path names a folder on one person's
+  machine, so user A's claim on `p:/projects/x` does not block user B on theirs, and still blocks A's
+  other sessions. A name — a branch, the ref-scope fallback — blocks across users in the workspace; a
+  path claimed by a credential with no user is the workspace's, as before m60 — doc 02 §10).
 
 That second is the parallel-orchestrator rule: **two units in different worktrees proceed
 concurrently, even in one run; two sharing a working tree do not.** Read-only claims (recon) do not

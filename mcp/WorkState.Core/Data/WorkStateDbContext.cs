@@ -296,10 +296,11 @@ public class WorkStateDbContext(DbContextOptions<WorkStateDbContext> options) : 
                 .HasFilter("released_at IS NULL");
 
             // One writer per working tree. Two units in separate worktrees proceed in parallel; two
-            // sharing a tree do not. The parallel-orchestrator rule, as an index, per workspace.
+            // sharing a tree do not. The parallel-orchestrator rule, as an index, per workspace, and a
+            // path per user too (KeyUserId).
             // doc 11 narrows it to claims with no session; claim_one_session_per_tree (Sessions
             // migration) lets one session hold several items of its tree and refuses a second one.
-            e.HasIndex(x => new { x.SerializationKey, x.KeyWorkspaceId })
+            e.HasIndex(x => new { x.SerializationKey, x.KeyWorkspaceId, x.KeyUserId })
                 .HasDatabaseName("claim_one_writer_per_tree")
                 .IsUnique()
                 .AreNullsDistinct(false)
@@ -422,9 +423,12 @@ public class WorkStateDbContext(DbContextOptions<WorkStateDbContext> options) : 
             e.Property(x => x.AddedAt).HasDefaultValueSql("now()");
             e.HasOne<Workspace>().WithMany().HasForeignKey(x => x.WorkspaceId).OnDelete(DeleteBehavior.Cascade);
             e.HasOne<Item>().WithMany().HasForeignKey(x => x.ProjectItemId).OnDelete(DeleteBehavior.Cascade);
-            e.HasIndex(x => new { x.WorkspaceId, x.Key })
+            e.HasOne<TenantMembership>().WithMany().HasForeignKey(x => new { x.UserId, x.WorkspaceId })
+                .OnDelete(DeleteBehavior.Cascade);
+            e.HasIndex(x => new { x.WorkspaceId, x.UserId, x.Key })
                 .HasDatabaseName("project_repo_key_unique")
-                .IsUnique();
+                .IsUnique()
+                .AreNullsDistinct(false);
             e.HasIndex(x => x.ProjectItemId).HasDatabaseName("project_repo_project_idx");
             e.ToTable(t => t.HasCheckConstraint("project_repo_kind", "kind IN ('remote','root')"));
         });

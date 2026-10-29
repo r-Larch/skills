@@ -5,7 +5,8 @@ namespace WorkState.Core.Domain;
 /// <summary>
 /// One project per repository (doc 02 §project_repo). A repository is known by up to two keys, and
 /// either one matching is enough: its normalised <c>origin</c> remote, and its main checkout's root.
-/// A project may hold several repositories; a key belongs to one project per workspace.
+/// A project may hold several repositories; a remote belongs to one project per workspace, a root to one project per
+/// workspace and user, because a path names a folder on one person's machine.
 /// </summary>
 public class ProjectRepo
 {
@@ -13,10 +14,16 @@ public class ProjectRepo
     public Guid WorkspaceId { get; set; }
     public Guid ProjectItemId { get; set; }
 
+    /// <summary>
+    /// Whose machine a <see cref="RepoKeys.Root"/> key is a path on: the binder's user, null for a credential that has
+    /// none. A remote names one repository for everyone, so it is always null.
+    /// </summary>
+    public Guid? UserId { get; set; }
+
     /// <summary><see cref="RepoKeys.Remote"/> or <see cref="RepoKeys.Root"/>.</summary>
     public string Kind { get; set; } = "";
 
-    /// <summary>Already normalised by <see cref="RepoKeys"/>; the unique key with the workspace.</summary>
+    /// <summary>Already normalised by <see cref="RepoKeys"/>; the unique key with the workspace and the user.</summary>
     public string Key { get; set; } = "";
 
     public DateTimeOffset AddedAt { get; set; }
@@ -114,6 +121,9 @@ public static partial class RepoKeys
 
         return keys;
     }
+
+    /// <summary>The user a key is held for: <paramref name="userId"/> for a root, a path on their machine; none for a remote.</summary>
+    public static Guid? UserOf(RepoKey key, Guid? userId) => key.Kind == Root ? userId : null;
 
     /// <summary>The keys as the argument a route prints: <c>{remote:"…", root:"…"}</c>.</summary>
     public static string Literal(IReadOnlyList<RepoKey> keys)

@@ -1,3 +1,4 @@
+using WorkState.Core.Data;
 using WorkState.Core.Domain;
 
 namespace WorkState.Core.Queries;
@@ -11,9 +12,15 @@ public sealed record SessionRepo(string? Remote, string? Root)
 
 public sealed partial class BoardQueries
 {
+    /// <summary>A binding <c>@user</c> may use: any remote, and a root of theirs — of no user's when they have none.</summary>
+    private const string Mine = "(pr.kind = 'remote' OR pr.user_id IS NOT DISTINCT FROM @user)";
+
+    private static Guid? ScopeUser() => TenantScope.TryGet(out _, out var user) ? user : null;
+
     /// <summary>
     /// The project a repository is bound to. Either key matching is enough; when the two keys name
     /// different projects the remote wins, because a root moves with a re-clone and a remote does not.
+    /// A root matches only the caller's own binding — a path is a folder on one person's machine — and a remote anyone's.
     /// </summary>
     public async Task<ScopeRef?> ProjectByRepoAsync(
         Guid workspaceId,
@@ -31,30 +38,31 @@ public sealed partial class BoardQueries
              FROM   project_repo pr
              JOIN   item i ON i.id = pr.project_item_id
              LEFT JOIN item s ON s.id = i.ref_scope_id AND s.id <> i.id
-             WHERE  pr.workspace_id = @workspace AND pr.key = ANY(@keys)
+             WHERE  pr.workspace_id = @workspace AND pr.key = ANY(@keys) AND {Mine}
              ORDER  BY (pr.kind = 'remote') DESC, pr.added_at
              LIMIT  1;
              """;
 
         return await SingleAsync<ScopeRef>(
             sql,
-            new { workspace = workspaceId, keys = keys.Select(k => k.Key).ToArray() },
+            new { workspace = workspaceId, keys = keys.Select(k => k.Key).ToArray(), user = ScopeUser() },
             cancellationToken);
     }
 
+    /// <summary>The projects' remotes, and the roots bound on the caller's machine.</summary>
     public async Task<IReadOnlyList<ProjectRepoRow>> ProjectReposAsync(
         IReadOnlyCollection<Guid> projectIds,
         CancellationToken cancellationToken = default)
     {
         const string sql =
-            """
-            SELECT project_item_id AS "ProjectId", kind AS "Kind", key AS "Key"
-            FROM   project_repo
-            WHERE  project_item_id = ANY(@ids)
-            ORDER  BY (kind = 'remote') DESC, added_at, key;
-            """;
+            $"""
+             SELECT pr.project_item_id AS "ProjectId", pr.kind AS "Kind", pr.key AS "Key"
+             FROM   project_repo pr
+             WHERE  pr.project_item_id = ANY(@ids) AND {Mine}
+             ORDER  BY (pr.kind = 'remote') DESC, pr.added_at, pr.key;
+             """;
 
-        return await ListAsync<ProjectRepoRow>(sql, new { ids = projectIds.ToArray() }, cancellationToken);
+        return await ListAsync<ProjectRepoRow>(sql, new { ids = projectIds.ToArray(), user = ScopeUser() }, cancellationToken);
     }
 
     /// <summary>The repository a minted session was launched in, stored at mint.</summary>

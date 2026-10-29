@@ -238,7 +238,7 @@ public sealed partial class WorkWriter
             if (repo.Count > 0)
             {
                 var (_, taken) = await BindReposAsync(
-                    connection, transaction, workspaceId, row2.Id, reference, repo, cancellationToken);
+                    connection, transaction, workspaceId, row2.Id, reference, actor.UserId, repo, cancellationToken);
                 if (taken is not null)
                 {
                     return WriteResult.No(taken);
@@ -349,7 +349,7 @@ public sealed partial class WorkWriter
             }
 
             var (added, taken) = await BindReposAsync(
-                connection, transaction, item.WorkspaceId, item.Id, item.Ref, repo, cancellationToken);
+                connection, transaction, item.WorkspaceId, item.Id, item.Ref, actor.UserId, repo, cancellationToken);
             if (taken is not null)
             {
                 return WriteResult.No(taken);

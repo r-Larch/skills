@@ -92,17 +92,21 @@ It is not how a session finds its project; `project_repo` is.
 
 **One project per repository, bound on the server.** A project may hold several repositories; a
 repository belongs to one project per workspace. A session finds its project from its repo, never
-from a title:
+from a title. A **root** is a path, and a path names a folder on one person's machine: two users'
+`p:/projects/x` are two checkouts, so a root is bound per workspace **and user**. A **remote** names
+the same repository for everyone and is bound once per workspace:
 
 ```sql
 CREATE TABLE project_repo (
   id              uuid PRIMARY KEY,
   workspace_id    uuid NOT NULL REFERENCES workspace ON DELETE CASCADE,
   project_item_id uuid NOT NULL REFERENCES item ON DELETE CASCADE,   -- kind = 'project'
+  user_id         uuid,              -- a root: the binder's user; a remote, or a credential with no user: NULL
   kind            text NOT NULL CHECK (kind IN ('remote','root')),
   key             text NOT NULL,                                     -- normalised, below
   added_at        timestamptz NOT NULL DEFAULT now(),
-  UNIQUE (workspace_id, key)
+  FOREIGN KEY (user_id, workspace_id) REFERENCES tenant_membership ON DELETE CASCADE,
+  UNIQUE NULLS NOT DISTINCT (workspace_id, user_id, key)
 );
 -- agent_session gains repo_remote, repo_root: the keys a launcher minted the session with.
 ```
@@ -124,14 +128,19 @@ receives. The rule exists twice — `RepoKeys` in `WorkState.Core/Domain/Repos.c
 [`repo-keys.json`](repo-keys.json).
 
 **Binding.** `work_create(items:[{kind:"project", …, repo:{remote, root}}])` binds the keys it is
-given; `work_update(ref:"<project>", repo:{…})` adds more. A key already bound to another project is
-refused, naming it: *this repo is project X — `work_brief(scope:"X")`*. There is no unbind tool.
-`work_get` of a project prints its repos; `work_tree` rows never do. The v1 overview carries them
-as `projects[].repos`.
+given; `work_update(ref:"<project>", repo:{…})` adds more. A root is bound for the caller's user
+(`Actor.UserId`; NULL for a static token or a local credential, which is how every row was before
+m60); a remote always with NULL. A key already bound to another project — a remote by anyone, a root
+by the same user — is refused, naming it: *this repo is project X — `work_brief(scope:"X")`*. There
+is no unbind tool. `work_get` of a project prints its remotes and the caller's own roots; another
+user's root is a path on their machine and is not shown. `work_tree` rows never print repos. The v1
+overview carries them, filtered the same way, as `projects[].repos`.
 
 **Resolution — `work_brief` with no `scope`:**
 
-1. `repo:` given → the **project brief** of the project bound to it ([06 §4a](06-rendering.md)),
+1. `repo:` given → the **project brief** of the project bound to it ([06 §4a](06-rendering.md)) — a
+   remote anyone bound, a root the caller bound (a caller with no user: a root bound with none),
+   and only a project the caller may see (§15b) —
    whose `NEXT` names the run to resume — the open run with the most unfinished work — or the call
    that starts one. When the two keys name different projects, the remote wins.
 2. no `repo:`, but the caller is a minted session minted with one (`POST /api/agent-sessions
@@ -160,6 +169,14 @@ busiest run of the workspace. `work_get`'s attention block is that of the run it
 > **Changed 2026-10-26 (project-brief).** Steps 1 and 2 opened the bound project's busiest run. A
 > fresh session in the repo then saw one run's brief and nothing of the others, of what had closed
 > or of the backlog; it now opens the project, and resumes a run in one more call.
+
+> **Changed 2026-10-29 (m60 machine-keys).** A root was bound once per workspace, so user B's
+> `work_brief(repo:{root})` found the project user A had bound the same path to, and B could not bind
+> their own checkout at that path to another project. Migration `MachineKeys` adds `user_id` and
+> rebuilds the unique key as `(workspace_id, user_id, key) NULLS NOT DISTINCT`. Every existing root is
+> copied to every user who can see its project — its members, or every member of the workspace when it
+> has none — and the NULL row stays, so a user finds their copy and a credential with no user the
+> original: nothing that resolved before stops resolving. Remotes are untouched.
 
 ### Archived projects — `item.archived_at`
 
@@ -736,7 +753,8 @@ CREATE TABLE claim (
   id           uuid PRIMARY KEY,
   item_id      uuid NOT NULL REFERENCES item ON DELETE CASCADE,
   serialization_key text NOT NULL,   -- the tree: work_status's tree:, else run_config, else repo_root, else ref scope
-  key_workspace_id uuid,             -- set when the key is a name (branch, ref scope): lock is per workspace
+  key_workspace_id uuid,             -- the workspace the lock is held in, for every key
+  key_user_id  uuid,                 -- a path key: the claimer's user; a name, or a caller with no user: NULL
   tree         text,                 -- the normalised tree: the caller passed, if any
   writes       boolean NOT NULL DEFAULT true,   -- read-only recon claims do not serialize
   agent_name   text NOT NULL,
@@ -752,10 +770,11 @@ CREATE UNIQUE INDEX claim_one_live_per_item ON claim (item_id) WHERE released_at
 
 -- One writer per working tree. Two units in separate worktrees proceed in parallel, even
 -- in one run; two sharing a tree do not. The parallel-orchestrator rule, as an index.
--- A null key_workspace_id is a path, and a path collides across workspaces.
+-- A path is also per user (key_user_id); a name is per workspace.
 CREATE UNIQUE INDEX claim_one_writer_per_tree
-  ON claim (serialization_key, key_workspace_id) NULLS NOT DISTINCT
-  WHERE released_at IS NULL AND writes;
+  ON claim (serialization_key, key_workspace_id, key_user_id) NULLS NOT DISTINCT
+  WHERE released_at IS NULL AND writes AND session_id IS NULL;
+-- and claim_one_session_per_tree, the same key with session_id WITH <> (doc 11)
 ```
 
 That second index is *"writing agents run one at a time, never two in parallel"* as a database
@@ -768,7 +787,13 @@ become `/`, case is folded and a trailing slash dropped; a POSIX path keeps its 
 trailing slash. A branch (`refs/heads/` stripped) is a name. Without `tree` the key is today's: the
 run's `serialization_key`, else the project's `repo_root`, else the ref scope. Every key locks **within
 its workspace** (`key_workspace_id`), a path as much as a name: a path is a place on one tenant's disk
-(m50 tenant-per-request; migration `ClaimKeyWorkspace` keyed the live claims taken before).
+(m50 tenant-per-request; migration `ClaimKeyWorkspace` keyed the live claims taken before). A **path**
+— the `tree:` given, or a fallback key that parses as one, such as `repo_root` — is also a folder on one
+person's machine, so it locks per **user** too (`key_user_id`, the caller's `Actor.UserId`): user B's
+`p:/projects/x` is not user A's, and neither blocks the other. A **name** — a branch, the ref-scope
+fallback — is the workspace's and blocks across users. A path claimed by a credential with no user keeps
+NULL and is the workspace's, as every path was before m60 (migration `MachineKeys`, which also gave a live
+path claim taken by a session with a user that user).
 
 > **Changed 2026-10-22 (ws/8).** Claims were per run: with no `tree` parameter, every unit of a run
 > fell back to the run's key (`30m lease on "m0"`), so a controller running parallel units in
@@ -1268,8 +1293,8 @@ block), and no reader waits.
   `member_added` and `member_removed` are events of their project and are routed like any other: the user
   removed does not see their own removal.
 - **Unique indexes** are checked across every row, visible or not. Three names are workspace-wide and
-  can meet a hidden project: a top-level project's ref, a repository key (`project_repo`), and a claim's
-  tree key. A project ref the server numbers skips a number a hidden project holds (a savepoint, then the
+  can meet a hidden project: a top-level project's ref, a repository key (`project_repo`; a root only
+  among one user's own bindings), and a claim's tree key (a path only among one user's own claims). A project ref the server numbers skips a number a hidden project holds (a savepoint, then the
   next number). A ref the caller chose, or a repository another project holds, is refused as taken — the
   repository's by a project the caller is not a member of, never which — so a non-member learns that a
   name is taken and nothing else. A tree a hidden project's claim holds is refused as the index refuses it.
