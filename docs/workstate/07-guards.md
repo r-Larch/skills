@@ -51,7 +51,7 @@ open ──▶ ready ──▶ in_progress ──▶ review ──▶ done
 | From | To | Guard |
 |---|---|---|
 | `open` | `ready` | every `blocks` predecessor is `done`/`cancelled`/`superseded`. Otherwise refused, naming them. |
-| `ready`/`open` | `in_progress` | **acquires a claim** (§5) on the working tree: `tree:` if given (a worktree path or branch, normalised — doc 02 §10), else the run's key. Refused if another live claim holds this item, or a write-claim holds this tree — **including one the same agent holds on another item**. Every key locks within its workspace, a path as much as a name: another tenant's claim on the same tree never holds it. The refusal names the holding item (qualified ref), its agent and when its lease lapses, and the moves: release it (`work_status(holder, review)`), retake once the lease lapses (with the same `tree:`), claim your own worktree with `tree:` if none was given, or work another tree. Only the holder re-taking its own item passes: that extends the lease. |
+| `ready`/`open` | `in_progress` | **acquires a claim** (§5) on the working tree: `tree:` if given (a worktree path or branch, normalised — doc 02 §10), else the run's key. Refused if another live claim holds this item, or a write-claim holds this tree — **including one the same agent holds on another item**. Every key locks within its workspace, a path as much as a name: another tenant's claim on the same tree never holds it. The refusal names the holding item (qualified ref), its agent and when its lease lapses, and the moves: release it (`work_status(holder, review)`), retake once the lease lapses (with the same `tree:`), claim your own worktree with `tree:` if none was given, or work another tree. Only the holder re-taking its own item passes: that extends the lease. The holder is the same session; a claim with no session is the caller's only for the same agent name **and** the same user (`holder_user_id IS NOT DISTINCT FROM` the caller's), so another user's `controller` is refused and never told the claim is theirs. |
 | `in_progress` | `blocked` | requires `reason`. Records a `blocked` event. |
 | `in_progress` | `review` | free. |
 | `review`/`in_progress` | `done` | **the five conditions, §3.** |
@@ -75,6 +75,12 @@ open ──▶ ready ──▶ in_progress ──▶ review ──▶ done
 > run. Without it the behaviour is unchanged, except that a ref-scope fallback key no longer collides
 > with a same-named run in another workspace. An expired claim's attention line names its tree and
 > retakes with it.
+
+> **Changed 2026-10-29 (m62 claim-holder-user).** A claim with no session was the caller's own whenever
+> the agent name matched, and every OAuth controller is named `controller`: user B could retake user A's
+> `in_progress` item and was told A's claim was theirs. A claim now records `holder_user_id`, and a retake,
+> the *"that is you"* line, the lease extension and the heartbeat all require the same user. Migration
+> `ClaimHolderUser` gave a live claim taken by a session that session's user; the rest keep NULL.
 
 > **Changed 2026-10-28 (m50 tenant-per-request).** A path — a `tree:` path, a run's key, a project's
 > repo root — locked server-wide, so a lapsed claim another workspace had not swept refused the same
@@ -211,6 +217,7 @@ Any other open child still fails condition 3 as before, and the refusal rolls ba
 | | |
 |---|---|
 | **TTL** | 30 min default, from `workspace.settings`. |
+| **Holder** | the session that took it; with no session, the agent name **and** the user (`holder_user_id`). OAuth users share role names, so a name alone would make user A's claim user B's. A claim with no user — a static or local token — is the caller's only if the caller has no user either. |
 | **Heartbeat** | any write by the claim holder extends it. No separate heartbeat call — a tool that needs a keep-alive gets forgotten. |
 | **Expiry** | the lease lapses; the item stays `in_progress` but the claim shows expired. |
 | **Sweep** | on any `work_brief`/`work_next`/`work_status`, expired claims are released with a `claim_expired` event and the item returns to `ready`. |
