@@ -1,5 +1,6 @@
 using System.Runtime.CompilerServices;
 using Npgsql;
+using NpgsqlTypes;
 
 namespace WorkState.Core.Data;
 
@@ -60,6 +61,9 @@ public sealed class WorkStateConnections(NpgsqlDataSource dataSource)
     /// <summary>The scope's user, which the ProjectAccess policies read; <c>''</c> for none: every project.</summary>
     public const string UserSetting = "app.user_id";
 
+    /// <summary>The roots the scope's user could see when the transaction began, so a policy need not ask per statement.</summary>
+    public const string ProjectsSetting = "app.projects";
+
     private static readonly ConditionalWeakTable<NpgsqlDataSource, object> OwnerWhenUnscoped = [];
 
     /// <summary>
@@ -93,13 +97,22 @@ public sealed class WorkStateConnections(NpgsqlDataSource dataSource)
             return transaction;
         }
 
+        // With a user, the roots they may see are read once here, in the same round trip, by the owner's function.
+        var user = everyProject ? null : userId;
+        var projects = user is null ? "''" : $"{Migrations.ProjectAccess.VisibleFunction}(@workspaceId, @userId)";
         await using var command = new NpgsqlCommand(
             $"SELECT set_config('role', '{AppRole}', true), set_config('{WorkspaceSetting}', @workspace, true), "
-            + $"set_config('{UserSetting}', @user, true);",
+            + $"set_config('{UserSetting}', @user, true), set_config('{ProjectsSetting}', {projects}, true);",
             connection,
             transaction);
         command.Parameters.AddWithValue("workspace", workspaceId?.ToString() ?? string.Empty);
-        command.Parameters.AddWithValue("user", everyProject ? string.Empty : userId?.ToString() ?? string.Empty);
+        command.Parameters.AddWithValue("user", user?.ToString() ?? string.Empty);
+        if (user is not null)
+        {
+            command.Parameters.Add(new NpgsqlParameter("workspaceId", NpgsqlDbType.Uuid) { Value = (object?)workspaceId ?? DBNull.Value });
+            command.Parameters.Add(new NpgsqlParameter("userId", NpgsqlDbType.Uuid) { Value = user.Value });
+        }
+
         await command.ExecuteNonQueryAsync(cancellationToken);
 
         return transaction;
