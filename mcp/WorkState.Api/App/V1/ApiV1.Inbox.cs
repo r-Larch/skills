@@ -102,7 +102,7 @@ public static partial class ApiV1
                     "assumption_due", group.Key,
                     $"{group.Count()} assumption(s) past revisit_when: {string.Join(", ", group.Select(a => a.Ref))}",
                     group.Max(a => a.RevisitClosedAt) ?? DateTimeOffset.MinValue,
-                    _ => $"work_assume(ref:\"{first.QualifiedRef ?? first.Ref}\", resolve:\"confirmed\", evidence:\"…\")"));
+                    _ => $"work_assume(ref:\"{first.Callable}\", resolve:\"confirmed\", evidence:\"…\")"));
             }
 
             foreach (var unverified in await board.DoneUnverifiedAsync(scope, cancellationToken))

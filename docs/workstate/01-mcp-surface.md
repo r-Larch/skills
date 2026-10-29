@@ -265,6 +265,12 @@ never a phase inside the item's own run (doc 07 §4).
    instead — doc 07 §4);
 4. no open `finding` with `severity = blocker` targets it;
 5. for a task: ≥1 artifact of kind `commit` — *"every accepted task ends in a commit"*.
+6. for a question: `reason:` carries its answer — `work_status(ref:"Q1", to:"done", reason:"<the answer>")`.
+
+A question needs no verification of its own: its answer is the human's decision. Closed with one,
+`work_status` records the answer, in the same call, as a passed `run_by = human` verification and a
+`decision` note, and the dashboard shows the question as **Answered** rather than *done, not
+verified*. Without an answer the close is refused with that call as the route.
 
 A refusal is `isError: true` with self-correcting text, because the spec says tool execution errors
 are what models recover from:

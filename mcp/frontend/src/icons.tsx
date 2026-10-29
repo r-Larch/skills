@@ -45,6 +45,12 @@ export const AdminIcon = () => (
   </svg>
 )
 
+export const MenuIcon = () => (
+  <svg viewBox="0 0 24 24" {...stroke} aria-hidden="true">
+    <path d="M4 7h16M4 12h16M4 17h16" />
+  </svg>
+)
+
 export const SearchIcon = () => (
   <svg viewBox="0 0 24 24" {...stroke} aria-hidden="true">
     <circle cx="11" cy="11" r="6.5" />

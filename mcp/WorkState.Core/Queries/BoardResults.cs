@@ -47,7 +47,8 @@ public sealed record AssumptionRow(
     string? RevisitRef,
     ItemStatus? RevisitStatus,
     DateTimeOffset? RevisitClosedAt,
-    Guid? ScopeItemId);
+    Guid? ScopeItemId,
+    string Callable);
 
 public sealed record NoteRow(
     NoteKind Kind,

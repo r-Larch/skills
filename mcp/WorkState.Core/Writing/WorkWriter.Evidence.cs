@@ -236,6 +236,10 @@ public sealed partial class WorkWriter
                 cancellationToken));
         }
 
+        var callable = opened.Count == 0
+            ? null
+            : await CallableAssumptionAsync(connection, transaction, item, opened[0], cancellationToken);
+
         await HeartbeatAsync(
             connection,
             transaction,
@@ -266,7 +270,7 @@ public sealed partial class WorkWriter
         {
             lines.Add($"    opened  {opened.Count} assumption(s) from assumptions[]: "
                     + $"{string.Join(", ", opened)}");
-            lines.Add($"            work_assume(ref:\"{opened[0]}\", resolve:\"confirmed\", "
+            lines.Add($"            work_assume(ref:\"{callable}\", resolve:\"confirmed\", "
                     + "evidence:\"…\") when one settles");
         }
 
@@ -275,6 +279,31 @@ public sealed partial class WorkWriter
                 + "a report is a claim, not evidence.");
 
         return WriteResult.Ok(string.Join("\n", lines));
+    }
+
+    /// <summary>The form of an assumption <paramref name="item"/> just opened that <c>work_assume</c> takes as printed.</summary>
+    private static async Task<string> CallableAssumptionAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        ItemRow item,
+        string reference,
+        CancellationToken cancellationToken)
+    {
+        const string sql =
+            $$"""
+            SELECT {{Queries.BoardQueries.CallableAssumptionSql}}
+            FROM   assumption a
+            LEFT   JOIN item s ON s.id = a.ref_scope_id
+            WHERE  a.scope_item_id = @item
+              AND  a.state = 'open'
+              AND  a.ref = @ref;
+            """;
+
+        return await connection.ExecuteScalarAsync<string>(new CommandDefinition(
+            sql,
+            new { item = item.Id, @ref = reference },
+            transaction,
+            cancellationToken: cancellationToken)) ?? reference;
     }
 
     private static string Raw(ReportArgs args) => string.Join(

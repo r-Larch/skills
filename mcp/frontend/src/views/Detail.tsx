@@ -3,7 +3,7 @@ import { A } from '@solidjs/router'
 import * as api from '../api.ts'
 import type { BoardRow, ItemPage, ItemRef } from '../api.ts'
 import { load } from '../store.ts'
-import { CLOSED, pageInput, refState, rowState, state } from '../state.ts'
+import { CLOSED, answer, pageInput, refState, rowState, state } from '../state.ts'
 import { ago, cap, claimHolder, clock, day } from '../format.ts'
 import { CheckIcon } from '../icons.tsx'
 import { pathCrumbs } from '../nav.ts'
@@ -180,7 +180,7 @@ function OverviewTab(props: Props) {
     return row ? rowState(row) : refState(item)
   }
   const empty = () =>
-    !p().intent && !p().imported && blockers().length === 0 && p().criteria.length === 0 && !p().verifyCmd && p().children.length === 0 && p().findings.length === 0
+    !p().intent && !answer(p()) && !p().imported && blockers().length === 0 && p().criteria.length === 0 && !p().verifyCmd && p().children.length === 0 && p().findings.length === 0
 
   return (
     <>
@@ -188,6 +188,14 @@ function OverviewTab(props: Props) {
         {(intent) => (
           <Section title="What this is for">
             <div class="prose">{intent()}</div>
+          </Section>
+        )}
+      </Show>
+
+      <Show when={answer(p())}>
+        {(decided) => (
+          <Section title="Answered">
+            <div class="prose">{decided()}</div>
           </Section>
         )}
       </Show>
