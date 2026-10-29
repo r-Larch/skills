@@ -1,6 +1,7 @@
 import { createSignal } from 'solid-js'
 import type { InviteView, PasswordChange, ResetView } from './admin.ts'
 import type { AppInfo, SessionTenant } from './connect.ts'
+import type { Sharing } from './sharing.ts'
 
 /** doc 10 — the frozen v1 shapes, as `WorkState.Api/App/V1/V1Contract.cs` serialises them. */
 export type ItemRef = {
@@ -100,6 +101,7 @@ export type ProjectOverview = {
   archivedAt: string | null
   lastActivityAt: string | null
   openRuns: number
+  sharing: Sharing
 }
 
 export type Overview = {
@@ -508,6 +510,30 @@ export const useReset = (token: string, password: string) =>
       body: JSON.stringify({ password }),
     }),
   )
+
+/** `/api/projects/{id}/members` (doc 10, outside v1): a member of the project or a workspace admin, else 404. */
+export type ProjectMember = { userId: string; name: string; addedAt: string; addedBy: string | null; disabledAt: string | null }
+
+export type ProjectCandidate = { userId: string; name: string; disabledAt: string | null }
+
+export type ProjectMembers = {
+  projectId: string
+  ref: string
+  everyone: boolean
+  members: ProjectMember[]
+  candidates: ProjectCandidate[]
+}
+
+export const projectMembers = (project: string) => json<ProjectMembers>(`/api/projects/${id(project)}/members`)
+
+/** One member of the workspace, or with `'all'` every one not in yet. */
+export const addProjectMember = async (project: string, who: string | 'all'): Promise<ProjectMembers> =>
+  (await send('POST', `/api/projects/${id(project)}/members`, who === 'all' ? { all: true } : { userId: who })).json() as Promise<ProjectMembers>
+
+/** The 409 for the project's last member throws the server's own words. */
+export async function removeProjectMember(project: string, user: string): Promise<void> {
+  await send('DELETE', `/api/projects/${id(project)}/members/${id(user)}`)
+}
 
 export async function setArchived(project: string, archived: boolean): Promise<void> {
   await write(`/api/projects/${id(project)}/${archived ? 'archive' : 'unarchive'}`)

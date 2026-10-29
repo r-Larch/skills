@@ -1,6 +1,7 @@
 import type { ProjectOverview, SearchHit } from './api.ts'
 import { ADMIN, USERS, backlogHref, itemHref, projectHref } from './nav.ts'
 import { projectName } from './format.ts'
+import { membersHref } from './sharing.ts'
 
 /** A palette command: a page to open, or one of the shell's actions (the theme, a tenant switch). */
 export type Command = {
@@ -22,10 +23,12 @@ export type PaletteAccount = {
 }
 
 /**
- * Every command the shell offers: the four pages, the admin pages the user may open, each project and its
- * backlog, a switch to each other workspace they may enter, the theme.
+ * Every command the shell offers: the four pages, the admin pages the user may open, on a project's page its
+ * Members, each project and its backlog, a switch to each other workspace they may enter, the theme. `here` is the
+ * project whose page is open — from the path, so a workspace admin who is not a member, and so has no card for it,
+ * gets the command too.
  */
-export function commands(projects: Pick<ProjectOverview, 'item'>[], account?: PaletteAccount): Command[] {
+export function commands(projects: Pick<ProjectOverview, 'item'>[], account?: PaletteAccount, here?: string | null): Command[] {
   const page = (id: string, label: string, href: string): Command => ({ id, label, keywords: '', href, action: null })
   return [
     page('overview', 'Go to Overview', '/'),
@@ -34,6 +37,7 @@ export function commands(projects: Pick<ProjectOverview, 'item'>[], account?: Pa
     page('sessions', 'Go to Sessions', '/sessions'),
     ...(account?.administers ? [{ ...page('admin', 'Go to Admin', ADMIN), keywords: 'workspaces members invites tenants' }] : []),
     ...(account?.systemAdmin ? [{ ...page('users', 'Go to Users', USERS), keywords: 'admin accounts disable' }] : []),
+    ...(here ? [{ ...page(`members:${here}`, 'Manage members', membersHref(here)), keywords: 'share sharing access people' }] : []),
     ...projects.flatMap(({ item }) => {
       const keywords = `${item.ref} ${item.title}`
       return [

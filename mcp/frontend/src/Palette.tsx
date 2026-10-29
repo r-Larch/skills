@@ -1,5 +1,5 @@
 import { For, Show, createEffect, createMemo, createSignal, on, onCleanup, onMount, type JSX } from 'solid-js'
-import { useNavigate } from '@solidjs/router'
+import { useLocation, useNavigate } from '@solidjs/router'
 import * as api from './api.ts'
 import { account, overview } from './store.ts'
 import { toggleTheme } from './theme.ts'
@@ -7,6 +7,7 @@ import { refState } from './state.ts'
 import { Pill, ProjectName } from './ui.tsx'
 import { arrange, commands, entryHref, isPaletteChord, isSlash, matchCommands, type Entry, type PaletteAccount } from './palette.ts'
 import { switchWorkspace } from './tenant.ts'
+import { projectOnPath } from './sharing.ts'
 
 const DEBOUNCE_MS = 150
 
@@ -27,6 +28,7 @@ const typingIn = (target: EventTarget | null): boolean =>
  */
 export default function Palette() {
   const navigate = useNavigate()
+  const location = useLocation()
   const [query, setQuery] = createSignal('')
   const [hits, setHits] = createSignal<api.SearchHit[]>([])
   const [searched, setSearched] = createSignal<string>()
@@ -122,7 +124,9 @@ export default function Palette() {
     const a = account()
     return a && { administers: a.user.administers, systemAdmin: a.user.systemAdmin, tenants: a.tenants }
   }
-  const matched = createMemo(() => matchCommands(commands(overview()?.projects ?? [], paletteAccount()), query()))
+  const matched = createMemo(() =>
+    matchCommands(commands(overview()?.projects ?? [], paletteAccount(), projectOnPath(location.pathname)), query()),
+  )
   const layout = createMemo(() => arrange(matched(), query().trim() === '' ? [] : hits()))
   const entries = () => layout().entries
   const pending = () => query().trim() !== '' && searched() !== query().trim()

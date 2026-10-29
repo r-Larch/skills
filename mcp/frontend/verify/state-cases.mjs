@@ -12,6 +12,7 @@ import { appIconHref, consentForm, consentStep, consentView, hiddenFields, iconS
 import { formerName, isReleased, releasable, tokenLabel } from '../src/sessions.ts'
 import { arrange, chordLabel, commands, entryHref, isPaletteChord, isSlash, matchCommands } from '../src/palette.ts'
 import { HANDLE, LIST_MIN, PANEL_MIN, PANEL_SHARE, WIDTH_KEY, clampWidth, docks, panelWidth, rememberWidth, rememberedWidth } from '../src/split.ts'
+import { MEMBERS_ANCHOR, memberLine, membersHref, projectOnPath, shareMarker } from '../src/sharing.ts'
 import { expiresIn, isLastAdmin, isLinkPath, joinStep, joinToken, nameProblem, passwordMessage, passwordProblem, resetStep, resetToken, roleLabel, showSwitcher, slugFrom, slugProblem } from '../src/admin.ts'
 
 let failures = 0
@@ -435,6 +436,36 @@ check('a change that worked says the other sessions ended', passwordMessage({ k:
 check('a wrong current password says nothing changed', passwordMessage({ k: 'wrong' }), 'The current password is not right. Nothing changed.')
 check('a refusal is the server words', passwordMessage({ k: 'refused', error: 'A password needs at least 12 characters.' }), 'A password needs at least 12 characters.')
 check('reads for the account page', routeReads('/account'), ['/api/session/me'])
+
+console.log('\n── sharing: the overview marker, the Members panel, its palette command ────')
+const mark = (sharing, me) => {
+  const m = shareMarker(sharing, me)
+  return [m.k, m.label, m.detail]
+}
+check('0 members: open to the workspace', mark({ members: 0, you: false, names: [] }, 'ada'), [
+  'open', 'Open to the workspace', 'No one has joined yet, so everyone in the workspace can see it.',
+])
+check('1, you: private', mark({ members: 1, you: true, names: ['ada'] }, 'ada'), ['private', 'Private', 'Only you.'])
+check('1, not you: private to them', mark({ members: 1, you: false, names: ['ben'] }), ['private', 'Private to ben', 'Only ben.'])
+check('2, you: shared with the 1 other', mark({ members: 2, you: true, names: ['ada', 'ben'] }, 'ada'), ['shared', 'Shared with 1', 'You and ben.'])
+check('3, you: shared with 2 others, named', mark({ members: 3, you: true, names: ['ada', 'ben', 'cy'] }, 'ben'), [
+  'shared', 'Shared with 2', 'You, ada and cy.',
+])
+check('3, not you: the whole count', mark({ members: 3, you: false, names: ['ada', 'ben', 'cy'] }), ['shared', 'Shared with 3', 'ada, ben and cy.'])
+check('you, own name not known yet: names everyone', mark({ members: 2, you: true, names: ['ada', 'ben'] }), ['shared', 'Shared with 1', 'ada and ben.'])
+check('a member line: who added, when', memberLine({ addedBy: 'ada', disabledAt: null }, '29 Oct'), 'Added by ada 29 Oct')
+check('a member line: no adder, disabled', memberLine({ addedBy: null, disabledAt: '2026-10-29T00:00:00Z' }, '29 Oct'), 'Added 29 Oct · disabled')
+check('the Members anchor', [MEMBERS_ANCHOR, membersHref('P')], ['members', '/projects/P#members'])
+check('a project page names its project, its backlog does not', ['/projects/P', '/projects/P/', '/projects/P/backlog', '/'].map(projectOnPath), [
+  'P', 'P', null, null,
+])
+const onPage = commands(projects, undefined, 'P')
+const manage = onPage.find((c) => c.label === 'Manage members')
+check('Manage members on a project page opens its panel', manage && [manage.href, entryHref({ kind: 'command', command: manage })], [
+  '/projects/P#members', '/projects/P#members',
+])
+check('no Manage members off a project page', commands(projects).some((c) => c.label === 'Manage members'), false)
+check('Manage members by the word share', labels(matchCommands(onPage, 'share')), ['Manage members'])
 
 console.log(failures === 0 ? '\nAll checks passed.' : `\n${failures} check(s) failed.`)
 if (failures > 0) process.exitCode = 1
