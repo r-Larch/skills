@@ -18,6 +18,7 @@ default and U4 must not re-implement them in C#.
 |---|---|---|
 | duplicate `ref` in a run · `blocks` cycle · resolution without `done` · `closed_at` consistency · two live write-claims on one tree · an edited `event` | **Postgres** (U1) | Cannot be bypassed, not even by a bug in the tool layer. Catch `PostgresException`, surface its message. |
 | the `done` **pre-conditions** (criteria, verification, children, findings, commit) | **the tool layer** (U4) | They are a *policy* with an override, and they need to produce a multi-line remedial message. A constraint can only say no. |
+| a moved item's new parent is a kind its `item_kind.allowed_parent_kinds` names, and an empty list is a root (`work_move`, m62) | **the tool layer** | The refusal names the kinds it may sit under and the move that works. A root is where project access keys: a project moved under another project's run would take that project's membership. The importer checks it too; `work_create` does not. |
 | claim **expiry** | **both** — the unique index in Postgres, the TTL sweep in the tool layer | The index makes overlap impossible; the sweep makes expiry *visible*. |
 
 **The test of where a rule belongs:** if violating it should be impossible, it is a constraint. If

@@ -509,6 +509,12 @@ public sealed partial class WorkWriter
             seq = await NextSeqAsync(connection, transaction, parentId, cancellationToken);
         }
 
+        if (parentId != item.ParentId
+            && await ParentKindRefusalAsync(connection, transaction, item, parentId, cancellationToken) is { } misplaced)
+        {
+            return WriteResult.No(misplaced);
+        }
+
         const string sql = "UPDATE item SET parent_id = @parent, seq = @seq, revision = revision + 1 WHERE id = @id;";
 
         try
@@ -537,6 +543,55 @@ public sealed partial class WorkWriter
             $"OK  {item.Ref}  moved, seq {seq}",
             string.Empty,
             $"Next: work_tree(scope:\"{parent ?? item.Ref}\") to confirm the shape."));
+    }
+
+    /// <summary>
+    /// doc 07 §1 — <c>item_kind.allowed_parent_kinds</c> is where an item may sit, and an empty list is a root: project
+    /// access keys on the root, so a project moved under another project's run would take that project's membership.
+    /// A reorder under the parent it already has is not a new parent and is not checked.
+    /// </summary>
+    private static async Task<string?> ParentKindRefusalAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        ItemRow item,
+        Guid? parentId,
+        CancellationToken cancellationToken)
+    {
+        const string sql =
+            """
+            SELECT array_to_string(k.allowed_parent_kinds, ',') AS "Allowed",
+                   p.kind AS "ParentKind", p.ref AS "ParentRef"
+            FROM   item_kind k
+            LEFT   JOIN item p ON p.id = @parent
+            WHERE  k.key = @kind;
+            """;
+
+        var row = await connection.QuerySingleAsync<(string Allowed, string? ParentKind, string? ParentRef)>(new CommandDefinition(
+            sql,
+            new { kind = item.Kind, parent = parentId },
+            transaction,
+            cancellationToken: cancellationToken));
+
+        var allowed = row.Allowed.Split(',', StringSplitOptions.RemoveEmptyEntries);
+        if (allowed.Length == 0 ? parentId is null : row.ParentKind is { } kind && allowed.Contains(kind))
+        {
+            return null;
+        }
+
+        var where = row.ParentRef is null ? "the top level, beside the projects" : $"{row.ParentKind} {row.ParentRef}";
+
+        return allowed.Length == 0
+            ? Refusal.Blocked(
+                $"work_move({item.Ref}) — a {item.Kind} sits under nothing, and this would put it under {where}.",
+                $"a {item.Kind} is a root: who may see it keys on the root, so under another item it would take that item's access",
+                $"work_move(ref:\"{item.Ref}\", before:\"<another {item.Kind}>\") reorders it among the {item.Kind}s",
+                $"work_move(ref:\"{item.Ref}/<one of its runs>\", parent:\"<the other {item.Kind}>\") moves its work instead, "
+                + "which then takes that one's access")
+            : Refusal.Blocked(
+                $"work_move({item.Ref}) — a {item.Kind} cannot sit under {where}.",
+                $"a {item.Kind} sits under a {string.Join(" or a ", allowed)}",
+                $"work_move(ref:\"{item.Ref}\", parent:\"<a {string.Join(" or ", allowed)} ref>\")",
+                $"work_move(ref:\"{item.Ref}\", before:\"<a sibling under a {string.Join(" or ", allowed)}>\")");
     }
 
     /// <summary>
