@@ -414,7 +414,7 @@ public sealed partial class BoardQueries(NpgsqlDataSource dataSource)
         CancellationToken cancellationToken = default)
     {
         const string sql =
-            """
+            $$"""
             SELECT a.ref            AS "Ref",
                    CASE WHEN s.ref IS NULL THEN a.ref ELSE s.ref || '/' || a.ref END
                                     AS "QualifiedRef",
@@ -426,7 +426,9 @@ public sealed partial class BoardQueries(NpgsqlDataSource dataSource)
                    r.ref            AS "RevisitRef",
                    r.status         AS "RevisitStatus",
                    r.closed_at      AS "RevisitClosedAt",
-                   a.scope_item_id  AS "ScopeItemId"
+                   a.scope_item_id  AS "ScopeItemId",
+                   {{CallableAssumptionSql}}
+                                    AS "Callable"
             FROM   assumption a
             LEFT   JOIN item s ON s.id = a.ref_scope_id
             LEFT   JOIN item r ON r.id = a.revisit_item_id

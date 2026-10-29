@@ -475,12 +475,16 @@ public sealed partial class BoardReader
         if (wanted.Contains("assumptions"))
         {
             var assumptions = await board.AssumptionsAsync(scope.WorkspaceId, scope.Item.Id, true, cancellationToken);
+            var shared = assumptions.GroupBy(a => a.Ref, StringComparer.OrdinalIgnoreCase)
+                .Where(g => g.Count() > 1)
+                .Select(g => g.Key)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
             // An assumption has no detail view, so this is where its statement is read whole.
             found.AddRange(assumptions.Select(a => WrappedRow(
-                $"{Glyph.Pad(a.Ref, 6)}  {Glyph.Pad("assum", 6)}  ",
+                $"{Glyph.Pad(shared.Contains(a.Ref) ? a.Callable : a.Ref, 6)}  {Glyph.Pad("assum", 6)}  ",
                 a.Statement,
                 $"{Glyph.Pad(a.Evidence.ToString().ToLowerInvariant(), 9)}  "
-                + $"— work_assume(ref:\"{a.Ref}\", resolve:\"confirmed\", evidence:\"…\")").ToList()));
+                + $"— work_assume(ref:\"{a.Callable}\", resolve:\"confirmed\", evidence:\"…\")").ToList()));
         }
 
         var threads = await queries.OpenThreadsAsync(scope.WorkspaceId, scope.Item.Id, cancellationToken);

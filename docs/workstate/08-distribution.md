@@ -175,6 +175,11 @@ claim made without a session is retaken or extended only by the same user. `work
 `/sessions`). Its one migration (`ClaimHolderUser`) adds `claim.holder_user_id` and backfills it on
 live claims from their session's user.
 
+`1.1.2` (no plugin change) applies `item_kind.allowed_parent_kinds` to create, move and import
+alike. Only a project is a root. Its one migration (`TaskUnderTask`) lets a task sit under a task,
+which 19 live rows already did. It also makes printed assumption refs callable, records a
+question's answer when it closes, and gives the dashboard a phone layout.
+
 ---
 
 ## 3. Should the skills use it? — Yes, and as a **hard** dependency

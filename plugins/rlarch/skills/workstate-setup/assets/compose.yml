@@ -32,9 +32,14 @@ services:
       WorkState__Auth__WorkerToken: ${WORKSTATE_WORKER_TOKEN:?set WORKSTATE_WORKER_TOKEN in .env}
       WorkState__Auth__OrchestratorToken: ${WORKSTATE_ORCHESTRATOR_TOKEN:?set WORKSTATE_ORCHESTRATOR_TOKEN in .env}
       WorkState__Auth__ControllerToken: ${WORKSTATE_CONTROLLER_TOKEN:?set WORKSTATE_CONTROLLER_TOKEN in .env}
+      # Optional, unlike the three above: empty means no reader token exists (doc 10 rule 5).
       WorkState__Auth__ReaderToken: ${WORKSTATE_READER_TOKEN:-}
       WorkState__Dashboard__Username: ${WORKSTATE_DASHBOARD_USERNAME:?set WORKSTATE_DASHBOARD_USERNAME in .env}
       WorkState__Dashboard__Password: ${WORKSTATE_DASHBOARD_PASSWORD:?set WORKSTATE_DASHBOARD_PASSWORD in .env}
+      # Optional: the base of the web line work_brief and work_get print. Empty means the request's host.
+      WorkState__PublicUrl: ${WORKSTATE_PUBLIC_URL:-}
+      # Optional: IPs/CIDRs of the reverse proxy whose X-Forwarded-* is believed. Empty trusts nobody.
+      WorkState__TrustedProxies: ${WORKSTATE_TRUSTED_PROXIES:-}
       ConnectionStrings__WorkState: >-
         Host=db;Port=5432;Database=${POSTGRES_DB:-workstate};Username=${POSTGRES_USER:-workstate};Password=${POSTGRES_PASSWORD}
     ports:

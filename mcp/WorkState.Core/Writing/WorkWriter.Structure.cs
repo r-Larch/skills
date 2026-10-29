@@ -158,14 +158,24 @@ public sealed partial class WorkWriter
                 var row = await LoadAsync(connection, transaction, found.Id, cancellationToken);
                 parent = new ScopeRefLite(row.Id, row.Ref, row.RefScopeId);
             }
-            else if (kind is not ("project" or "feature"))
+
+            var misplaced = await ParentKindRefusalAsync(
+                connection,
+                transaction,
+                $"work_create(items:[{{kind:\"{kind}\"" + (parent is null ? "}])" : $", parent:\"{parent.Ref}\"}}])"),
+                kind,
+                parentId,
+                allowed => allowed is null
+                    ? [$"work_create(items:[{{kind:\"{kind}\", title:\"…\"}}]) — a project is a root; omit parent"]
+                    :
+                    [
+                        $"work_create(items:[{{kind:\"{kind}\", parent:\"<a {allowed} ref>\", title:\"…\"}}])",
+                        "work_tree() to see what exists to hang it from",
+                    ],
+                cancellationToken);
+            if (misplaced is not null)
             {
-                return WriteResult.No(Refusal.Blocked(
-                    $"work_create(items:[{{kind:\"{kind}\"}}]) without a parent.",
-                    "everything below a project hangs off something — an orphan is invisible to "
-                    + "work_next and to every rollup",
-                    $"work_create(items:[{{kind:\"{kind}\", parent:\"<a ref>\", title:\"…\"}}])",
-                    "work_tree() to see what exists to hang it from"));
+                return WriteResult.No(misplaced);
             }
 
             var refScope = parent is null
@@ -550,11 +560,45 @@ public sealed partial class WorkWriter
     /// access keys on the root, so a project moved under another project's run would take that project's membership.
     /// A reorder under the parent it already has is not a new parent and is not checked.
     /// </summary>
-    private static async Task<string?> ParentKindRefusalAsync(
+    private static Task<string?> ParentKindRefusalAsync(
         NpgsqlConnection connection,
         NpgsqlTransaction transaction,
         ItemRow item,
         Guid? parentId,
+        CancellationToken cancellationToken)
+        => ParentKindRefusalAsync(
+            connection,
+            transaction,
+            $"work_move({item.Ref})",
+            item.Kind,
+            parentId,
+            allowed => allowed is null
+                ?
+                [
+                    $"work_move(ref:\"{item.Ref}\", before:\"<another {item.Kind}>\") reorders it among the {item.Kind}s",
+                    $"work_move(ref:\"{item.Ref}/<one of its runs>\", parent:\"<the other {item.Kind}>\") moves its work instead, "
+                    + "which then takes that one's access",
+                ]
+                :
+                [
+                    $"work_move(ref:\"{item.Ref}\", parent:\"<a {allowed} ref>\")",
+                    $"work_move(ref:\"{item.Ref}\", before:\"<a sibling under a {allowed}>\")",
+                ],
+            cancellationToken);
+
+    /// <summary>
+    /// doc 07 §1 — the one placement rule <c>work_create</c>, <c>work_move</c> and <c>work_import</c> share: a kind with
+    /// an empty <c>allowed_parent_kinds</c> (a project) is a root and nothing else is, because a root outside every
+    /// project has no members and is visible to the whole workspace. <paramref name="routes"/> gets the allowed kinds as
+    /// "phase or run", or null for a root kind that was given a parent, and returns the calling tool's working calls.
+    /// </summary>
+    private static async Task<string?> ParentKindRefusalAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        string call,
+        string kind,
+        Guid? parentId,
+        Func<string?, string[]> routes,
         CancellationToken cancellationToken)
     {
         const string sql =
@@ -568,30 +612,35 @@ public sealed partial class WorkWriter
 
         var row = await connection.QuerySingleAsync<(string Allowed, string? ParentKind, string? ParentRef)>(new CommandDefinition(
             sql,
-            new { kind = item.Kind, parent = parentId },
+            new { kind, parent = parentId },
             transaction,
             cancellationToken: cancellationToken));
 
         var allowed = row.Allowed.Split(',', StringSplitOptions.RemoveEmptyEntries);
-        if (allowed.Length == 0 ? parentId is null : row.ParentKind is { } kind && allowed.Contains(kind))
+        if (allowed.Length == 0 ? parentId is null : row.ParentKind is { } parentKind && allowed.Contains(parentKind))
         {
             return null;
         }
 
-        var where = row.ParentRef is null ? "the top level, beside the projects" : $"{row.ParentKind} {row.ParentRef}";
+        if (allowed.Length == 0)
+        {
+            return Refusal.Blocked(
+                $"{call} — a {kind} sits under nothing, and this would put it under {row.ParentKind} {row.ParentRef}.",
+                $"a {kind} is a root; omit parent: who may see it keys on the root, so under another item it would take that "
+                + "item's access",
+                routes(null));
+        }
 
-        return allowed.Length == 0
-            ? Refusal.Blocked(
-                $"work_move({item.Ref}) — a {item.Kind} sits under nothing, and this would put it under {where}.",
-                $"a {item.Kind} is a root: who may see it keys on the root, so under another item it would take that item's access",
-                $"work_move(ref:\"{item.Ref}\", before:\"<another {item.Kind}>\") reorders it among the {item.Kind}s",
-                $"work_move(ref:\"{item.Ref}/<one of its runs>\", parent:\"<the other {item.Kind}>\") moves its work instead, "
-                + "which then takes that one's access")
-            : Refusal.Blocked(
-                $"work_move({item.Ref}) — a {item.Kind} cannot sit under {where}.",
-                $"a {item.Kind} sits under a {string.Join(" or a ", allowed)}",
-                $"work_move(ref:\"{item.Ref}\", parent:\"<a {string.Join(" or ", allowed)} ref>\")",
-                $"work_move(ref:\"{item.Ref}\", before:\"<a sibling under a {string.Join(" or ", allowed)}>\")");
+        return Refusal.Blocked(
+            parentId is null
+                ? $"{call} — a {kind} cannot sit at the top level, beside the projects."
+                : $"{call} — a {kind} cannot sit under {row.ParentKind} {row.ParentRef}.",
+            $"a {kind} sits under a {string.Join(" or a ", allowed)}"
+            + (parentId is null
+                ? "; only a project is a root — anything else at the top level falls outside every project, with no "
+                  + "members and visible to the whole workspace"
+                : string.Empty),
+            routes(string.Join(" or ", allowed)));
     }
 
     /// <summary>

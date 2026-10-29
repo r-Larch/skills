@@ -146,7 +146,7 @@ Names are `work_*`-prefixed so they survive aggregation across servers.
 
 | Tool | Notes |
 |---|---|
-| **`work_create`** | **Batch**: takes an array. Decomposition creates 6–20 items in one call. Refuses a `task` without `verify_cmd` and without ≥1 done-criterion — the skill's *"a brief that omits done-criteria or a verification command is a defect"*, made unwritable. Accepts an agent-chosen `ref` (`2.1b`, `3.R1` — the corpus uses these constantly) or derives one; `UNIQUE(workspace_id, ref_scope_id, ref)` makes duplicate task numbers impossible **within a run**, while leaving parallel runs free to use the same numbering. |
+| **`work_create`** | **Batch**: takes an array. Decomposition creates 6–20 items in one call. Refuses a `task` without `verify_cmd` and without ≥1 done-criterion — the skill's *"a brief that omits done-criteria or a verification command is a defect"*, made unwritable. **Where an item may sit** is `item_kind.allowed_parent_kinds` (doc 02): only a `project` is a root and takes no `parent`; a `feature` sits under a project, a `run` under a project or feature, a `phase` under a run, a `task` under a phase, run or task. Anything else is refused naming the kinds it may sit under and the call that works (doc 07 §1). Accepts an agent-chosen `ref` (`2.1b`, `3.R1` — the corpus uses these constantly) or derives one; `UNIQUE(workspace_id, ref_scope_id, ref)` makes duplicate task numbers impossible **within a run**, while leaving parallel runs free to use the same numbering. |
 | **`work_update`** | Field-level patch of `title`/`intent`/`verify_cmd`/`risk`/`criteria`/`priority`. Takes `expected_revision`; a mismatch returns the current revision and what changed. **Criteria:** `{id:"c2", …}` patches criterion 2, which must exist — an id never creates one; `{text:"…"}` with no id appends as the next number. A row that would write nothing (an unknown id, an id with nothing to set, neither id nor text) refuses the **whole** call before anything is written, naming the ids that exist and the append form. The `OK` line counts exactly the criteria written. A call that sets no field and no criterion (every field absent or blank) is refused with `nothing changed`, and writes no revision, no heartbeat and no event. |
 | **`work_move`** | Reparent / reorder. Separate from `update` because it is the risky one. Fractional `seq` means inserting `2.1b` between `2.1` and `2.2` rewrites **one row**. The new parent — `parent:`, or the anchor's parent for `before`/`after` — must be a kind the item's `allowed_parent_kinds` names; a project sits under nothing (doc 07 §1). |
 | **`work_link`** | `blocks`, `supersedes`, `duplicates`, `derived_from`, `verifies`. Cycle-checked on write. `supersedes` sets the target to `superseded` — which is the skill's *"a superseded task is deleted, not annotated"*, enforced. |
@@ -265,6 +265,12 @@ never a phase inside the item's own run (doc 07 §4).
    instead — doc 07 §4);
 4. no open `finding` with `severity = blocker` targets it;
 5. for a task: ≥1 artifact of kind `commit` — *"every accepted task ends in a commit"*.
+6. for a question: `reason:` carries its answer — `work_status(ref:"Q1", to:"done", reason:"<the answer>")`.
+
+A question needs no verification of its own: its answer is the human's decision. Closed with one,
+`work_status` records the answer, in the same call, as a passed `run_by = human` verification and a
+`decision` note, and the dashboard shows the question as **Answered** rather than *done, not
+verified*. Without an answer the close is refused with that call as the route.
 
 A refusal is `isError: true` with self-correcting text, because the spec says tool execution errors
 are what models recover from:

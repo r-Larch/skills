@@ -38,6 +38,7 @@ export function state(i: StateInput): State {
   if (i.status === 'done') {
     if (i.resolution === 'obsolete') return { k: 'gone', label: 'Moved' }
     if (!LEAF.has(i.kind)) return { k: 'proven', label: 'Done' }
+    if (i.kind === 'question' && i.proof === true) return { k: 'proven', label: 'Answered' }
     if (i.proof === true) return { k: 'proven', label: 'Verified' }
     if (i.proof === null) return { k: 'claimed', label: 'Done' }
     return { k: 'claimed', label: 'Done, not verified' }
@@ -71,6 +72,15 @@ export function pageInput(page: ItemPage): StateInput {
       .filter((l) => l.type === 'blocks' && !CLOSED.has(l.item.status))
       .map((l) => l.item.qualifiedRef),
   }
+}
+
+/** A done question's answer: the decision note `work_status` wrote as it closed (doc 01 §4, condition 6). */
+export function answer(page: ItemPage): string | null {
+  if (page.item.kind !== 'question' || page.item.status !== 'done') return null
+  const decided = page.notes
+    .filter((n) => n.kind === 'decision' && n.from?.id === page.item.id)
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0]
+  return decided?.body ?? null
 }
 
 /** For a bare `ItemRef`, where nothing says whether it was verified or what it waits on. */
