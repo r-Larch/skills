@@ -185,6 +185,116 @@ public sealed class ProjectAccessRlsTests(PostgresFixture fixture) : IAsyncLifet
         Assert.True(offenders.Count == 0, $"a scope entered without its user: {string.Join(", ", offenders)}");
     }
 
+    /// <summary>
+    /// (a) of the fail-closed three: U1 holds one transaction open while another removes them from a project they
+    /// could see when it began. Their next statement no longer can — the seq moved, so the policy asks the live check.
+    /// </summary>
+    [Fact]
+    public async Task ProjectAccess_a_member_removed_while_their_transaction_is_open_sees_none_of_it_from_their_next_statement()
+    {
+        var world = await RlsWorld.CreateAsync(fixture);
+        var (one, two) = (await UserAsync(world.WorkspaceId), await UserAsync(world.WorkspaceId));
+        var project = await ProjectAsync(world.WorkspaceId, one: one, also: two);
+
+        await using var source = WorkStateDataSource.Create(fixture.ConnectionString);
+        using var scope = TenantScope.EnterAs(world.WorkspaceId, one);
+        await using var held = await new WorkStateConnections(source).TenantAsync(Ct);
+
+        Assert.Equal(3, await ItemsAsync(held, project.Ids));
+        Assert.Equal(1, await NotesAsync(held, project.TaskId));
+
+        await CommitAsOwnerAsync(
+            "DELETE FROM project_member WHERE project_item_id = @project AND user_id = @one;",
+            new { project = project.ProjectId, one });
+
+        Assert.Equal(0, await ItemsAsync(held, project.Ids));
+        Assert.Equal(0, await NotesAsync(held, project.TaskId));
+    }
+
+    /// <summary>
+    /// (b): a project created, with its members and a note, while U1's transaction is open — U1 is none of them, and
+    /// nothing was hidden from U1 when it began, so even the rows that skip the item lookup must not show it.
+    /// </summary>
+    [Fact]
+    public async Task ProjectAccess_a_project_created_while_a_non_members_transaction_is_open_is_never_visible_to_them()
+    {
+        var world = await Seed.CreateWorldAsync(fixture);
+        var (one, two) = (await UserAsync(world.WorkspaceId), await UserAsync(world.WorkspaceId));
+        var (project, run, note) = (Guid.CreateVersion7(), Guid.CreateVersion7(), Guid.CreateVersion7());
+
+        await using var source = WorkStateDataSource.Create(fixture.ConnectionString);
+        using var scope = TenantScope.EnterAs(world.WorkspaceId, one);
+        await using var held = await new WorkStateConnections(source).TenantAsync(Ct);
+
+        Assert.Equal("{}", await held.Connection.ExecuteScalarAsync<string>(
+            $"SELECT current_setting('{WorkStateConnections.HiddenSetting}');"));
+        Assert.True(await ItemsAsync(held, [world.ProjectId, world.RunA]) == 2, "the workspace's own project is not visible");
+
+        await CommitAsOwnerAsync(
+            """
+            INSERT INTO item (id, workspace_id, kind, ref, seq, title) VALUES (@project, @ws, 'project', 'pa-' || right(@tag, 8), 60, 'new');
+            INSERT INTO item (id, workspace_id, parent_id, kind, ref, seq, title) VALUES (@run, @ws, @project, 'run', 'run-a', 1, 'run');
+            INSERT INTO project_member (project_item_id, user_id, workspace_id) VALUES (@project, @two, @ws);
+            INSERT INTO note (id, workspace_id, kind, body, to_item_id) VALUES (@note, @ws, 'observation', 'pa', @run);
+            """,
+            new { ws = world.WorkspaceId, project, run, note, two, tag = Guid.CreateVersion7().ToString("n") });
+
+        Assert.Equal(0, await ItemsAsync(held, [project, run]));
+        Assert.Equal(0, await NotesAsync(held, run));
+        await held.CommitAsync(Ct);
+
+        using (TenantScope.EnterAs(world.WorkspaceId, one))
+        await using (var next = await new WorkStateConnections(source).TenantAsync(Ct))
+        {
+            Assert.Equal(0, await ItemsAsync(next, [project, run]));
+            Assert.Equal(0, await NotesAsync(next, run));
+        }
+
+        using (TenantScope.EnterAs(world.WorkspaceId, two))
+        await using (var member = await new WorkStateConnections(source).TenantAsync(Ct))
+        {
+            Assert.Equal(2, await ItemsAsync(member, [project, run]));
+            Assert.Equal(1, await NotesAsync(member, run));
+        }
+    }
+
+    /// <summary>(c): U1 added to a project while their transaction is open sees it from their next statement on.</summary>
+    [Fact]
+    public async Task ProjectAccess_a_member_added_while_their_transaction_is_open_sees_the_project_from_their_next_statement()
+    {
+        var world = await RlsWorld.CreateAsync(fixture);
+        var (one, two) = (await UserAsync(world.WorkspaceId), await UserAsync(world.WorkspaceId));
+        var project = await ProjectAsync(world.WorkspaceId, one: two, also: null);
+
+        await using var source = WorkStateDataSource.Create(fixture.ConnectionString);
+        using var scope = TenantScope.EnterAs(world.WorkspaceId, one);
+        await using var held = await new WorkStateConnections(source).TenantAsync(Ct);
+
+        Assert.Equal(0, await ItemsAsync(held, project.Ids));
+
+        await CommitAsOwnerAsync(
+            "INSERT INTO project_member (project_item_id, user_id, workspace_id) VALUES (@project, @one, @ws);",
+            new { project = project.ProjectId, one, ws = world.WorkspaceId });
+
+        Assert.Equal(3, await ItemsAsync(held, project.Ids));
+        Assert.Equal(1, await NotesAsync(held, project.TaskId));
+    }
+
+    private static Task<long> ItemsAsync(OpenTransaction tenant, Guid[] ids)
+        => tenant.Connection.ExecuteScalarAsync<long>("SELECT count(*) FROM item WHERE id = ANY(@ids);", new { ids }, tenant.Transaction);
+
+    private static Task<long> NotesAsync(OpenTransaction tenant, Guid item)
+        => tenant.Connection.ExecuteScalarAsync<long>("SELECT count(*) FROM note WHERE to_item_id = @item;", new { item }, tenant.Transaction);
+
+    /// <summary>Another connection's change, committed while the test's tenant transaction stays open.</summary>
+    private async Task CommitAsOwnerAsync(string sql, object args)
+    {
+        await using var owner = await fixture.DataSource.OpenConnectionAsync(Ct);
+        await using var transaction = await owner.BeginTransactionAsync(Ct);
+        await owner.ExecuteAsync(sql, args, transaction);
+        await transaction.CommitAsync(Ct);
+    }
+
     /// <summary>Every table whose rows belong to a project, and the owner's predicate naming one project's rows in it.</summary>
     private static Dictionary<string, string> Tables()
     {

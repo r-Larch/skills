@@ -61,8 +61,14 @@ public sealed class WorkStateConnections(NpgsqlDataSource dataSource)
     /// <summary>The scope's user, which the ProjectAccess policies read; <c>''</c> for none: every project.</summary>
     public const string UserSetting = "app.user_id";
 
-    /// <summary>The roots the scope's user could see when the transaction began, so a policy need not ask per statement.</summary>
+    /// <summary>The roots the scope's user could see when the transaction began (ProjectAccess; ProjectAccessSeq replaced it).</summary>
     public const string ProjectsSetting = "app.projects";
+
+    /// <summary><c>workspace.access_seq</c> when the transaction began; a statement that reads another asks the live check.</summary>
+    public const string AccessSeqSetting = "app.access_seq";
+
+    /// <summary>The projects hidden from the scope's user at that seq, as the text of a <c>uuid[]</c>.</summary>
+    public const string HiddenSetting = "app.hidden_projects";
 
     private static readonly ConditionalWeakTable<NpgsqlDataSource, object> OwnerWhenUnscoped = [];
 
@@ -97,12 +103,16 @@ public sealed class WorkStateConnections(NpgsqlDataSource dataSource)
             return transaction;
         }
 
-        // With a user, the roots they may see are read once here, in the same round trip, by the owner's function.
+        // With a user, the seq and the projects hidden from them are read once here, in the same round trip, by the
+        // owner's function, from one snapshot (doc 02 §15b).
         var user = everyProject ? null : userId;
-        var projects = user is null ? "''" : $"{Migrations.ProjectAccess.VisibleFunction}(@workspaceId, @userId)";
+        var access = user is null
+            ? "(SELECT ''::text AS seq, ''::text AS hidden) a"
+            : $"{Migrations.ProjectAccessSeq.AccessFunction}(@workspaceId, @userId) a";
         await using var command = new NpgsqlCommand(
             $"SELECT set_config('role', '{AppRole}', true), set_config('{WorkspaceSetting}', @workspace, true), "
-            + $"set_config('{UserSetting}', @user, true), set_config('{ProjectsSetting}', {projects}, true);",
+            + $"set_config('{UserSetting}', @user, true), set_config('{AccessSeqSetting}', coalesce(a.seq, ''), true), "
+            + $"set_config('{HiddenSetting}', coalesce(a.hidden, ''), true) FROM {access};",
             connection,
             transaction);
         command.Parameters.AddWithValue("workspace", workspaceId?.ToString() ?? string.Empty);

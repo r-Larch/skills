@@ -1143,11 +1143,14 @@ names what it reads, and the database is the line that holds when one forgets.
 
 ### The user, and who has none
 
-The tenant helper sets a second transaction-local setting with the first:
+The tenant helper sets three more transaction-local settings with the first two, in the same statement:
 
 ```sql
 SELECT set_config('role', 'workstate_app', true), set_config('app.workspace_id', $tenant, true),
-       set_config('app.user_id', $user, true);
+       set_config('app.user_id', $user, true),
+       set_config('app.access_seq', coalesce(a.seq, ''), true),
+       set_config('app.hidden_projects', coalesce(a.hidden, ''), true)
+FROM   workstate_project_access($tenant, $user) a;        -- with no user: '' and '', no call
 ```
 
 `$user` is the `TenantScope`'s user, which the API enters with the tenant, from the principal and from
@@ -1165,21 +1168,6 @@ shared server reads every project of its workspace.
 
 ### What is hidden, and what stays the tenant's
 
-```sql
-CREATE FUNCTION workstate_hidden_projects() RETURNS uuid[]
-LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public AS $fn$
-  SELECT coalesce(array_agg(DISTINCT m.project_item_id), ARRAY[]::uuid[])
-  FROM   project_member m
-  WHERE  m.workspace_id = <app.workspace_id> AND <app.user_id> IS NOT NULL
-    AND  NOT EXISTS (SELECT 1 FROM project_member me
-                     WHERE me.project_item_id = m.project_item_id AND me.user_id = <app.user_id>);
-$fn$;
-
-CREATE POLICY project_access ON item AS RESTRICTIVE
-  USING      (NOT (coalesce(item.ancestors[1], item.id) = ANY ((SELECT workstate_hidden_projects())::uuid[])))
-  WITH CHECK (NOT (coalesce(item.ancestors[1], item.id) = ANY ((SELECT workstate_hidden_projects())::uuid[])));
-```
-
 A project is **hidden** from the caller when it has members and the caller is not one. An item belongs
 to its root — the project at the top of its tree, or itself — so a whole subtree is hidden or not with
 its project. Hidden from no one:
@@ -1192,29 +1180,79 @@ its project. Hidden from no one:
   document with no item, a note addressed to nothing and from nothing, an event with no item. They
   belong to the workspace, not to a project, so every member of it reads them.
 
-The policy is `RESTRICTIVE`, ANDed with `tenant_isolation`, and is a second policy beside it, so the
-tenant's stays as §15 lists it. It is on these tables:
+A policy `project_access`, `RESTRICTIVE` and so ANDed with `tenant_isolation`, sits beside it on these
+tables (migrations `ProjectAccess`, then `ProjectAccessSeq`, which rewrote its predicates):
 
 | policy | tables |
 |---|---|
-| its root is not hidden | `item` |
-| its project is not hidden | `project_member` |
+| its root is not hidden | `item` (root `coalesce(ancestors[1], id)`), `project_member` (its project) |
 | its item is visible — `EXISTS (SELECT 1 FROM item p WHERE p.id = <column>)`, read under `item`'s policies | `verification` (`item_id`), `project_repo` and `import_record` (`project_item_id`), `item_link` (both ends) |
 | the same, or the reference is null: a workspace row | `doc` (`item_id`), `event` (`item_id`), `assumption` and `constraint_rule` (`scope_item_id`), `agent_token` (`scope_item_id`), `note` (`to_item_id` and `from_item_id`) |
 | none of its own: its tenant policy already reads its parent, which reads `item` | `item_criterion`, `attempt`, `artifact`, `claim`, `project_config`, `run_config`, `report`, `doc_block`, `doc_block_revision` |
 | none — no project | `workspace`, `tenant_membership`, `user_link`, `agent_session` |
 
-`TenantTables.ByProject` lists the first four rows; `ProjectAccessRlsTests` reads it. The views run as
+`TenantTables.ByProject` lists the first three rows; `ProjectAccessRlsTests` reads it. The views run as
 their caller (§15), so `item_rollup` and `open_thread` count and list only what the caller may see.
 
-**Why a function.** The caller's hidden projects are computed once per statement — `(SELECT f())` is an
-InitPlan — and every row then pays one comparison against a short array. A policy that read
-`project_member` itself would need a grant on it for every role a policy applies to (an owner that is no
-superuser, `RlsTests`), and `project_member`'s own policy could not read it without recursing.
-`SECURITY DEFINER` runs it as the owner, the superuser §15 requires, which no policy confines. `STABLE`
-makes it read the statement's snapshot, the same one the rows it filters come from: a project and its
-first member are inserted in one transaction, so no statement sees the project without its members. It
-reads two settings and takes no argument, so no caller can point it elsewhere.
+### `access_seq` — the transaction's answer, while it is still true
+
+Asking who may see a project once per row, or once per statement through a function, cost the board
++65% (doc 15 §8). So the answer is read once, when the transaction begins, and kept only while nothing it
+depends on has changed. `workspace.access_seq` moves on every such change, by trigger, in the transaction
+that makes it:
+
+| trigger | fires on | why |
+|---|---|---|
+| `project_member_access_seq_trg` | `project_member` insert, update, delete — a cascade from a tenant membership or an item included | who is a member is the whole answer |
+| `item_root_insert_access_seq_trg` | an `item` inserted with no parent | a new project or root, which the answer cannot have named |
+| `item_root_move_access_seq_trg` | `item.parent_id` set to or from null | a root made or unmade by a move |
+| `item_root_delete_access_seq_trg` | an `item` with no parent deleted | a root gone (nothing deletes items today; the cascade would move it anyway) |
+
+A kind change makes or unmakes no root — a root is an item with no parent, whatever its kind — so it has
+no trigger. A move between two existing roots needs none either: each row's root is read from the row.
+`workstate_bump_access_seq` runs as the owner, so the bump lands whatever the writer's policies see.
+
+`workstate_project_access(workspace, user)` (owner, `STABLE`) reads the seq and the projects hidden from
+the user in one statement, so the list is exactly what that seq stands for. The policies then read:
+
+```sql
+-- a root:      item, project_member
+no_user OR CASE WHEN unchanged THEN NOT (root = ANY (hidden_at_start))
+                ELSE NOT (root = ANY ((SELECT workstate_hidden_projects())::uuid[])) END
+-- a row that hangs off an item
+no_user OR (unchanged AND nothing_hidden_at_start) OR EXISTS (SELECT 1 FROM item p WHERE p.id = <column>)
+
+-- each an InitPlan, once per statement:
+--   no_user                 (SELECT NULLIF(current_setting('app.user_id', true), '') IS NULL)
+--   unchanged               (SELECT w.access_seq = NULLIF(current_setting('app.access_seq', true), '')::bigint
+--                            FROM workspace w WHERE w.id = <tenant>)
+--   hidden_at_start         (SELECT NULLIF(current_setting('app.hidden_projects', true), '')::uuid[])::uuid[]
+--   nothing_hidden_at_start (SELECT current_setting('app.hidden_projects', true) = '{}')
+```
+
+While the statement reads the seq the transaction began with, the list is the truth: a member of every
+project pays nothing per row — no comparison and no item lookup behind a child row. When it reads another,
+the policy asks `workstate_hidden_projects()` (owner, `STABLE`), which reads the statement's own snapshot.
+An InitPlan runs only when its branch is reached, so that function runs only after a change.
+
+**Fail-closed.** The seq and the change it marks commit together, and every statement reads both from its
+own snapshot: it sees the change and the new seq, and asks the live check, or sees neither. So a change
+another transaction commits — a member removed, a member added, a project created that the caller is not
+in — applies from the caller's **next statement**, inside a transaction that is still open
+(`ProjectAccessRlsTests`: removed, created, added). A statement that was already running finishes on its
+own snapshot. A setting that is missing reads as null and takes the live branch.
+
+**Why functions, and why the owner.** A policy that read `project_member` itself would need a grant on it
+for every role a policy applies to, and `project_member`'s own policy could not read it without recursing.
+`SECURITY DEFINER` runs both functions as the owner, the superuser §15 requires, which no policy confines;
+each reads only its arguments or the transaction's settings, so no caller can point it elsewhere. The
+policies read `workspace` directly, which the tenant role may; an owner that is not a superuser needs the
+same grant (`RlsTests` gives its test owner `SELECT` on `workspace`).
+
+**What a bump costs a writer.** The bump updates the workspace row, so two transactions that each add or
+remove a member, or create a root, in the same workspace take turns on that row until the first commits.
+Every other write only references the row (`FOR KEY SHARE`, which the bump's `FOR NO KEY UPDATE` does not
+block), and no reader waits.
 
 ### The paths that see every project, and the ones the database cannot keep
 
@@ -1225,8 +1263,8 @@ reads two settings and takes no argument, so no caller can point it elsewhere.
   the owner (§15) and name a project only in the refusal to remove its last member.
 - **The live stream.** `/api/stream`'s one `LISTEN` connection is the owner's. Each event is read back
   through the subscriber's tenant scope before it is sent (`ApiQueries.StreamPlacementAsync`): an event of
-  a hidden project is not sent. Membership is read per event, so a member added sees the project's next
-  event on a stream they already hold, and a member removed stops seeing them from the next one.
+  a hidden project is not sent. Each read is its own transaction, so a member added sees the project's
+  next event on a stream they already hold, and a member removed stops seeing them from the next one.
   `member_added` and `member_removed` are events of their project and are routed like any other: the user
   removed does not see their own removal.
 - **Unique indexes** are checked across every row, visible or not. Three names are workspace-wide and
@@ -1241,5 +1279,5 @@ reads two settings and takes no argument, so no caller can point it elsewhere.
 
 ### What it costs
 
-One more setting in the statement the tenant helper already sends, and one InitPlan per table a
-statement reads. Measured on the live-data copy in doc 15 §8.
+One owner function call inside the `set_config` statement the tenant helper already sends, and a few
+InitPlans per table a statement reads. Measured on the live-data copy in doc 15 §8.

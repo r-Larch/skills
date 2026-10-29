@@ -20,6 +20,20 @@ namespace WorkState.Core.Migrations
 
         public const string VisibleFunction = "workstate_visible_projects";
 
+        /// <summary>Replaced by ProjectAccessSeq, whose Down puts it back.</summary>
+        public const string VisibleFunctionSql =
+            $"""
+             CREATE FUNCTION {VisibleFunction}(p_workspace uuid, p_user uuid) RETURNS text
+             LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public AS $fn$
+               SELECT CASE WHEN p_workspace IS NULL OR p_user IS NULL THEN '' ELSE (
+                 SELECT coalesce(array_agg(r.id), ARRAY[]::uuid[])::text
+                 FROM   item r
+                 WHERE  r.workspace_id = p_workspace AND r.parent_id IS NULL
+                   AND  (EXISTS (SELECT 1 FROM project_member m WHERE m.project_item_id = r.id AND m.user_id = p_user)
+                         OR NOT EXISTS (SELECT 1 FROM project_member m WHERE m.project_item_id = r.id))) END;
+             $fn$;
+             """;
+
         /// <summary>No user in the scope: every project. A scalar subquery, so a plan reads it once, as an InitPlan.</summary>
         public const string NoUser = $"(SELECT NULLIF(current_setting('{WorkStateConnections.UserSetting}', true), '') IS NULL)";
 
@@ -92,18 +106,7 @@ namespace WorkState.Core.Migrations
             // The roots of the workspace the user may see — a project they are a member of, one no one has joined, a
             // root that is no project — as the text of a uuid[] for ProjectsSetting. The tenant helper calls it in the
             // statement that sets the other two, with their values as arguments.
-            migrationBuilder.Sql(
-                $"""
-                 CREATE FUNCTION {VisibleFunction}(p_workspace uuid, p_user uuid) RETURNS text
-                 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public AS $fn$
-                   SELECT CASE WHEN p_workspace IS NULL OR p_user IS NULL THEN '' ELSE (
-                     SELECT coalesce(array_agg(r.id), ARRAY[]::uuid[])::text
-                     FROM   item r
-                     WHERE  r.workspace_id = p_workspace AND r.parent_id IS NULL
-                       AND  (EXISTS (SELECT 1 FROM project_member m WHERE m.project_item_id = r.id AND m.user_id = p_user)
-                             OR NOT EXISTS (SELECT 1 FROM project_member m WHERE m.project_item_id = r.id))) END;
-                 $fn$;
-                 """);
+            migrationBuilder.Sql(VisibleFunctionSql);
 
             foreach (var (table, predicate) in Tables)
             {
