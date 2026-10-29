@@ -54,7 +54,10 @@ public sealed class EventStream(NpgsqlDataSource dataSource, StreamOptions optio
 
     private readonly ConcurrentDictionary<Guid, Subscriber> _subscribers = new();
 
-    /// <summary>A subscriber hears its request tenant's events and no other workspace's.</summary>
+    /// <summary>
+    /// A subscriber hears its request tenant's events and no other workspace's; of those, <see cref="HandleAsync"/>
+    /// sends only the events of projects its user may see.
+    /// </summary>
     private sealed record Subscriber(Guid Workspace, Channel<StreamEvent> Channel);
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -159,6 +162,8 @@ public sealed class EventStream(NpgsqlDataSource dataSource, StreamOptions optio
     /// <summary>
     /// <c>GET /api/stream</c>. Server-Sent Events, under the read API's policy (doc 10 rule 5): the
     /// dashboard cookie, an agent token or a reader token — it carries ids and kinds, never content.
+    /// Each event is read back through the request's tenant scope before it is sent, so an event of a project
+    /// the caller is not a member of is not sent, and a membership change applies from the next event (doc 02 §15b).
     /// </summary>
     internal static async Task HandleAsync(
         HttpContext context,
@@ -188,12 +193,12 @@ public sealed class EventStream(NpgsqlDataSource dataSource, StreamOptions optio
 
         try
         {
-            async Task<Guid?> RunOfAsync(Guid? item)
-                => item is { } id
-                    ? (await api.PlacementsAsync([id], cancellationToken)).FirstOrDefault()?.RunId
+            async Task<StreamFrame?> FrameOfAsync(StreamEvent message)
+                => await api.StreamPlacementAsync(message.Seq, cancellationToken) is { } seen
+                    ? new StreamFrame(message.Seq, seen.RunId, seen.ItemId, message.Kind)
                     : null;
 
-            await PumpAsync(context, channel, stream._heartbeat, RunOfAsync, cancellationToken);
+            await PumpAsync(context, channel, stream._heartbeat, FrameOfAsync, cancellationToken);
         }
         catch (OperationCanceledException)
         {
@@ -209,7 +214,7 @@ public sealed class EventStream(NpgsqlDataSource dataSource, StreamOptions optio
         HttpContext context,
         Channel<StreamEvent> channel,
         TimeSpan heartbeat,
-        Func<Guid?, Task<Guid?>> runOf,
+        Func<StreamEvent, Task<StreamFrame?>> frameOf,
         CancellationToken cancellationToken)
     {
         while (!cancellationToken.IsCancellationRequested)
@@ -237,7 +242,10 @@ public sealed class EventStream(NpgsqlDataSource dataSource, StreamOptions optio
                 continue;
             }
 
-            var frame = new StreamFrame(message.Seq, await runOf(message.Item), message.Item, message.Kind);
+            if (await frameOf(message) is not { } frame)
+            {
+                continue;
+            }
 
             await context.Response.WriteAsync(
                 $"id: {message.Seq}\nevent: work\ndata: {JsonSerializer.Serialize(frame, FrameJson)}\n\n",

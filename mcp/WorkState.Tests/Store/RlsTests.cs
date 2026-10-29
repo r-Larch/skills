@@ -301,6 +301,7 @@ public sealed class RlsTests(PostgresFixture fixture) : IAsyncLifetime
             $"""
              CREATE ROLE {role} NOLOGIN;
              ALTER TABLE item OWNER TO {role};
+             GRANT SELECT ON workspace TO {role};
              SELECT set_config('role', '{role}', true), set_config('{WorkStateConnections.WorkspaceSetting}', @a, true);
              """,
             new { a = a.WorkspaceId.ToString() });

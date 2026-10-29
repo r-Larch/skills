@@ -132,6 +132,17 @@ public sealed partial class WorkWriter
                 return WriteResult.No(NotAProject("work_create(items:[{repo:…}])", wanted.Title, kind));
             }
 
+            if (kind == "project" && actor.UserId is { } creator
+                && !await InWorkspaceAsync(connection, transaction, workspaceId, creator, cancellationToken))
+            {
+                return WriteResult.No(Refusal.Blocked(
+                    "work_create(items:[{kind:\"project\"}]) — you are not a member of this workspace.",
+                    "a project is visible to its members only (doc 02 §15b), and only a member of the workspace can be "
+                    + "one: the project would be hidden from you the moment it existed",
+                    "work_create(items:[{kind:\"project\", …}]) again once you are a member: an admin of the workspace "
+                    + $"invites you (POST /api/admin/tenants/{workspaceId}/invites {{\"role\": \"member\"}}) and you open its link"));
+            }
+
             Guid? parentId = null;
             ScopeRefLite? parent = null;
 
@@ -179,17 +190,39 @@ public sealed partial class WorkWriter
                 wanted.RiskTags,
                 (short)Math.Clamp(wanted.Priority ?? 0, -9, 9));
 
-            try
+            // A top-level project the server numbers can meet a project-N it cannot see, one whose members the caller
+            // is not among (doc 02 §15b): that number is taken, so it takes the next instead of refusing a ref the
+            // caller never chose.
+            var hidden = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var renumbers = parent is null && rules.ScopesRefs && Blank(wanted.Ref);
+            while (true)
             {
-                await InsertItemAsync(connection, transaction, row2, cancellationToken);
-            }
-            catch (PostgresException refused) when (refused.ConstraintName == Migrations.ScopeRefUnique.Index)
-            {
-                return WriteResult.No(SiblingRefTaken(kind, reference, parent?.Ref));
-            }
-            catch (PostgresException refused)
-            {
-                return WriteResult.No(FromPostgres(refused, $"work_create(items:[{{ref:\"{reference}\"}}])"));
+                try
+                {
+                    if (renumbers)
+                    {
+                        await transaction.SaveAsync(RenumberSavepoint, cancellationToken);
+                    }
+
+                    await InsertItemAsync(connection, transaction, row2, cancellationToken);
+                    break;
+                }
+                catch (PostgresException refused) when (refused.ConstraintName == Migrations.ScopeRefUnique.Index
+                                                        && renumbers && hidden.Add(reference))
+                {
+                    await transaction.RollbackAsync(RenumberSavepoint, cancellationToken);
+                    reference = await DerivedRefAsync(
+                        connection, transaction, workspaceId, parent, refScope, kind, rules.ScopesRefs, cancellationToken, hidden);
+                    row2 = row2 with { Ref = reference };
+                }
+                catch (PostgresException refused) when (refused.ConstraintName == Migrations.ScopeRefUnique.Index)
+                {
+                    return WriteResult.No(SiblingRefTaken(kind, reference, parent?.Ref));
+                }
+                catch (PostgresException refused)
+                {
+                    return WriteResult.No(FromPostgres(refused, $"work_create(items:[{{ref:\"{reference}\"}}])"));
+                }
             }
 
             await CriteriaAsync(connection, transaction, row2.Id, wanted.Criteria ?? [], cancellationToken);
@@ -671,6 +704,8 @@ public sealed partial class WorkWriter
             StringComparer.OrdinalIgnoreCase);
     }
 
+    private const string RenumberSavepoint = "work_create_renumber";
+
     private static async Task<string> DerivedRefAsync(
         NpgsqlConnection connection,
         NpgsqlTransaction transaction,
@@ -679,13 +714,19 @@ public sealed partial class WorkWriter
         Guid? refScopeId,
         string kind,
         bool scopesRefs,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        IReadOnlySet<string>? taken = null)
     {
         // A run or a project scopes its own refs, so its children number from 1 rather than
         // inheriting a prefix nobody types: `2.3`, not `entity-store.3`.
-        Func<int, string> shape = parent is null
+        Func<int, string> numbered = parent is null
             ? n => $"{kind}-{n}"
             : parent.RefScopeId == parent.Id ? n => $"{n}" : n => $"{parent.Ref}.{n}";
+
+        // Refs the index refused although no row this caller can see holds them, skipped as if they were seen.
+        var shape = taken is not { Count: > 0 }
+            ? numbered
+            : n => Enumerable.Range(1, int.MaxValue - 1).Select(numbered).Where(r => !taken.Contains(r)).ElementAt(n - 1);
 
         return scopesRefs
             ? await FreeSiblingRefAsync(

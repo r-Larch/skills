@@ -358,3 +358,84 @@ do not. Each is under 2.2 ms at this size, and each is listed as an open item:
 20% comparison: board/run measured +19% in one pair of runs and +28% in the next. Use it for plans, not
 for deltas. Under the role, its rollup equivalence check still found every row identical: 9,662
 subtree, board and facts rows, and 29 default scopes.
+
+## 8. Project access (m59)
+
+Measured 2026-10-29 by ws-project-access, branch `unit/project-access`, on the live-data copy restored
+from `pre-1.0.1.dump` (one workspace, 7 projects, 773 items; 4 users, 3 of them members of all 7 through
+the ProjectMembers seed and one of none), postgres:17 in Docker Desktop on Windows. Doc 02 §15b puts a second, restrictive
+policy, `project_access`, on every table whose rows belong to a project. This section measures what that
+costs and how the shipped design came to be.
+
+**Method.** `ProjectAccessPerfTests` (opt-in) calls §7's reads as the owner, as a static token (the tenant
+role with no user) and as a member (the tenant role as the user who is a member of the most projects),
+60 rounds after 3 warm-ups each. The static token and the member run as the same role, so each mode is a
+pass of its own, with `pg_stat_statements` reset before it and read after it:
+
+```
+dotnet test mcp/WorkState.slnx --filter FullyQualifiedName~ProjectAccessPerfTests -e WORKSTATE_PROJECT_ACCESS_PERF="Host=…;Database=…"
+```
+
+The 1.0.1 baseline is the same database with the twelve `project_access` policies dropped, so reads run
+under §7's tenant policies alone. The gate (brief m59): board, frontier and rollup, server mean, member,
+at most 20% over 1.0.1.
+
+### 8.1 Three designs
+
+Server mean in ms, member, 1.0.1 → design:
+
+| read | function per statement | `app.projects` per transaction | **shipped: `access_seq`** (median of 3 pairs) |
+|---|---|---|---|
+| board | 4.69 → 7.71 (+65%) | 4.69 → 5.75–6.12 (+23–30%) | **6.09 → 6.01 (−1%)** |
+| frontier | 1.75 → 3.01 (+72%) | 1.75 → 1.69–1.76 (−1 to +1%) | **2.17 → 1.98 (−9%)** |
+| rollup | 0.134 → 0.528 (+294%) | 0.134 → 0.164–0.183 (+23–37%) | **0.222 → 0.245 (+10%)** |
+| subtree | 1.62 → 2.25 (+39%) | flat | **2.08 → 1.79 (−14%)** |
+
+1. **The caller's hidden projects from a function, once per statement.** `(SELECT
+   workstate_hidden_projects())` is an InitPlan, but every table a statement reads carries its own, and a
+   PL/pgSQL or SQL function call costs 0.1–0.2 ms of its own (a SQL function's body is planned per call).
+   The rollup reads `item` twice and paid two calls; the board paid dozens. A PL/pgSQL version, whose plan
+   is cached per session, brought the board to +38%.
+2. **The roots the user may see, set once per transaction (`app.projects`).** The policy compares each
+   row's root with that array and asks the live function only for a root outside it. Two costs were left:
+   the comparison on every item row a read touches — about 2,000 on the board, across its laterals — and
+   the item lookup behind every child row the board reads (`note`, `verification`, `event`). A board's
+   unconsumed-notes check is planned as one scan of the workspace's pending notes, and their policy turned
+   into a hashed scan of all 773 items. The cast of the setting had to move inside its InitPlan: outside,
+   the text was parsed into a `uuid[]` once per row and the board took 17 ms.
+3. **Shipped: `access_seq`.** The answer is read once per transaction — the seq and the projects hidden
+   from the user, from one snapshot — and trusted while the statement still reads the same seq. A member
+   of every project then pays nothing per row: no comparison against an empty list, and no item lookup
+   behind a child row. Any change moves the seq and puts the policy back on the live check (doc 02 §15b).
+
+### 8.2 The shipped design, three alternating pairs
+
+Server mean in ms per statement: three runs of each, alternated (m59, then 1.0.1, three times), because
+the machine's load moved between runs — the owner's board ranged 6.97–9.30 ms across them.
+
+| read | mode | 1.0.1 | m59 | median Δ |
+|---|---|---|---|---|
+| board | member | 5.147 / 6.093 / 7.459 | 5.863 / 6.007 / 8.134 | **−1%** |
+| board | static | 5.346 / 5.441 / 8.567 | 5.500 / 6.245 / 6.162 | +13% |
+| frontier | member | 1.886 / 2.174 / 2.339 | 1.919 / 1.981 / 2.254 | **−9%** |
+| frontier | static | 1.950 / 1.999 / 2.801 | 1.858 / 1.905 / 1.903 | −5% |
+| rollup | member | 0.172 / 0.222 / 0.263 | 0.234 / 0.245 / 0.251 | **+10%** |
+| rollup | static | 0.192 / 0.193 / 0.288 | 0.203 / 0.221 / 0.211 | +9% |
+| subtree | member | 1.806 / 2.075 / 2.190 | 1.786 / 1.785 / 1.814 | −14% |
+| subtree | static | 1.856 / 1.926 / 2.337 | 1.686 / 1.820 / 1.720 | −11% |
+| default scope | member | 1.533 / 1.875 / 1.993 | 1.905 / 1.919 / 1.952 | +2% |
+| projects | member | 2.579 / 2.905 / 3.207 | 2.990 / 3.104 / 3.411 | +7% |
+| threads | member | 2.096 / 2.622 / 2.545 | 2.465 / 2.350 / 2.478 | −3% |
+| search | member | 9.422 / 10.564 / 11.583 | 10.133 / 9.746 / 11.696 | −4% |
+| journal head | member | 0.193 / 0.258 / 0.241 | 0.233 / 0.228 / 0.253 | −3% |
+
+**Verdict on server time: passes.** Every read is within 20% for the member and the static token, and the
+gate's three are −1% (board), −9% (frontier) and +10% (rollup). The owner's own numbers moved by up to
+±15% between runs, so a single run's delta below that says little. Besides the reads, a transaction whose
+request has a user runs `workstate_project_access` inside the `set_config` statement the tenant helper
+already sends: 0.15 ms of server time per transaction, and no round trip.
+
+**What it does not measure.** A non-member — a user with a project hidden from them — still pays the
+comparison against the hidden list on each item row, and an item lookup behind each child row of a read.
+That path is the correct one, not the fast one, and was not part of the gate. Nor was a transaction that
+spans a membership change: from that change on, its statements run the live check.

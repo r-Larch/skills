@@ -47,8 +47,9 @@ internal static class RefLinks
             return Html(StatusCodes.Status401Unauthorized, SignIn);
         }
 
-        // Anonymous to the pipeline, so its scope is entered here, for the tenant the cookie just named.
-        using var scope = TenantScope.Enter(tenant);
+        // Anonymous to the pipeline, so its scope is entered here, for the tenant and the user the cookie just named:
+        // a path into a project the user is not a member of is as missing as a typo (doc 02 §15b).
+        using var scope = TenantScope.EnterAs(tenant, UserOf(signedIn.Principal));
 
         var asked = (path ?? string.Empty).Trim('/');
         if (asked.Length == 0)
@@ -87,7 +88,7 @@ internal static class RefLinks
         CancellationToken cancellationToken)
     {
         var user = new DashboardUser(
-            Guid.Parse(principal.FindFirstValue(DashboardAuth.UserIdClaim)!),
+            UserOf(principal),
             principal.Identity?.Name ?? string.Empty,
             principal.FindFirstValue(DashboardAuth.SystemAdminClaim) == "true");
 
@@ -99,7 +100,7 @@ internal static class RefLinks
                 continue;
             }
 
-            using (TenantScope.Enter(other.Id))
+            using (TenantScope.EnterAs(other.Id, user.Id))
             {
                 if (await reader.ResolveAsync(other.Id, asked, cancellationToken) is ScopeResult.Found or ScopeResult.Ambiguous)
                 {
@@ -110,6 +111,8 @@ internal static class RefLinks
 
         return found;
     }
+
+    private static Guid UserOf(ClaimsPrincipal principal) => Guid.Parse(principal.FindFirstValue(DashboardAuth.UserIdClaim)!);
 
     private static string Here(IReadOnlyList<UserTenant> elsewhere)
         => elsewhere.Count == 0 ? string.Empty : " in this workspace";
