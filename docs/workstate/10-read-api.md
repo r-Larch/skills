@@ -237,6 +237,7 @@ Everything a human needs on landing, in one call.
     "archivedAt": "…" | null,        // doc 02; archived projects are listed, the client hides them
     "lastActivityAt": "…" | null,    // newest journal event in the project's subtree; null = none yet
     "openRuns": 2,                   // runs not done, cancelled or superseded
+    "sharing": { "members": 2, "you": true, "names": ["ana", "ben"] },   // added for sharing, additive
     "runs": [{ "item": ItemRef, "rollup": Rollup, "branch": "feat/x" | null, "worktree": "P:/…" | null,
                "activeClaims": 1, "lastEventAt": "…", "inboxCount": 2,
                "lastVerification": { "passed": true, "at": "…" } | null }]
@@ -245,6 +246,13 @@ Everything a human needs on landing, in one call.
   "inboxCount": 3,
   "honesty": { "doneUnverified": 0, "forced": 0, "ungated": 0, "followupsOpen": 4 } }
 ```
+
+`sharing` (added for the dashboard's sharing marker, additive) is who shares the project (doc 02 §12b):
+`members` its member count, `0` when no one has joined it and so it is open to the whole workspace; `you`
+whether the caller is one of them — false for such a project, and always false for a static or reader
+token, which names no user; `names` the members by name (case-insensitive order), so the marker names them
+without a call per project. Read in one statement under the caller's own tenant transaction, so it says
+nothing about a project rule 8 leaves out — the response does not list one, and its member rows are not read.
 
 ### `GET /api/v1/runs/{id}/board`
 The run as one flat list, **pre-order by seq, stable** (a parent precedes its children; siblings in

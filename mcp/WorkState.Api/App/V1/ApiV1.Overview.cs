@@ -42,6 +42,7 @@ public static partial class ApiV1
         }
 
         var repos = (await board.ProjectReposAsync(scopes, cancellationToken)).ToLookup(r => r.ProjectId);
+        var sharing = (await board.ProjectSharingAsync(scopes, cancellationToken)).ToDictionary(s => s.ProjectId);
         var projectViews = new List<ProjectOverviewView>();
         foreach (var project in projects)
         {
@@ -67,7 +68,10 @@ public static partial class ApiV1
                 [.. repos[project.Id].Select(r => new RepoView(r.Kind, r.Key))],
                 project.ArchivedAt,
                 project.LastActivityAt,
-                project.OpenRuns));
+                project.OpenRuns,
+                sharing.GetValueOrDefault(project.Id) is { } shared
+                    ? new SharingView(shared.Members, shared.You, shared.Names)
+                    : new SharingView(0, false, [])));
         }
 
         var claims = await book.ClaimsAsync(

@@ -50,8 +50,9 @@ async function loadOverview(runs: 'all' | string[]): Promise<void> {
 
 /**
  * Who is signed in and which workspaces they may enter: the sidebar's Admin link, its tenant switcher and the
- * palette's commands. Not live — the journal says nothing about memberships — so an admin write that may change
- * the caller's own rights asks again with `refreshAccount`.
+ * palette's commands. Not live: the journal's member_added / member_removed are a project's members, which the
+ * overview and the Members panel re-read on their frame, and say nothing about a workspace's — so an admin write
+ * that may change the caller's own rights asks again with `refreshAccount`.
  */
 export type Account = { user: api.SessionUser; tenants: SessionTenant[] }
 
