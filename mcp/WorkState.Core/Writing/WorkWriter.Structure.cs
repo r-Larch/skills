@@ -1,6 +1,7 @@
 using System.Text.Json.Serialization;
 using Dapper;
 using Npgsql;
+using WorkState.Core.Data;
 using WorkState.Core.Domain;
 using WorkState.Core.Rendering;
 
@@ -44,25 +45,19 @@ public sealed record UpdateArgs(
 public sealed partial class WorkWriter
 {
     /// <summary>
-    /// The cold start. <c>work_brief</c> on an empty server tells the agent to call
-    /// <c>work_create</c>, so that call has to work before anything exists — otherwise the
-    /// onboarding names a route that refuses (doc 04 §4).
+    /// The workspace with this slug, created when missing; a null slug is <c>default</c>. No request creates
+    /// its own tenant: this is the static-token binding's first use on a fresh install, so the
+    /// <c>work_create</c> that <c>work_brief</c>'s onboarding names has somewhere to write (doc 04 §4).
     /// </summary>
     public async Task<Guid> EnsureWorkspaceAsync(string? slug, CancellationToken cancellationToken = default)
     {
         const string sql =
             """
-            WITH existing AS (
-              SELECT id FROM workspace WHERE slug = @slug
-            ), created AS (
-              INSERT INTO workspace (id, slug)
-              SELECT @id, @slug WHERE NOT EXISTS (SELECT 1 FROM existing)
-              RETURNING id
-            )
-            SELECT id FROM existing UNION ALL SELECT id FROM created;
+            INSERT INTO workspace (id, slug) VALUES (@id, @slug) ON CONFLICT (slug) DO NOTHING;
+            SELECT id FROM workspace WHERE slug = @slug;
             """;
 
-        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        await using var connection = await _connections.OwnerBypassAsync(Bypass.WorkspaceBinding, cancellationToken);
         return await connection.ExecuteScalarAsync<Guid>(new CommandDefinition(
             sql,
             new { id = Guid.CreateVersion7(), slug = string.IsNullOrWhiteSpace(slug) ? "default" : slug.Trim() },
@@ -89,8 +84,8 @@ public sealed partial class WorkWriter
                 + "criteria:[\"…\"]}])"));
         }
 
-        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
-        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+        await using var tenant = await _connections.TenantAsync(cancellationToken);
+        var (connection, transaction) = tenant;
 
         var ladder = await LadderAsync(connection, transaction, cancellationToken);
         var written = new List<string>();
@@ -137,6 +132,17 @@ public sealed partial class WorkWriter
                 return WriteResult.No(NotAProject("work_create(items:[{repo:…}])", wanted.Title, kind));
             }
 
+            if (kind == "project" && actor.UserId is { } creator
+                && !await InWorkspaceAsync(connection, transaction, workspaceId, creator, cancellationToken))
+            {
+                return WriteResult.No(Refusal.Blocked(
+                    "work_create(items:[{kind:\"project\"}]) — you are not a member of this workspace.",
+                    "a project is visible to its members only (doc 02 §15b), and only a member of the workspace can be "
+                    + "one: the project would be hidden from you the moment it existed",
+                    "work_create(items:[{kind:\"project\", …}]) again once you are a member: an admin of the workspace "
+                    + $"invites you (POST /api/admin/tenants/{workspaceId}/invites {{\"role\": \"member\"}}) and you open its link"));
+            }
+
             Guid? parentId = null;
             ScopeRefLite? parent = null;
 
@@ -167,7 +173,8 @@ public sealed partial class WorkWriter
                 : parent.RefScopeId == parent.Id ? parent.Id : parent.RefScopeId;
 
             var reference = Blank(wanted.Ref)
-                ? await DerivedRefAsync(connection, transaction, parent, refScope, kind, cancellationToken)
+                ? await DerivedRefAsync(
+                    connection, transaction, workspaceId, parent, refScope, kind, rules.ScopesRefs, cancellationToken)
                 : wanted.Ref!.Trim();
 
             var row2 = new NewRow(
@@ -183,16 +190,47 @@ public sealed partial class WorkWriter
                 wanted.RiskTags,
                 (short)Math.Clamp(wanted.Priority ?? 0, -9, 9));
 
-            try
+            // A top-level project the server numbers can meet a project-N it cannot see, one whose members the caller
+            // is not among (doc 02 §15b): that number is taken, so it takes the next instead of refusing a ref the
+            // caller never chose.
+            var hidden = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var renumbers = parent is null && rules.ScopesRefs && Blank(wanted.Ref);
+            while (true)
             {
-                await InsertItemAsync(connection, transaction, row2, cancellationToken);
-            }
-            catch (PostgresException refused)
-            {
-                return WriteResult.No(FromPostgres(refused, $"work_create(items:[{{ref:\"{reference}\"}}])"));
+                try
+                {
+                    if (renumbers)
+                    {
+                        await transaction.SaveAsync(RenumberSavepoint, cancellationToken);
+                    }
+
+                    await InsertItemAsync(connection, transaction, row2, cancellationToken);
+                    break;
+                }
+                catch (PostgresException refused) when (refused.ConstraintName == Migrations.ScopeRefUnique.Index
+                                                        && renumbers && hidden.Add(reference))
+                {
+                    await transaction.RollbackAsync(RenumberSavepoint, cancellationToken);
+                    reference = await DerivedRefAsync(
+                        connection, transaction, workspaceId, parent, refScope, kind, rules.ScopesRefs, cancellationToken, hidden);
+                    row2 = row2 with { Ref = reference };
+                }
+                catch (PostgresException refused) when (refused.ConstraintName == Migrations.ScopeRefUnique.Index)
+                {
+                    return WriteResult.No(SiblingRefTaken(kind, reference, parent?.Ref));
+                }
+                catch (PostgresException refused)
+                {
+                    return WriteResult.No(FromPostgres(refused, $"work_create(items:[{{ref:\"{reference}\"}}])"));
+                }
             }
 
             await CriteriaAsync(connection, transaction, row2.Id, wanted.Criteria ?? [], cancellationToken);
+
+            if (kind == "project")
+            {
+                await FirstMembersAsync(connection, transaction, workspaceId, row2.Id, actor.UserId, cancellationToken);
+            }
 
             var restored = await UnarchiveForNewWorkAsync(
                 connection, transaction, workspaceId, row2.Id, reference, actor, cancellationToken);
@@ -200,7 +238,7 @@ public sealed partial class WorkWriter
             if (repo.Count > 0)
             {
                 var (_, taken) = await BindReposAsync(
-                    connection, transaction, workspaceId, row2.Id, reference, repo, cancellationToken);
+                    connection, transaction, workspaceId, row2.Id, reference, actor.UserId, repo, cancellationToken);
                 if (taken is not null)
                 {
                     return WriteResult.No(taken);
@@ -281,8 +319,8 @@ public sealed partial class WorkWriter
                 $"work_update(ref:\"{reference}\", title:\"…\") — or intent, verify_cmd, risk_tags, priority"));
         }
 
-        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
-        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+        await using var tenant = await _connections.TenantAsync(cancellationToken);
+        var (connection, transaction) = tenant;
 
         var item = await LoadAsync(connection, transaction, scope.Id, cancellationToken);
 
@@ -311,7 +349,7 @@ public sealed partial class WorkWriter
             }
 
             var (added, taken) = await BindReposAsync(
-                connection, transaction, item.WorkspaceId, item.Id, item.Ref, repo, cancellationToken);
+                connection, transaction, item.WorkspaceId, item.Id, item.Ref, actor.UserId, repo, cancellationToken);
             if (taken is not null)
             {
                 return WriteResult.No(taken);
@@ -438,8 +476,8 @@ public sealed partial class WorkWriter
                 $"work_move(ref:\"{scope.Ref}\", before:\"<a sibling ref>\")"));
         }
 
-        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
-        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+        await using var tenant = await _connections.TenantAsync(cancellationToken);
+        var (connection, transaction) = tenant;
 
         var item = await LoadAsync(connection, transaction, scope.Id, cancellationToken);
         var anchorRef = Blank(before) ? after : before;
@@ -536,8 +574,8 @@ public sealed partial class WorkWriter
             return WriteResult.No(targetRefusal!);
         }
 
-        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
-        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+        await using var tenant = await _connections.TenantAsync(cancellationToken);
+        var (connection, transaction) = tenant;
 
         if (remove)
         {
@@ -666,26 +704,34 @@ public sealed partial class WorkWriter
             StringComparer.OrdinalIgnoreCase);
     }
 
+    private const string RenumberSavepoint = "work_create_renumber";
+
     private static async Task<string> DerivedRefAsync(
         NpgsqlConnection connection,
         NpgsqlTransaction transaction,
+        Guid workspaceId,
         ScopeRefLite? parent,
         Guid? refScopeId,
         string kind,
-        CancellationToken cancellationToken)
+        bool scopesRefs,
+        CancellationToken cancellationToken,
+        IReadOnlySet<string>? taken = null)
     {
-        if (parent is null)
-        {
-            return await FreeRefAsync(
-                connection, transaction, refScopeId, n => $"{kind}-{n}", cancellationToken);
-        }
-
         // A run or a project scopes its own refs, so its children number from 1 rather than
         // inheriting a prefix nobody types: `2.3`, not `entity-store.3`.
-        var prefix = parent.RefScopeId == parent.Id ? string.Empty : $"{parent.Ref}.";
+        Func<int, string> numbered = parent is null
+            ? n => $"{kind}-{n}"
+            : parent.RefScopeId == parent.Id ? n => $"{n}" : n => $"{parent.Ref}.{n}";
 
-        return await FreeRefAsync(
-            connection, transaction, refScopeId, n => $"{prefix}{n}", cancellationToken);
+        // Refs the index refused although no row this caller can see holds them, skipped as if they were seen.
+        var shape = taken is not { Count: > 0 }
+            ? numbered
+            : n => Enumerable.Range(1, int.MaxValue - 1).Select(numbered).Where(r => !taken.Contains(r)).ElementAt(n - 1);
+
+        return scopesRefs
+            ? await FreeSiblingRefAsync(
+                connection, transaction, workspaceId, parent?.Id, refScopeId, shape, cancellationToken)
+            : await FreeRefAsync(connection, transaction, workspaceId, refScopeId, shape, cancellationToken);
     }
 
     private static async Task CriteriaAsync(
@@ -915,6 +961,18 @@ public sealed partial class WorkWriter
     /// doc 07 §1 — a rule whose violation should be impossible lives in Postgres, and its message
     /// already names the fix. Surfacing it beats paraphrasing it in C# and drifting from it.
     /// </summary>
+    private static string SiblingRefTaken(string kind, string reference, string? parentRef)
+    {
+        var holder = parentRef ?? "this workspace";
+        var name = parentRef is null ? reference : $"{parentRef}/{reference}";
+
+        return Refusal.Blocked(
+            $"work_create(items:[{{kind:\"{kind}\", ref:\"{reference}\"}}]) — {holder} already has a {kind} \"{reference}\".",
+            $"a {kind}'s ref is unique among its siblings, ignoring case, or \"{name}\" would name two of them",
+            $"work_create(items:[{{kind:\"{kind}\", …}}]) without ref — the server numbers it",
+            "work_tree() to see the refs already taken");
+    }
+
     private static string FromPostgres(PostgresException refused, string call)
     {
         var routes = new List<string>();

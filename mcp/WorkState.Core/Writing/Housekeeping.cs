@@ -1,5 +1,6 @@
 using Dapper;
 using Npgsql;
+using WorkState.Core.Data;
 
 namespace WorkState.Core.Writing;
 
@@ -11,6 +12,8 @@ namespace WorkState.Core.Writing;
 /// </summary>
 public sealed class Housekeeping(NpgsqlDataSource dataSource)
 {
+    private readonly WorkStateConnections _connections = new(dataSource);
+
     /// <summary>
     /// doc 07 §5. The unique index makes an overlapping claim impossible; this makes an expired one
     /// <em>visible</em>: the lease is released, a <c>claim_expired</c> event records it, and the
@@ -45,9 +48,11 @@ public sealed class Housekeeping(NpgsqlDataSource dataSource)
             FROM   expired e;
             """;
 
-        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
-        return await connection.ExecuteAsync(
+        await using var tenant = await _connections.TenantAsync(cancellationToken);
+        var swept = await tenant.Connection.ExecuteAsync(
             new CommandDefinition(sql, new { workspace = workspaceId }, cancellationToken: cancellationToken));
+        await tenant.CommitAsync(cancellationToken);
+        return swept;
     }
 
     /// <summary>
@@ -72,11 +77,13 @@ public sealed class Housekeeping(NpgsqlDataSource dataSource)
              WHERE to_item_id = @item AND id = ANY(@ids) AND consumed_at IS NULL;
             """;
 
-        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
-        return await connection.ExecuteAsync(
+        await using var tenant = await _connections.TenantAsync(cancellationToken);
+        var consumed = await tenant.Connection.ExecuteAsync(
             new CommandDefinition(
                 sql,
                 new { item = itemId, ids = renderedNoteIds.ToArray() },
                 cancellationToken: cancellationToken));
+        await tenant.CommitAsync(cancellationToken);
+        return consumed;
     }
 }

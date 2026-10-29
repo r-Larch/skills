@@ -9,13 +9,10 @@ public static partial class ApiV1
     private static async Task<IResult> OverviewAsync(
         BoardQueries board,
         ApiQueries api,
-        WorkspaceOptions workspace,
+        RequestTenant tenant,
         CancellationToken cancellationToken)
     {
-        if (await SnapshotAsync(board, api, workspace, cancellationToken) is not { } snapshot)
-        {
-            return Results.Ok(new OverviewView(DateTimeOffset.UtcNow, 0, [], [], 0, new HonestyView(0, 0, 0, 0)));
-        }
+        var snapshot = await SnapshotAsync(api, tenant, cancellationToken);
 
         var book = new V1Book(api, board);
         var projects = await board.ProjectsAsync(snapshot.WorkspaceId, cancellationToken);
@@ -45,6 +42,7 @@ public static partial class ApiV1
         }
 
         var repos = (await board.ProjectReposAsync(scopes, cancellationToken)).ToLookup(r => r.ProjectId);
+        var sharing = (await board.ProjectSharingAsync(scopes, cancellationToken)).ToDictionary(s => s.ProjectId);
         var projectViews = new List<ProjectOverviewView>();
         foreach (var project in projects)
         {
@@ -70,7 +68,10 @@ public static partial class ApiV1
                 [.. repos[project.Id].Select(r => new RepoView(r.Kind, r.Key))],
                 project.ArchivedAt,
                 project.LastActivityAt,
-                project.OpenRuns));
+                project.OpenRuns,
+                sharing.GetValueOrDefault(project.Id) is { } shared
+                    ? new SharingView(shared.Members, shared.You, shared.Names)
+                    : new SharingView(0, false, [])));
         }
 
         var claims = await book.ClaimsAsync(

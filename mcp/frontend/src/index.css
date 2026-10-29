@@ -98,6 +98,11 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 .rl-bar i { display: block; height: 100%; }
 .side-search { margin: 2px 4px 6px; font: inherit; font-size: 13px; background: var(--side-2); border: 1px solid var(--side-rule); border-radius: 8px; color: var(--side-ink); padding: 6px 10px; min-width: 0; }
 .side-search::placeholder { color: var(--side-mute); }
+.side-find { display: flex; align-items: center; gap: 10px; margin: 0 0 14px; padding: 7px 8px 7px 10px; border: 1px solid var(--side-rule); border-radius: 10px; background: var(--side-2); color: var(--side-mute); font-size: 13px; text-align: left; }
+.side-find:hover { color: var(--side-ink); border-color: var(--side-mute); }
+.side-find svg { width: 17px; height: 17px; flex: none; }
+.side-find-t { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.side-find kbd { font: 11px/1 var(--font-mono); padding: 3px 5px; border-radius: 5px; border: 1px solid var(--side-rule); color: var(--side-mute); white-space: nowrap; }
 .side-g { color: var(--side-mute); font-size: 11.5px; letter-spacing: 0.3px; text-transform: uppercase; padding: 12px 10px 2px; }
 .side-toggle { display: flex; align-items: center; gap: 6px; width: 100%; text-align: left; color: var(--side-mute); font-size: 11.5px; letter-spacing: 0.3px; text-transform: uppercase; padding: 12px 10px 4px; border-radius: 8px; }
 .side-toggle:hover { color: var(--side-ink); }
@@ -185,6 +190,19 @@ a.row:hover { background: var(--bg); }
 .proj-h h2 { font-family: var(--font-serif); font-size: 17px; font-weight: 400; margin: 0; }
 .proj-h .n { margin-left: auto; color: var(--ink-3); font-size: 12.5px; white-space: nowrap; }
 .proj-h .backlink { color: var(--accent); font-size: 13px; font-weight: 500; white-space: nowrap; }
+/* The sharing marker. Its tip is laid out against the header, edge to edge, so it never runs off a narrow screen. */
+.proj-h { position: relative; }
+.share { font-size: 12px; line-height: 18px; color: var(--ink-3); border: 1px solid var(--line); border-radius: 10px; padding: 1px 8px; white-space: nowrap; }
+.share:hover, .share:focus-visible { color: var(--ink); border-color: var(--ink-3); }
+.share[data-tip]:hover::after, .share[data-tip]:focus-visible::after {
+  content: attr(data-tip); position: absolute; z-index: 5; top: calc(100% - 6px); left: 18px; right: 18px;
+  width: fit-content; max-width: calc(100% - 36px); margin-left: auto; padding: 6px 10px; border-radius: 8px;
+  background: var(--ink); color: var(--panel); font-size: 12px; line-height: 1.4; white-space: normal; overflow-wrap: anywhere;
+  box-shadow: var(--shadow); pointer-events: none;
+}
+.members-hint { margin: 0; padding: 12px 18px; color: var(--ink-3); font-size: 12.5px; }
+.members h2:focus { outline: none; }
+.members h2:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .proj-act { border: 1px solid var(--line); border-radius: 8px; padding: 3px 10px; font-size: 12.5px; color: var(--ink-2); background: var(--panel); white-space: nowrap; }
 .proj-act:hover:not([disabled]) { color: var(--ink); border-color: var(--ink-3); }
 .proj-act[disabled] { opacity: 0.6; cursor: default; }
@@ -350,6 +368,29 @@ a.item-ref:hover { color: var(--accent); }
 
 .summary { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 16px; }
 
+/* ── command palette (doc 13) ─────────────────────────────────────────────────────────────────── */
+
+.pal-back { position: fixed; inset: 0; z-index: 50; background: rgba(20, 18, 16, 0.42); display: flex; justify-content: center; align-items: flex-start; padding: 12vh 16px 16px; }
+.pal { width: min(680px, 100%); max-height: 72vh; display: flex; flex-direction: column; background: var(--panel); color: var(--ink); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: 0 18px 50px rgba(0, 0, 0, 0.28); overflow: hidden; }
+.pal-input { font: inherit; font-size: 15px; padding: 15px 18px; border: 0; border-bottom: 1px solid var(--line); background: transparent; color: var(--ink); outline: none; }
+.pal-input::placeholder { color: var(--ink-3); }
+.pal-list { overflow-y: auto; padding: 6px; min-height: 0; }
+.pal-g { color: var(--ink-3); font-size: 11.5px; letter-spacing: 0.3px; text-transform: uppercase; padding: 10px 10px 4px; }
+.pal-opt { display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px; padding: 8px 10px; border-radius: 9px; cursor: pointer; }
+.pal-opt.on { background: var(--accent-soft); }
+.pal-opt.on .pal-label, .pal-opt.on .pal-ref { color: var(--accent); }
+.pal-label { font-weight: 500; }
+.pal-ref { color: var(--ink-2); overflow-wrap: anywhere; }
+.pal-title { overflow-wrap: anywhere; }
+.pal-snip { display: block; color: var(--ink-3); font-size: 12.5px; }
+.pal-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; color: var(--ink-3); font-size: 12.5px; }
+.pal-meta .pill { height: 20px; padding: 0 8px; font-size: 11.5px; }
+.pal-proj { color: var(--ink-2); }
+.pal-none { padding: 10px; color: var(--ink-3); font-size: 13px; line-height: 1.6; }
+.pal-none code, .pal-foot kbd { font-family: var(--font-mono); font-size: 12px; background: var(--line-2); color: var(--ink-2); border-radius: 5px; padding: 1px 5px; }
+.pal-foot { display: flex; gap: 16px; padding: 8px 14px; border-top: 1px solid var(--line-2); color: var(--ink-3); font-size: 12px; }
+.pal-foot kbd { margin-right: 3px; }
+
 /* ── sign-in gate ────────────────────────────────────────────────────────────────────────────── */
 
 .gate-wrap { min-height: 100vh; display: grid; place-items: center; padding: 16px; }
@@ -389,9 +430,54 @@ a.item-ref:hover { color: var(--accent); }
 .consent-warn { margin-top: 8px !important; padding: 8px 10px; border-radius: 8px; background: var(--claimed-soft); color: var(--ink); font-size: 12.5px; }
 .consent-note { font-size: 12px; color: var(--ink-3); margin: 14px 0 0; }
 .consent-sec .consent-note { margin: 6px 0 0; }
+.consent-switch { display: flex; gap: 8px; margin-top: 8px; }
+.consent-switch select { flex: 1; min-width: 0; font: inherit; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; color: var(--ink); padding: 6px 8px; }
+.consent-switch select[disabled] { opacity: 0.6; }
 .consent-actions { display: flex; gap: 10px; }
 .consent-actions button[type='submit'] { flex: 1; }
 .gate button.secondary { background: transparent; color: var(--ink); border: 1px solid var(--line); flex: 0 0 auto; padding: 7px 18px; }
+
+/* ── admin ───────────────────────────────────────────────────────────────────────────────────── */
+
+.side-tenant { display: grid; gap: 4px; margin: -8px 0 14px; padding: 0 2px; color: var(--side-mute); font-size: 11.5px; letter-spacing: 0.3px; text-transform: uppercase; }
+.side-tenant select { font: inherit; font-size: 13px; letter-spacing: 0; text-transform: none; background: var(--side-2); border: 1px solid var(--side-rule); border-radius: 8px; color: var(--side-ink); padding: 6px 8px; min-width: 0; }
+.row-go { align-self: center; color: var(--accent); font-size: 13px; font-weight: 500; white-space: nowrap; }
+.admin-form { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 14px 18px; border-bottom: 1px solid var(--line-2); }
+.admin-form input, .admin-form select, .admin-acts select { font: inherit; font-size: 13px; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; color: var(--ink); padding: 4px 9px; min-width: 0; }
+.admin-form input { flex: 1 1 220px; }
+.admin-acts select[disabled] { opacity: 0.6; }
+.admin-hint { flex-basis: 100%; margin: 0; font-size: 12.5px; color: var(--ink-3); }
+.admin-form .confirm-err { flex-basis: 100%; margin: 0; }
+.admin-acts { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; justify-content: flex-end; }
+.admin-row .confirm { margin-top: 8px; }
+.admin-row .confirm-err { margin: 8px 0 0; }
+.admin-chips { margin-top: 8px; }
+a.chip:hover { color: var(--ink); background: var(--line); }
+.once { margin: 14px 18px; padding: 12px 14px; border-radius: 10px; background: var(--claimed-soft); color: var(--ink); font-size: 12.5px; }
+.once p { margin: 8px 0 0; overflow-wrap: anywhere; }
+.once-row { display: flex; gap: 6px; flex-wrap: wrap; }
+.once-row input { flex: 1 1 260px; min-width: 0; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; color: var(--ink); padding: 4px 9px; }
+.linkish { color: var(--accent); font-weight: 500; padding: 0; }
+.linkish:hover:not([disabled]) { text-decoration: underline; }
+.gate .join-go { width: 100%; margin-top: 16px; background: var(--accent); color: #fff; border-radius: 8px; padding: 7px 14px; font-weight: 600; }
+.gate form button[type='submit'] { width: 100%; }
+.gate a.join-go { display: block; text-align: center; }
+.admin-reset { margin-top: 8px; }
+.admin-reset .once { margin: 8px 0 0; }
+.admin-reset .confirm-err { margin: 8px 0 0; }
+.account-form { max-width: 560px; }
+.account-form .admin-form { display: grid; gap: 4px; }
+.account-form label { font-size: 12.5px; color: var(--ink-2); margin-top: 8px; }
+.account-form .admin-form input { flex: none; padding: 6px 10px; }
+.account-form button[type='submit'] { justify-self: start; margin-top: 12px; padding: 5px 14px; }
+.account-form .confirm-err { margin-top: 10px; }
+.done-note { margin-top: 10px; padding: 10px 14px; border-radius: 10px; background: var(--proven-soft); color: var(--proven); font-size: 13px; }
+.side-account { padding-top: 10px; }
+.side-account .side-toggle { padding: 6px 10px; text-transform: none; letter-spacing: 0; font-size: 13px; color: var(--side-ink); }
+.side-account-n { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.side-account-m { display: grid; gap: 2px; padding: 2px 0 0 20px; }
+.side-account-m a, .side-account-m button { text-align: left; padding: 5px 10px; border-radius: 8px; font-size: 13px; color: var(--side-ink); }
+.side-account-m a:hover, .side-account-m button:hover { background: var(--side-2); }
 
 @media (max-width: 1100px) {
   .grid-2 { grid-template-columns: minmax(0, 1fr); }
@@ -412,6 +498,9 @@ a.item-ref:hover { color: var(--accent); }
   .note { grid-template-columns: minmax(0, 1fr); gap: 4px; }
   .detail-head, .tab { padding-left: 16px; padding-right: 16px; }
   .dh-row { flex-direction: column; gap: 10px; }
+  .row.admin-row { grid-template-columns: 18px minmax(0, 1fr); }
+  .admin-row .admin-acts { grid-column: 2; justify-content: flex-start; }
+  .once { margin: 12px; }
 }
 
 @media (prefers-reduced-motion: no-preference) {

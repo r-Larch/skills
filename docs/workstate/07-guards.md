@@ -51,7 +51,7 @@ open ──▶ ready ──▶ in_progress ──▶ review ──▶ done
 | From | To | Guard |
 |---|---|---|
 | `open` | `ready` | every `blocks` predecessor is `done`/`cancelled`/`superseded`. Otherwise refused, naming them. |
-| `ready`/`open` | `in_progress` | **acquires a claim** (§5) on the working tree: `tree:` if given (a worktree path or branch, normalised — doc 02 §10), else the run's key. Refused if another live claim holds this item, or a write-claim holds this tree — **including one the same agent holds on another item**, and a lapsed one another workspace has not swept yet (paths only: a name locks per workspace). The refusal names the holding item (qualified ref), its agent and when its lease lapses, and the moves: release it (`work_status(holder, review)`), retake once the lease lapses (with the same `tree:`), claim your own worktree with `tree:` if none was given, or work another tree. Only the holder re-taking its own item passes: that extends the lease. |
+| `ready`/`open` | `in_progress` | **acquires a claim** (§5) on the working tree: `tree:` if given (a worktree path or branch, normalised — doc 02 §10), else the run's key. Refused if another live claim holds this item, or a write-claim holds this tree — **including one the same agent holds on another item**. Every key locks within its workspace, a path as much as a name: another tenant's claim on the same tree never holds it. The refusal names the holding item (qualified ref), its agent and when its lease lapses, and the moves: release it (`work_status(holder, review)`), retake once the lease lapses (with the same `tree:`), claim your own worktree with `tree:` if none was given, or work another tree. Only the holder re-taking its own item passes: that extends the lease. |
 | `in_progress` | `blocked` | requires `reason`. Records a `blocked` event. |
 | `in_progress` | `review` | free. |
 | `review`/`in_progress` | `done` | **the five conditions, §3.** |
@@ -75,6 +75,11 @@ open ──▶ ready ──▶ in_progress ──▶ review ──▶ done
 > run. Without it the behaviour is unchanged, except that a ref-scope fallback key no longer collides
 > with a same-named run in another workspace. An expired claim's attention line names its tree and
 > retakes with it.
+
+> **Changed 2026-10-28 (m50 tenant-per-request).** A path — a `tree:` path, a run's key, a project's
+> repo root — locked server-wide, so a lapsed claim another workspace had not swept refused the same
+> tree here. A path is a place on one tenant's disk: every key is now keyed by workspace, and migration
+> `ClaimKeyWorkspace` gave the live claims taken before it their item's workspace.
 
 ---
 
@@ -215,7 +220,10 @@ Two Postgres guarantees from U1 carry this, and both are tested in **both direct
 
 - `claim_one_live_per_item` — one live claim per item;
 - `claim_one_writer_per_tree` — one live **write** claim per working tree (`serialization_key`,
-  scoped to its workspace when the key is a name rather than a path).
+  scoped to its workspace, and a path to its user as well: a path names a folder on one person's
+  machine, so user A's claim on `p:/projects/x` does not block user B on theirs, and still blocks A's
+  other sessions. A name — a branch, the ref-scope fallback — blocks across users in the workspace; a
+  path claimed by a credential with no user is the workspace's, as before m60 — doc 02 §10).
 
 That second is the parallel-orchestrator rule: **two units in different worktrees proceed
 concurrently, even in one run; two sharing a working tree do not.** Read-only claims (recon) do not

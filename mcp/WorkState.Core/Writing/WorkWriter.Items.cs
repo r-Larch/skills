@@ -74,6 +74,7 @@ public sealed partial class WorkWriter
             await FreeRefAsync(
                 connection,
                 transaction,
+                item.WorkspaceId,
                 await ScopeUnderAsync(connection, transaction, parent.Id, "followup", cancellationToken),
                 n => n == 1 ? $"{item.Ref}-d" : $"{item.Ref}-d{n}",
                 cancellationToken),

@@ -58,7 +58,7 @@ database enforces for free and a markdown file cannot enforce at all:
 
 | Skill rule | Enforcement today | Enforcement in a store |
 |---|---|---|
-| *"Is every task number defined exactly once?"* (plan audit check #3) | an audit agent costing **60–150k tokens** | `UNIQUE (ref_scope_id, ref)` — scoped per run, so parallel orchestrators cannot collide |
+| *"Is every task number defined exactly once?"* (plan audit check #3) | an audit agent costing **60–150k tokens** | `UNIQUE (workspace_id, ref_scope_id, ref)` — scoped per run, so parallel orchestrators cannot collide |
 | *"Does everything the remaining tasks depend on either exist, or get built by an earlier task?"* (#2) | same audit | a foreign key + a cycle check |
 | *"A superseded task is deleted, not annotated"* | prose discipline, violated 96 times | `status = superseded` + a `supersedes` edge |
 | *"A brief that omits done-criteria or a verification command is a defect"* | the orchestrator remembering | `NOT NULL` / a refused create |

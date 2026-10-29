@@ -70,6 +70,7 @@ public sealed partial class WorkWriter
                 var landed = await FreeRefAsync(
                     connection,
                     transaction,
+                    run.WorkspaceId,
                     targetId,
                     n => n == 1 ? carried.Ref : $"{carried.Ref}{n}",
                     cancellationToken);

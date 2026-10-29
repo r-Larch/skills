@@ -76,8 +76,8 @@ public sealed partial class WorkWriter
             fromItemId = source?.Id;
         }
 
-        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
-        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+        await using var tenant = await _connections.TenantAsync(cancellationToken);
+        var (connection, transaction) = tenant;
 
         await InsertNoteAsync(
             connection, transaction, workspaceId, actor, noteKind, body!, fromItemId, toItemId, cancellationToken);
@@ -217,8 +217,8 @@ public sealed partial class WorkWriter
             revisit = target.Id;
         }
 
-        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
-        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+        await using var tenant = await _connections.TenantAsync(cancellationToken);
+        var (connection, transaction) = tenant;
 
         var item = await LoadAsync(connection, transaction, scope.Id, cancellationToken);
         var opened = await AssumeAsync(
@@ -258,8 +258,8 @@ public sealed partial class WorkWriter
                 + "source:\"review\"}])"));
         }
 
-        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
-        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+        await using var tenant = await _connections.TenantAsync(cancellationToken);
+        var (connection, transaction) = tenant;
 
         var written = new List<string>();
 
@@ -289,7 +289,7 @@ public sealed partial class WorkWriter
                 parent.Id,
                 "finding",
                 await FreeRefAsync(
-                    connection, transaction, parent.RefScopeId, n => $"F-{n:00}", cancellationToken),
+                    connection, transaction, workspaceId, parent.RefScopeId, n => $"F-{n:00}", cancellationToken),
                 await NextSeqAsync(connection, transaction, parent.Id, cancellationToken),
                 Glyph.Flat(finding.Title),
                 finding.Intent,
@@ -355,8 +355,8 @@ public sealed partial class WorkWriter
                 "work_threads(include:\"assumptions\") lists every open one with its ref"));
         }
 
-        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
-        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+        await using var tenant = await _connections.TenantAsync(cancellationToken);
+        var (connection, transaction) = tenant;
 
         var matches = await OpenAssumptionsAsync(
             connection, transaction, workspaceId, reference!.Trim(), cancellationToken);
@@ -502,7 +502,7 @@ public sealed partial class WorkWriter
         string? chosen = null)
     {
         var reference = chosen ?? await FreeAssumptionRefAsync(
-            connection, transaction, item.RefScopeId, cancellationToken);
+            connection, transaction, item.WorkspaceId, item.RefScopeId, cancellationToken);
 
         const string sql =
             """
@@ -535,13 +535,14 @@ public sealed partial class WorkWriter
     private static async Task<string> FreeAssumptionRefAsync(
         NpgsqlConnection connection,
         NpgsqlTransaction transaction,
+        Guid workspaceId,
         Guid? refScopeId,
         CancellationToken cancellationToken)
     {
         for (var n = 1; n < 500; n++)
         {
             var candidate = $"A{n}";
-            if (!await AssumptionRefTakenAsync(connection, transaction, refScopeId, candidate, cancellationToken))
+            if (!await AssumptionRefTakenAsync(connection, transaction, workspaceId, refScopeId, candidate, cancellationToken))
             {
                 return candidate;
             }
@@ -553,6 +554,7 @@ public sealed partial class WorkWriter
     private static async Task<bool> AssumptionRefTakenAsync(
         NpgsqlConnection connection,
         NpgsqlTransaction transaction,
+        Guid workspaceId,
         Guid? refScopeId,
         string reference,
         CancellationToken cancellationToken)
@@ -561,12 +563,13 @@ public sealed partial class WorkWriter
             """
             SELECT EXISTS (
               SELECT 1 FROM assumption
-              WHERE ref_scope_id IS NOT DISTINCT FROM @scope AND lower(ref) = lower(@ref));
+              WHERE workspace_id = @workspace
+                AND ref_scope_id IS NOT DISTINCT FROM @scope AND lower(ref) = lower(@ref));
             """;
 
         return await connection.ExecuteScalarAsync<bool>(new CommandDefinition(
             sql,
-            new { scope = refScopeId, @ref = reference },
+            new { workspace = workspaceId, scope = refScopeId, @ref = reference },
             transaction,
             cancellationToken: cancellationToken));
     }

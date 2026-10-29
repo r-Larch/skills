@@ -3,6 +3,7 @@ using Dapper;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.IdentityModel.Tokens;
 using Npgsql;
+using WorkState.Core.Data;
 
 namespace WorkState.Api.Auth.OAuth;
 
@@ -19,6 +20,8 @@ namespace WorkState.Api.Auth.OAuth;
 /// </summary>
 public sealed class OAuthKeyRing(NpgsqlDataSource dataSource, IDataProtectionProvider protection)
 {
+    private readonly WorkStateConnections _connections = new(dataSource);
+
     public const string ProtectorPurpose = "WorkState.OAuth.Keys";
 
     private const int KeySize = 2048;
@@ -29,7 +32,7 @@ public sealed class OAuthKeyRing(NpgsqlDataSource dataSource, IDataProtectionPro
     {
         var protector = protection.CreateProtector(ProtectorPurpose, purpose);
 
-        using var connection = dataSource.OpenConnection();
+        using var connection = _connections.OwnerBypass(Bypass.Keys);
         var row = Read(connection, purpose);
 
         if (row is null)

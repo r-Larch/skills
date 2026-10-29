@@ -9,11 +9,13 @@ namespace WorkState.Api.Auth.OAuth;
 /// The two pages a human meets inside <c>/connect/authorize</c>, both SPA routes
 /// (<c>frontend/src/Connect.tsx</c>) whose shell is served only after the request is judged here: the
 /// sign-in page refuses a return address that is not this server's authorize endpoint, and the consent page
-/// is sent back through sign-in when the session is gone.
+/// is sent back through sign-in when the session is gone. The consent page names the tenant the token will
+/// act in, the session's, from <c>GET /api/session/tenants</c>, and switches it there before an approval.
 /// <para>
-/// Both forbid framing. The consent page's <c>form-action</c> names the client's registered callbacks as
-/// well as <c>'self'</c>: a browser checks the redirect a form submission ends in against that directive,
-/// and the approval's answer is a redirect to the client. Its <c>img-src</c> is this origin: the client's
+/// Both forbid framing. The consent page's <c>form-action</c> names the client's registered callbacks, the
+/// request's own when it differs from one only in a loopback port, and <c>'self'</c>: a browser checks the
+/// redirect a form submission ends in against that directive, and the approval's answer is a redirect to
+/// the client — on whatever port its listener got. Its <c>img-src</c> is this origin: the client's
 /// icon comes from <see cref="AppIconPath"/>, never from the client's host or a favicon service.
 /// </para>
 /// </summary>
@@ -27,6 +29,9 @@ public static class ConnectPages
     public const string ReturnUrl = "returnUrl";
     public const string ConsentField = "consent";
     public const string Granted = "granted";
+
+    /// <summary>The tenant the consent page showed; an approval posted for another is asked for again.</summary>
+    public const string TenantField = "workstate_tenant";
 
     public static void MapConnectPages(this WebApplication app)
     {
@@ -73,9 +78,12 @@ public static class ConnectPages
         }
 
         var callbacks = await CallbacksAsync(applications, context.Request.Query[Parameters.ClientId].FirstOrDefault(), context.RequestAborted);
+        var requested = Registered(callbacks, context.Request.Query[Parameters.RedirectUri].FirstOrDefault());
         var origins = callbacks
-            .Select(callback => Uri.TryCreate(callback, UriKind.Absolute, out var uri) ? uri.GetLeftPart(UriPartial.Authority) : null)
-            .OfType<string>()
+            .Select(callback => Uri.TryCreate(callback, UriKind.Absolute, out var uri) ? uri : null)
+            .Append(requested)
+            .OfType<Uri>()
+            .Select(uri => uri.GetLeftPart(UriPartial.Authority))
             .Distinct(StringComparer.Ordinal);
 
         context.Response.Headers.ContentSecurityPolicy =
@@ -103,7 +111,7 @@ public static class ConnectPages
         return Results.Ok(new AppInfo(
             await applications.GetDisplayNameAsync(application, context.RequestAborted) ?? clientId,
             ClientIdMetadata.IsMetadataDocument(clientId, out var document) ? document.Host : null,
-            RegisteredHost(callbacks, context.Request.Query[Parameters.RedirectUri].FirstOrDefault()),
+            Registered(callbacks, context.Request.Query[Parameters.RedirectUri].FirstOrDefault())?.Host,
             callbacks.Length > 0 && callbacks.All(callback => Uri.TryCreate(callback, UriKind.Absolute, out var uri) && uri.IsLoopback)));
     }
 
@@ -135,14 +143,16 @@ public static class ConnectPages
     }
 
     /// <summary>
-    /// Named only when the request's callback is one this client registered: echoing an unchecked
-    /// <c>redirect_uri</c> would put an attacker's host on the page under the real client's name.
+    /// The request's callback when it is one this client registered, or differs from one only in a loopback
+    /// port (<see cref="LoopbackRedirect"/>, as authorize admits it): echoing an unchecked <c>redirect_uri</c>
+    /// would put an attacker's host on the page, or in <c>form-action</c>, under the real client's name.
     /// </summary>
-    private static string? RegisteredHost(IReadOnlyList<string> callbacks, string? redirectUri)
-        => !string.IsNullOrEmpty(redirectUri)
-           && callbacks.Contains(redirectUri, StringComparer.Ordinal)
-           && Uri.TryCreate(redirectUri, UriKind.Absolute, out var callback)
-            ? callback.Host
+    private static Uri? Registered(IReadOnlyList<string> callbacks, string? redirectUri)
+        => Uri.TryCreate(redirectUri, UriKind.Absolute, out var requested)
+           && callbacks.Any(callback => callback == redirectUri
+                                        || (Uri.TryCreate(callback, UriKind.Absolute, out var registered)
+                                            && LoopbackRedirect.Matches(registered, requested)))
+            ? requested
             : null;
 
     private static async Task<IReadOnlyList<string>> CallbacksAsync(
@@ -156,7 +166,7 @@ public static class ConnectPages
 
     /// <param name="ClientName">The registration's <c>client_name</c>, or the metadata document's.</param>
     /// <param name="ClientHost">The host serving the metadata document; null for a client that registered itself.</param>
-    /// <param name="RedirectHost">Null unless the request's callback is registered; see <see cref="RegisteredHost"/>.</param>
+    /// <param name="RedirectHost">Null unless the request's callback is registered; see <see cref="Registered"/>.</param>
     /// <param name="LoopbackOnly">Every callback is on this machine, so the client is a local program.</param>
     public sealed record AppInfo(string ClientName, string? ClientHost, string? RedirectHost, bool LoopbackOnly);
 }

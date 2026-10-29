@@ -20,8 +20,13 @@ public sealed class CallerIdentity(IHttpContextAccessor accessor)
         get
         {
             var role = Role;
+            if (role == Actor.System)
+            {
+                return role;
+            }
 
-            return accessor.HttpContext?.Items[CallerSession.ItemKey] is SessionRef session && role != Actor.System
+            role = role with { UserId = UserId };
+            return accessor.HttpContext?.Items[CallerSession.ItemKey] is SessionRef session
                 ? role with { SessionId = session.Id, Session = session.Name }
                 : role;
         }
@@ -29,6 +34,10 @@ public sealed class CallerIdentity(IHttpContextAccessor accessor)
 
     /// <summary>The session helper's key, when a static agent token sent one; never a minted token's.</summary>
     public string? ClientKey => accessor.HttpContext?.User.FindFirst(CallerSession.ClientKeyClaim)?.Value;
+
+    /// <summary>The signed-in user the credential belongs to (<see cref="CallerSession.UserIdClaim"/>); null for a static token.</summary>
+    public Guid? UserId
+        => Guid.TryParse(accessor.HttpContext?.User.FindFirst(CallerSession.UserIdClaim)?.Value, out var id) ? id : null;
 
     private Actor Role
     {

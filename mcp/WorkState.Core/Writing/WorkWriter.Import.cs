@@ -94,8 +94,8 @@ public sealed partial class WorkWriter
                 unmet));
         }
 
-        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
-        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+        await using var tenant = await _connections.TenantAsync(cancellationToken);
+        var (connection, transaction) = tenant;
 
         var (target, notReady) = await ImportProjectAsync(connection, transaction, workspaceId, project!.Trim(), cancellationToken);
         if (target is null)
@@ -515,7 +515,8 @@ public sealed partial class WorkWriter
         var refScope = parent.RefScopeId == parent.Id ? parent.Id : parent.RefScopeId;
         var reference = Blank(record.Ref)
             ? await DerivedRefAsync(
-                connection, transaction, new ScopeRefLite(parent.Id, parent.Ref, parent.RefScopeId), refScope, kind, cancellationToken)
+                connection, transaction, workspaceId, new ScopeRefLite(parent.Id, parent.Ref, parent.RefScopeId), refScope, kind,
+                ladder[kind].ScopesRefs, cancellationToken)
             : record.Ref!.Trim();
 
         var row = new NewRow(
@@ -585,7 +586,7 @@ public sealed partial class WorkWriter
                 var item = await LoadAsync(connection, transaction, scope.Id, cancellationToken);
                 var chosen = Blank(record.Ref) ? null : record.Ref!.Trim();
                 if (chosen is not null
-                    && await AssumptionRefTakenAsync(connection, transaction, item.RefScopeId, chosen, cancellationToken))
+                    && await AssumptionRefTakenAsync(connection, transaction, item.WorkspaceId, item.RefScopeId, chosen, cancellationToken))
                 {
                     return ImportStep.No(Refusal.Blocked(
                         $"work_import(assumption from {source}) — ref \"{chosen}\" is taken under {scope.Ref}.",

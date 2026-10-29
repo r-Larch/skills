@@ -30,6 +30,10 @@ public sealed partial class WorkWriter
     /// Insert first, then ask who holds a key that did not insert: the unique index waits out a
     /// concurrent binder, so the owner read after it sees that binder's committed row.
     /// </para>
+    /// <para>
+    /// A root is a path on <paramref name="userId"/>'s machine, so it is bound for them alone: another user's same path
+    /// is another checkout, free to bind elsewhere. A remote names one repository for everyone and is the workspace's.
+    /// </para>
     /// </summary>
     private static async Task<(IReadOnlyList<RepoKey> Added, string? Refusal)> BindReposAsync(
         NpgsqlConnection connection,
@@ -37,29 +41,32 @@ public sealed partial class WorkWriter
         Guid workspaceId,
         Guid projectId,
         string projectRef,
+        Guid? userId,
         IReadOnlyList<RepoKey> keys,
         CancellationToken cancellationToken)
     {
         const string insert =
             """
-            INSERT INTO project_repo (id, workspace_id, project_item_id, kind, key)
-            VALUES (@id, @workspace, @project, @kind, @key)
-            ON CONFLICT (workspace_id, key) DO NOTHING;
+            INSERT INTO project_repo (id, workspace_id, project_item_id, user_id, kind, key)
+            VALUES (@id, @workspace, @project, @user, @kind, @key)
+            ON CONFLICT (workspace_id, user_id, key) DO NOTHING;
             """;
 
         const string owner =
             """
             SELECT r.key AS "Key", p.ref AS "ProjectRef"
             FROM   project_repo r JOIN item p ON p.id = r.project_item_id
-            WHERE  r.workspace_id = @workspace AND r.key = @key AND r.project_item_id <> @project;
+            WHERE  r.workspace_id = @workspace AND r.user_id IS NOT DISTINCT FROM @user AND r.key = @key
+              AND  r.project_item_id <> @project;
             """;
 
         var added = new List<RepoKey>();
         foreach (var key in keys)
         {
+            var user = RepoKeys.UserOf(key, userId);
             var rows = await connection.ExecuteAsync(new CommandDefinition(
                 insert,
-                new { id = Guid.CreateVersion7(), workspace = workspaceId, project = projectId, kind = key.Kind, key = key.Key },
+                new { id = Guid.CreateVersion7(), workspace = workspaceId, project = projectId, user, kind = key.Kind, key = key.Key },
                 transaction,
                 cancellationToken: cancellationToken));
 
@@ -71,7 +78,7 @@ public sealed partial class WorkWriter
 
             var held = await connection.QueryFirstOrDefaultAsync<BoundKey>(new CommandDefinition(
                 owner,
-                new { workspace = workspaceId, key = key.Key, project = projectId },
+                new { workspace = workspaceId, user, key = key.Key, project = projectId },
                 transaction,
                 cancellationToken: cancellationToken));
 
@@ -84,6 +91,29 @@ public sealed partial class WorkWriter
                     $"work_brief(scope:\"{held.ProjectRef}\") to work in it",
                     $"work_brief(repo:{RepoKeys.Literal(keys)}) — the same project, found from the repo"));
             }
+
+            var own = await connection.ExecuteScalarAsync<bool>(new CommandDefinition(
+                """
+                SELECT EXISTS (SELECT 1 FROM project_repo
+                               WHERE  workspace_id = @workspace AND user_id IS NOT DISTINCT FROM @user AND key = @key
+                                 AND  project_item_id = @project);
+                """,
+                new { workspace = workspaceId, user, key = key.Key, project = projectId },
+                transaction,
+                cancellationToken: cancellationToken));
+
+            if (own)
+            {
+                continue;
+            }
+
+            // Held, but by a project the caller is not a member of (doc 02 §15b): the key is the workspace's to give
+            // once, so the refusal says it is taken and names nothing of the project that took it.
+            return ([], Refusal.Blocked(
+                $"{key.Kind} \"{key.Key}\" is already bound to a project of this workspace that you are not a member of.",
+                $"one project per repository, so {projectRef} cannot hold it too; that project's members can add you",
+                $"work_brief(repo:{RepoKeys.Literal(keys)}) once a member has added you — it finds that project",
+                $"the same call without repo: to leave {projectRef} unbound"));
         }
 
         return (added, null);

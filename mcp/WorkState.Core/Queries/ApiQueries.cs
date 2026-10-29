@@ -1,5 +1,6 @@
 using Dapper;
 using Npgsql;
+using WorkState.Core.Data;
 
 namespace WorkState.Core.Queries;
 
@@ -11,6 +12,8 @@ namespace WorkState.Core.Queries;
 /// </summary>
 public sealed class ApiQueries(NpgsqlDataSource dataSource)
 {
+    private readonly WorkStateConnections _connections = new(dataSource);
+
     private const string InScope = "(i.id = @scope OR i.ancestors @> ARRAY[@scope]::uuid[])";
 
     private const string LeafKinds = "('task','followup','subtask','spike','question','incident')";
@@ -71,6 +74,22 @@ public sealed class ApiQueries(NpgsqlDataSource dataSource)
 
         return ids.Count == 0 ? [] : await ListAsync<Placement>(sql, new { ids = ids.ToArray() }, cancellationToken);
     }
+
+    /// <summary>
+    /// One journal event as the stream sends it (doc 10): null when the caller may not see it — an event of a project
+    /// they are not a member of (doc 02 §15b) — else its item's run. Read per event, so a membership added or removed
+    /// applies from the next event on.
+    /// </summary>
+    public async Task<StreamPlacement?> StreamPlacementAsync(long seq, CancellationToken cancellationToken = default)
+        => await SingleAsync<StreamPlacement>(
+            $"""
+             SELECT e.item_id AS "ItemId", ({Nearest("run")}) AS "RunId"
+             FROM   event e
+             LEFT   JOIN item i ON i.id = e.item_id
+             WHERE  e.seq = @seq;
+             """,
+            new { seq },
+            cancellationToken);
 
     private static string Nearest(string kind)
         => $"""
@@ -628,16 +647,44 @@ public sealed class ApiQueries(NpgsqlDataSource dataSource)
         return await ListAsync<BacklogRow>(sql, new { scope = runId }, cancellationToken);
     }
 
+    /// <summary>
+    /// Items in the workspace whose ref starts with <paramref name="prefix"/>, case-insensitively and
+    /// literally (<c>%</c>, <c>_</c> and <c>\</c> are escaped) — shortest ref first, then the order
+    /// <see cref="BoardQueries.ResolveAsync"/> uses.
+    /// </summary>
+    public async Task<IReadOnlyList<Guid>> RefPrefixAsync(
+        Guid workspaceId,
+        string prefix,
+        int limit,
+        CancellationToken cancellationToken = default)
+    {
+        const string sql =
+            """
+            SELECT i.id
+            FROM   item i
+            JOIN   item_kind k ON k.key = i.kind
+            WHERE  i.workspace_id = @workspace
+              AND  lower(i.ref) LIKE lower(@pattern) || '%' ESCAPE '\'
+            ORDER  BY length(i.ref), k.rank, i.seq
+            LIMIT  @limit;
+            """;
+
+        var pattern = prefix.Replace(@"\", @"\\").Replace("%", @"\%").Replace("_", @"\_");
+        return await ListAsync<Guid>(sql, new { workspace = workspaceId, pattern, limit }, cancellationToken);
+    }
+
     private async Task<T?> SingleAsync<T>(string sql, object parameters, CancellationToken cancellationToken)
     {
-        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        await using var tenant = await _connections.TenantAsync(cancellationToken);
+        var connection = tenant.Connection;
         return await connection.QuerySingleOrDefaultAsync<T>(
             new CommandDefinition(sql, parameters, cancellationToken: cancellationToken));
     }
 
     private async Task<IReadOnlyList<T>> ListAsync<T>(string sql, object parameters, CancellationToken cancellationToken)
     {
-        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        await using var tenant = await _connections.TenantAsync(cancellationToken);
+        var connection = tenant.Connection;
         var rows = await connection.QueryAsync<T>(
             new CommandDefinition(sql, parameters, cancellationToken: cancellationToken));
         return rows.AsList();

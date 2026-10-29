@@ -5,7 +5,11 @@ import Gate from './Gate.tsx'
 import Shell from './Shell.tsx'
 import { startStream } from './live.ts'
 import { startStore } from './store.ts'
+import Account from './views/Account.tsx'
 import Activity from './views/Activity.tsx'
+import Admin from './views/Admin.tsx'
+import AdminTenant from './views/AdminTenant.tsx'
+import AdminUsers from './views/AdminUsers.tsx'
 import Backlog from './views/Backlog.tsx'
 import Inbox from './views/Inbox.tsx'
 import Item from './views/Item.tsx'
@@ -42,6 +46,10 @@ export default function App() {
         <Route path="/items/:item" component={Item} />
         <Route path="/projects/:project" component={Project} />
         <Route path="/projects/:project/backlog" component={Backlog} />
+        <Route path="/account" component={Account} />
+        <Route path="/admin" component={Admin} />
+        <Route path="/admin/users" component={AdminUsers} />
+        <Route path="/admin/tenants/:tenant" component={AdminTenant} />
         <Route path="*" component={NotFound} />
       </Router>
     </Show>

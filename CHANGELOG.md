@@ -8,6 +8,39 @@ What changes for someone who has the `rlarch` plugin installed, newest first. Fo
 
 ### Changed
 
+- WorkState server **1.1.0** (no plugin change; four migrations): private and shared projects. A
+  project's work is visible only to its members, which Postgres row-level security enforces; a
+  non-member gets the same "not found" as for a ref that doesn't exist. Every existing project
+  starts with every member of its workspace as a member. New projects are private to their creator.
+  The overview marks each project Private, Shared with N, or Open to the workspace, and a project's
+  Members panel adds people (one at a time, or everyone) and removes them. Repo folder paths
+  (`work_brief(repo:{root})`) and path tree locks are now per user, so two people with the same path
+  on different machines no longer collide; repo remotes stay shared. `/api/stream` now carries the
+  `X-WorkState-Api` header. Back up first.
+- WorkState server **1.0.1** (no plugin change; one migration): projects and runs get unique refs.
+  A run created without a ref is numbered `1`, `2`, … under its project (every one was `1` before),
+  a project `project-1`, `project-2`, …, and a second run or project with a ref its siblings already
+  hold is refused. The migration renames each existing duplicate but the oldest to `<ref>-2`, …, and
+  journals the rename. Back up first. OAuth refresh tokens are now 43-character opaque handles: 1.0.0's
+  self-contained ones (about 2900 characters) no longer fit Windows Credential Manager, which broke
+  Foreman's refresh. A refresh token 1.0.0 issued still redeems once, into a handle.
+- WorkState server **1.0.0** (no plugin change; seven migrations): one server, several
+  tenants. The dashboard has users, tenant memberships and a system administrator; the configured
+  dashboard credential creates the first user at its first sign-in and is not read after that.
+  Every request acts in its sign-in's tenant only, enforced in the queries and by Postgres row-level
+  security. OAuth tokens and minted agent sessions belong to a user and one tenant; the consent page
+  names the tenant. New: admin pages (workspaces, members, copyable invite links), a workspace
+  switcher, password change and admin reset links, and a Ctrl+P command palette that finds any ref
+  across projects. A server deploy accepts no static role token; a local install keeps them. After
+  upgrading, sign in to the dashboard once; existing OAuth connections carry over on their next
+  refresh.
+- WorkState server **0.9.2** (no plugin change, no migration): the consent page lets the browser
+  return to such a client's actual port (its `form-action` blocked the redirect, so Approve hung) and
+  no longer warns that the address is unregistered.
+- WorkState server **0.9.1** (no plugin change, no migration): an app that registers itself with a
+  `http://127.0.0.1/callback` (or `localhost`) callback may sign in on any port of that host, as RFC
+  8252 §7.3 requires. Foreman and `agent_signin` were refused with `ID2043` before; Claude Code was
+  not affected.
 - WorkState server **0.9.0** (no plugin change): OAuth on the read API, the stream and the
   agent-session mint for apps like Foreman (scopes `workstate.read`, `workstate.sessions`), signing
   an app out ends the sessions it minted, a launcher can take over a session name with the same

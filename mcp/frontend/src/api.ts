@@ -1,5 +1,7 @@
 import { createSignal } from 'solid-js'
-import type { AppInfo } from './connect.ts'
+import type { InviteView, PasswordChange, ResetView } from './admin.ts'
+import type { AppInfo, SessionTenant } from './connect.ts'
+import type { Sharing } from './sharing.ts'
 
 /** doc 10 — the frozen v1 shapes, as `WorkState.Api/App/V1/V1Contract.cs` serialises them. */
 export type ItemRef = {
@@ -99,6 +101,7 @@ export type ProjectOverview = {
   archivedAt: string | null
   lastActivityAt: string | null
   openRuns: number
+  sharing: Sharing
 }
 
 export type Overview = {
@@ -239,6 +242,20 @@ export type Prompt = { key: string; label: string; count: number | null; text: s
 
 export type Prompts = { asOf: string; seq: number; scope: ItemRef; prompts: Prompt[] }
 
+/** `ref`: the query is the item's ref (resolve's rule); `prefix`: its ref starts with it; `text`: full text. */
+export type SearchMatch = 'ref' | 'prefix' | 'text'
+
+export type SearchHit = {
+  item: ItemRef
+  run: ItemRef | null
+  project: ItemRef | null
+  match: SearchMatch
+  /** The matching fragment of the intent or title, plain text; only on a `text` hit. */
+  snippet: string | null
+}
+
+export type Search = { asOf: string; seq: number; hits: SearchHit[] }
+
 /**
  * Whether the cookie is good. Flipped by any 401, which is the only signal the API gives: the
  * session cookie is httponly, so the document cannot read it and asking is the only way to know.
@@ -297,6 +314,8 @@ export const prompts = (scope: string) => json<Prompts>(`/api/v1/prompts?scope=$
 
 export const sessions = () => json<Sessions>('/api/v1/sessions')
 
+export const search = (q: string) => json<Search>(`/api/v1/search?q=${id(q)}`)
+
 /**
  * A dashboard write (doc 10). The header is the cross-site guard: a form on another site cannot
  * send it, and the server refuses the write without it. A refusal throws the server's own words.
@@ -319,6 +338,201 @@ async function write(path: string): Promise<Response> {
   }
 
   return response
+}
+
+/** A dashboard write with a JSON body and any method; a refusal throws the server's own words, as `write` does. */
+async function send(method: 'POST' | 'PUT' | 'DELETE', path: string, body?: unknown): Promise<Response> {
+  const response = await fetch(path, {
+    method,
+    credentials: 'same-origin',
+    headers: { 'X-WorkState-Write': '1', ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  })
+
+  if (response.status === 401) {
+    setSignedIn(false)
+    throw new Unauthorized()
+  }
+
+  if (!response.ok) {
+    const answer = (await response.json().catch(() => null)) as { error?: string } | null
+    throw new Error(answer?.error ?? `${path} → ${response.status}`)
+  }
+
+  return response
+}
+
+/** `GET /api/session/me`: who the cookie is, and whether the Admin page is theirs. */
+export type SessionUser = { id: string; name: string; systemAdmin: boolean; administers: boolean }
+
+export const me = () => json<SessionUser>('/api/session/me')
+
+export type AdminTenant = {
+  id: string
+  slug: string
+  createdAt: string
+  members: number
+  admins: number
+  pendingInvites: number
+  current: boolean
+}
+
+export type AdminMember = {
+  userId: string
+  name: string
+  role: string
+  systemAdmin: boolean
+  joinedAt: string
+  disabledAt: string | null
+}
+
+export type AdminUser = {
+  id: string
+  name: string
+  systemAdmin: boolean
+  createdAt: string
+  disabledAt: string | null
+  tenants: { id: string; slug: string; role: string }[]
+}
+
+export type PendingInvite = { id: string; role: string; createdBy: string | null; createdAt: string; expiresAt: string }
+
+/** The only answer that carries the token: the server keeps its hash, so it cannot be shown again. */
+export type CreatedInvite = { id: string; token: string; url: string; role: string; tenant: string; expiresAt: string }
+
+export const adminTenants = () => json<AdminTenant[]>('/api/admin/tenants')
+
+export const adminMembers = (tenant: string) => json<AdminMember[]>(`/api/admin/tenants/${id(tenant)}/members`)
+
+export const adminInvites = (tenant: string) => json<PendingInvite[]>(`/api/admin/tenants/${id(tenant)}/invites`)
+
+export const adminUsers = () => json<AdminUser[]>('/api/admin/users')
+
+export const createTenant = async (slug: string): Promise<AdminTenant> =>
+  (await send('POST', '/api/admin/tenants', { slug })).json() as Promise<AdminTenant>
+
+export async function setMemberRole(tenant: string, user: string, role: string): Promise<void> {
+  await send('PUT', `/api/admin/tenants/${id(tenant)}/members/${id(user)}`, { role })
+}
+
+export async function removeMember(tenant: string, user: string): Promise<void> {
+  await send('DELETE', `/api/admin/tenants/${id(tenant)}/members/${id(user)}`)
+}
+
+export const createInvite = async (tenant: string, role: string): Promise<CreatedInvite> =>
+  (await send('POST', `/api/admin/tenants/${id(tenant)}/invites`, { role })).json() as Promise<CreatedInvite>
+
+export async function revokeInvite(tenant: string, invite: string): Promise<void> {
+  await send('DELETE', `/api/admin/tenants/${id(tenant)}/invites/${id(invite)}`)
+}
+
+export async function setUserDisabled(user: string, disabled: boolean): Promise<void> {
+  await send('POST', `/api/admin/users/${id(user)}/${disabled ? 'disable' : 'enable'}`)
+}
+
+/** An answer from a public page's call: the body when it is JSON, the server's error when it is one; status 0 is none. */
+export type Answer<T> = { status: number; body: T | null; error: string | null }
+
+async function answer<T>(request: Promise<Response>): Promise<Answer<T>> {
+  try {
+    const response = await request
+    const parsed = (await response.json().catch(() => null)) as (T & { error?: string }) | null
+    return response.ok
+      ? { status: response.status, body: parsed, error: null }
+      : { status: response.status, body: null, error: parsed?.error ?? null }
+  } catch {
+    return { status: 0, body: null, error: null }
+  }
+}
+
+/** The invite page's read: what the link joins, and who would accept it. No session needed. */
+export const inviteInfo = (token: string) =>
+  answer<InviteView>(fetch(`/api/invite/${id(token)}`, { credentials: 'same-origin' }))
+
+/** Accepts as the signed-in user when there is one (the body is then ignored), else as a new user. */
+export const acceptInvite = (token: string, body: { name: string; password: string } | null) =>
+  answer<{ name: string; tenantId: string }>(
+    fetch(`/api/invite/${id(token)}/accept`, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json', 'X-WorkState-Write': '1' },
+      body: JSON.stringify(body ?? {}),
+    }),
+  )
+
+/** Ends this browser's session; the dashboard falls back to its sign-in gate, a public page reloads itself. */
+export async function signOut(): Promise<void> {
+  await fetch('/api/session', { method: 'DELETE', credentials: 'same-origin' }).catch(() => undefined)
+  setSignedIn(false)
+}
+
+/** The only answer that carries a reset token: the server keeps its hash. */
+export type CreatedReset = { userId: string; name: string; token: string; url: string; expiresAt: string }
+
+export const createResetLink = async (user: string): Promise<CreatedReset> =>
+  (await send('POST', `/api/admin/users/${id(user)}/reset-link`)).json() as Promise<CreatedReset>
+
+/**
+ * `POST /api/session/password`. A wrong current password is sign-in's bare 401, the same status a lapsed
+ * session gets, so a 401 asks whether the session is still there before it says which one it was.
+ */
+export async function changePassword(current: string, next: string): Promise<PasswordChange> {
+  const response = await fetch('/api/session/password', {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json', 'X-WorkState-Write': '1' },
+    body: JSON.stringify({ current, next }),
+  })
+
+  if (response.status === 204) return { k: 'ok' }
+  if (response.status === 429) return { k: 'throttled' }
+  if (response.status === 401) {
+    if (await hasSession()) return { k: 'wrong' }
+    setSignedIn(false)
+    throw new Unauthorized()
+  }
+
+  const body = (await response.json().catch(() => null)) as { error?: string } | null
+  return { k: 'refused', error: body?.error ?? `The password was not changed (${response.status}).` }
+}
+
+/** The reset page's read: whose password the link sets. No session needed. */
+export const resetInfo = (token: string) =>
+  answer<ResetView>(fetch(`/api/reset/${id(token)}`, { credentials: 'same-origin' }))
+
+/** Sets the new password; every session of that user ends, this browser's too. */
+export const useReset = (token: string, password: string) =>
+  answer<{ name: string }>(
+    fetch(`/api/reset/${id(token)}`, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json', 'X-WorkState-Write': '1' },
+      body: JSON.stringify({ password }),
+    }),
+  )
+
+/** `/api/projects/{id}/members` (doc 10, outside v1): a member of the project or a workspace admin, else 404. */
+export type ProjectMember = { userId: string; name: string; addedAt: string; addedBy: string | null; disabledAt: string | null }
+
+export type ProjectCandidate = { userId: string; name: string; disabledAt: string | null }
+
+export type ProjectMembers = {
+  projectId: string
+  ref: string
+  everyone: boolean
+  members: ProjectMember[]
+  candidates: ProjectCandidate[]
+}
+
+export const projectMembers = (project: string) => json<ProjectMembers>(`/api/projects/${id(project)}/members`)
+
+/** One member of the workspace, or with `'all'` every one not in yet. */
+export const addProjectMember = async (project: string, who: string | 'all'): Promise<ProjectMembers> =>
+  (await send('POST', `/api/projects/${id(project)}/members`, who === 'all' ? { all: true } : { userId: who })).json() as Promise<ProjectMembers>
+
+/** The 409 for the project's last member throws the server's own words. */
+export async function removeProjectMember(project: string, user: string): Promise<void> {
+  await send('DELETE', `/api/projects/${id(project)}/members/${id(user)}`)
 }
 
 export async function setArchived(project: string, archived: boolean): Promise<void> {
@@ -352,6 +566,36 @@ export async function signIn(username: string, password: string): Promise<SignIn
 export async function hasSession(): Promise<boolean> {
   const response = await fetch('/api/session', { credentials: 'same-origin' })
   return response.status === 204
+}
+
+/** The workspaces the signed-in user may enter, the session's marked current; a status of 0 is no answer at all. */
+export async function sessionTenants(): Promise<{ status: number; tenants: SessionTenant[] | null }> {
+  try {
+    const response = await fetch('/api/session/tenants', { credentials: 'same-origin' })
+    return { status: response.status, tenants: response.ok ? ((await response.json()) as SessionTenant[]) : null }
+  } catch {
+    return { status: 0, tenants: null }
+  }
+}
+
+/**
+ * Moves the session to another workspace the user may enter. Null when it moved; otherwise the server's own
+ * words. A dashboard write, so it carries the write header (doc 10).
+ */
+export async function switchTenant(id: string): Promise<string | null> {
+  try {
+    const response = await fetch('/api/session/tenant', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json', 'X-WorkState-Write': '1' },
+      body: JSON.stringify({ id }),
+    })
+    if (response.status === 204) return null
+    const body = (await response.json().catch(() => null)) as { error?: string } | null
+    return body?.error ?? `WorkState could not switch the workspace (${response.status}). Reload the page to try again.`
+  } catch {
+    return 'WorkState did not answer. Check that it is running, then reload this page.'
+  }
 }
 
 /** The consent page's client; a status of 0 is no answer at all. */

@@ -31,6 +31,10 @@ public class WorkStateDbContext(DbContextOptions<WorkStateDbContext> options) : 
     public DbSet<AgentSession> AgentSessions => Set<AgentSession>();
     public DbSet<ImportRecord> ImportRecords => Set<ImportRecord>();
     public DbSet<OAuthKey> OAuthKeys => Set<OAuthKey>();
+    public DbSet<AppUser> Users => Set<AppUser>();
+    public DbSet<TenantMembership> TenantMemberships => Set<TenantMembership>();
+    public DbSet<UserLink> UserLinks => Set<UserLink>();
+    public DbSet<ProjectMember> ProjectMembers => Set<ProjectMember>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -55,6 +59,65 @@ public class WorkStateDbContext(DbContextOptions<WorkStateDbContext> options) : 
         MapDataProtection(b);
         MapSessions(b);
         MapOAuth(b);
+        MapUsers(b);
+    }
+
+    private static void MapUsers(ModelBuilder b)
+    {
+        // app_user_name_unique, on lower(name), is raw SQL in the Users migration: the model cannot
+        // express an expression index.
+        b.Entity<AppUser>(e =>
+        {
+            e.ToTable("app_user");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).ValueGeneratedNever();
+            e.Property(x => x.IsSystemAdmin).HasDefaultValue(false);
+            e.Property(x => x.CreatedAt).HasDefaultValueSql("now()");
+            e.Property(x => x.SecurityStamp).HasDefaultValueSql("gen_random_uuid()");
+        });
+
+        b.Entity<TenantMembership>(e =>
+        {
+            e.ToTable("tenant_membership");
+            e.HasKey(x => new { x.UserId, x.WorkspaceId });
+            e.HasOne<AppUser>().WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne<Workspace>().WithMany().HasForeignKey(x => x.WorkspaceId).OnDelete(DeleteBehavior.Cascade);
+            e.HasIndex(x => x.WorkspaceId).HasDatabaseName("tenant_membership_workspace_idx");
+            e.Property(x => x.CreatedAt).HasDefaultValueSql("now()");
+            e.ToTable(t => t.HasCheckConstraint("tenant_membership_role_known", "role IN ('admin', 'member')"));
+        });
+
+        b.Entity<ProjectMember>(e =>
+        {
+            e.ToTable("project_member");
+            e.HasKey(x => new { x.ProjectItemId, x.UserId });
+            e.HasOne<Item>().WithMany().HasForeignKey(x => x.ProjectItemId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne<TenantMembership>().WithMany().HasForeignKey(x => new { x.UserId, x.WorkspaceId })
+                .OnDelete(DeleteBehavior.Cascade);
+            e.HasOne<AppUser>().WithMany().HasForeignKey(x => x.AddedBy).OnDelete(DeleteBehavior.SetNull);
+            e.Property(x => x.AddedAt).HasDefaultValueSql("now()");
+        });
+
+        b.Entity<UserLink>(e =>
+        {
+            e.ToTable("user_link");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).ValueGeneratedNever();
+            e.HasIndex(x => x.TokenHash).HasDatabaseName("user_link_token_hash_idx").IsUnique();
+            e.HasIndex(x => x.WorkspaceId).HasDatabaseName("user_link_workspace_idx");
+            e.HasIndex(x => x.UserId).HasDatabaseName("user_link_user_idx");
+            e.HasOne<Workspace>().WithMany().HasForeignKey(x => x.WorkspaceId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne<AppUser>().WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne<AppUser>().WithMany().HasForeignKey(x => x.CreatedBy).OnDelete(DeleteBehavior.SetNull);
+            e.Property(x => x.CreatedAt).HasDefaultValueSql("now()");
+            e.ToTable(t =>
+            {
+                t.HasCheckConstraint(
+                    "user_link_shape",
+                    "(kind = 'invite' AND workspace_id IS NOT NULL AND role IN ('admin', 'member') AND user_id IS NULL)"
+                    + " OR (kind = 'reset' AND user_id IS NOT NULL AND workspace_id IS NULL AND role IS NULL)");
+            });
+        });
     }
 
     /// <summary>
@@ -88,9 +151,10 @@ public class WorkStateDbContext(DbContextOptions<WorkStateDbContext> options) : 
             e.Property(x => x.FirstSeenAt).HasDefaultValueSql("now()");
             e.Property(x => x.LastSeenAt).HasDefaultValueSql("now()");
             e.HasOne<Workspace>().WithMany().HasForeignKey(x => x.WorkspaceId).OnDelete(DeleteBehavior.Cascade);
-            e.HasIndex(x => new { x.WorkspaceId, x.Name })
+            e.HasIndex(x => new { x.WorkspaceId, x.UserId, x.Name })
                 .HasDatabaseName("agent_session_name_unique")
-                .IsUnique();
+                .IsUnique()
+                .AreNullsDistinct(false);
             e.HasIndex(x => x.TokenHash)
                 .HasDatabaseName("agent_session_token_hash_unique")
                 .IsUnique();
@@ -232,11 +296,11 @@ public class WorkStateDbContext(DbContextOptions<WorkStateDbContext> options) : 
                 .HasFilter("released_at IS NULL");
 
             // One writer per working tree. Two units in separate worktrees proceed in parallel; two
-            // sharing a tree do not. The parallel-orchestrator rule, as an index. A null
-            // key_workspace_id is a path and collides across workspaces — NULLS NOT DISTINCT.
+            // sharing a tree do not. The parallel-orchestrator rule, as an index, per workspace, and a
+            // path per user too (KeyUserId).
             // doc 11 narrows it to claims with no session; claim_one_session_per_tree (Sessions
             // migration) lets one session hold several items of its tree and refuses a second one.
-            e.HasIndex(x => new { x.SerializationKey, x.KeyWorkspaceId })
+            e.HasIndex(x => new { x.SerializationKey, x.KeyWorkspaceId, x.KeyUserId })
                 .HasDatabaseName("claim_one_writer_per_tree")
                 .IsUnique()
                 .AreNullsDistinct(false)
@@ -359,9 +423,12 @@ public class WorkStateDbContext(DbContextOptions<WorkStateDbContext> options) : 
             e.Property(x => x.AddedAt).HasDefaultValueSql("now()");
             e.HasOne<Workspace>().WithMany().HasForeignKey(x => x.WorkspaceId).OnDelete(DeleteBehavior.Cascade);
             e.HasOne<Item>().WithMany().HasForeignKey(x => x.ProjectItemId).OnDelete(DeleteBehavior.Cascade);
-            e.HasIndex(x => new { x.WorkspaceId, x.Key })
+            e.HasOne<TenantMembership>().WithMany().HasForeignKey(x => new { x.UserId, x.WorkspaceId })
+                .OnDelete(DeleteBehavior.Cascade);
+            e.HasIndex(x => new { x.WorkspaceId, x.UserId, x.Key })
                 .HasDatabaseName("project_repo_key_unique")
-                .IsUnique();
+                .IsUnique()
+                .AreNullsDistinct(false);
             e.HasIndex(x => x.ProjectItemId).HasDatabaseName("project_repo_project_idx");
             e.ToTable(t => t.HasCheckConstraint("project_repo_kind", "kind IN ('remote','root')"));
         });

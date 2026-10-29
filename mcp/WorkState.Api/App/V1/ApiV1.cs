@@ -20,6 +20,8 @@ public static partial class ApiV1
     private const int JournalDefaultLimit = 50;
     private const int JournalMaxLimit = 500;
     private const int ItemEventLimit = 50;
+    private const int SearchDefaultLimit = 20;
+    private const int SearchMaxLimit = 50;
 
     public static bool IsReader(ClaimsPrincipal user) => user.IsInRole(WorkStatePolicies.Reader);
 
@@ -30,7 +32,7 @@ public static partial class ApiV1
     public static IApplicationBuilder UseApiVersionHeader(this IApplicationBuilder app)
         => app.Use(async (context, next) =>
         {
-            if (context.Request.Path.StartsWithSegments("/api/v1"))
+            if (context.Request.Path.StartsWithSegments("/api/v1") || context.Request.Path.StartsWithSegments("/api/stream"))
             {
                 context.Response.Headers[Header] = Version;
             }
@@ -51,6 +53,7 @@ public static partial class ApiV1
         v1.MapGet("/backlog", BacklogAsync);
         v1.MapGet("/sessions", SessionsAsync);
         v1.MapGet("/resolve", ResolveAsync);
+        v1.MapGet("/search", SearchAsync);
         v1.MapGet("/prompts", PromptsAsync);
     }
 
@@ -60,17 +63,13 @@ public static partial class ApiV1
     /// </summary>
     private sealed record Snapshot(Guid WorkspaceId, DateTimeOffset AsOf, long Seq);
 
-    private static async Task<Snapshot?> SnapshotAsync(
-        BoardQueries board,
+    private static async Task<Snapshot> SnapshotAsync(
         ApiQueries api,
-        WorkspaceOptions workspace,
+        RequestTenant tenant,
         CancellationToken cancellationToken)
     {
         var asOf = DateTimeOffset.UtcNow;
-
-        return await board.WorkspaceAsync(workspace.Slug, cancellationToken) is { } id
-            ? new Snapshot(id, asOf, await api.SeqAsync(id, cancellationToken))
-            : null;
+        return new Snapshot(tenant.Id, asOf, await api.SeqAsync(tenant.Id, cancellationToken));
     }
 
     /// <summary>The item, if it exists in this workspace — an id from another one is as unknown as a typo.</summary>

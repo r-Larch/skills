@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Dapper;
 using Npgsql;
+using WorkState.Core.Data;
 using WorkState.Core.Domain;
 using WorkState.Core.Rendering;
 
@@ -32,15 +33,27 @@ public sealed record SessionResolution(SessionRef? Session, string? Refused);
 
 /// <summary>
 /// doc 11 — the <c>agent_session</c> rows. Called once per tool call, before the tool runs: it
-/// resolves the caller's row by (workspace, name), touches <c>last_seen_at</c>, and renews the leases
+/// resolves the caller's row by (workspace, user, name), touches <c>last_seen_at</c>, and renews the leases
 /// that session holds. A call with no name has no session and is attributed as it always was.
 /// </summary>
 public sealed partial class SessionStore(NpgsqlDataSource dataSource)
 {
+    private readonly WorkStateConnections _connections = new(dataSource);
+
     private sealed record Row(Guid Id, string? ClaudeSessionId, string? LaunchedBy);
 
+    /// <summary>A caller with no user — a static token — names its sessions in the workspace's shared namespace.</summary>
+    public Task<SessionResolution> ResolveAsync(
+        Guid workspaceId,
+        ActorRole role,
+        SessionFacts facts,
+        CancellationToken cancellationToken = default)
+        => ResolveAsync(workspaceId, null, role, facts, cancellationToken);
+
+    /// <param name="userId">The signed-in user the credential belongs to, whose names are their own.</param>
     public async Task<SessionResolution> ResolveAsync(
         Guid workspaceId,
+        Guid? userId,
         ActorRole role,
         SessionFacts facts,
         CancellationToken cancellationToken = default)
@@ -53,27 +66,27 @@ public sealed partial class SessionStore(NpgsqlDataSource dataSource)
         var launchedBy = SessionFacts.Clean(facts.LaunchedBy);
         var claudeId = SessionFacts.Clean(facts.ClaudeSessionId);
 
-        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
-        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+        await using var tenant = await _connections.TenantAsync(cancellationToken);
+        var (connection, transaction) = tenant;
 
         // The first calls of one session can arrive together; the insert must not race itself.
         const string upsert =
             """
-            INSERT INTO agent_session (id, workspace_id, name, role, launched_by)
-            VALUES (@id, @workspace, @name, @role::actor_role, @launchedBy)
-            ON CONFLICT (workspace_id, name) DO NOTHING;
+            INSERT INTO agent_session (id, workspace_id, user_id, name, role, launched_by)
+            VALUES (@id, @workspace, @user, @name, @role::actor_role, @launchedBy)
+            ON CONFLICT (workspace_id, user_id, name) DO NOTHING;
 
             SELECT id                AS "Id",
                    claude_session_id AS "ClaudeSessionId",
                    launched_by       AS "LaunchedBy"
             FROM   agent_session
-            WHERE  workspace_id = @workspace AND name = @name
+            WHERE  workspace_id = @workspace AND user_id IS NOT DISTINCT FROM @user AND name = @name
             FOR    UPDATE;
             """;
 
         var row = await connection.QuerySingleAsync<Row>(new CommandDefinition(
             upsert,
-            new { id = Guid.CreateVersion7(), workspace = workspaceId, name, role = Pg.Label(role), launchedBy },
+            new { id = Guid.CreateVersion7(), workspace = workspaceId, user = userId, name, role = Pg.Label(role), launchedBy },
             transaction,
             cancellationToken: cancellationToken));
 
@@ -140,7 +153,7 @@ public sealed partial class SessionStore(NpgsqlDataSource dataSource)
         => Refusal.Blocked(
             $"the session name \"{name}\" is held by a session launched by {held ?? "no launcher"}.",
             $"this call's X-WorkState-Launched-By says {asked ?? "no launcher"}; a name is unique per "
-            + "workspace and two launchers' sessions cannot share one. Nothing ran",
+            + "workspace and user, and two launchers' sessions cannot share one. Nothing ran",
             "work_brief() once WorkState is registered with X-WorkState-Agent:<a name of your own> — "
             + "the name your session goes by, e.g. the one ListAgents prints",
             "work_brief() once X-WorkState-Launched-By names the launcher that started this session, "

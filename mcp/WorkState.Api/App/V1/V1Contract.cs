@@ -72,6 +72,9 @@ public sealed record RunOverviewView(
 
 public sealed record RepoView(string Kind, string Key);
 
+/// <summary>Who shares a project (doc 10): <c>Members</c> 0 is open to the workspace; <c>You</c>, the caller is one of them.</summary>
+public sealed record SharingView(int Members, bool You, IReadOnlyList<string> Names);
+
 public sealed record ProjectOverviewView(
     ItemRefView Item,
     RollupView Rollup,
@@ -79,7 +82,8 @@ public sealed record ProjectOverviewView(
     IReadOnlyList<RepoView> Repos,
     DateTimeOffset? ArchivedAt,
     DateTimeOffset? LastActivityAt,
-    int OpenRuns);
+    int OpenRuns,
+    SharingView Sharing);
 
 public sealed record OverviewView(
     DateTimeOffset AsOf,
@@ -244,3 +248,8 @@ public sealed record ResolveView(DateTimeOffset AsOf, long Seq, IReadOnlyList<It
 public sealed record PromptView(string Key, string Label, int? Count, string Text);
 
 public sealed record PromptsView(DateTimeOffset AsOf, long Seq, ItemRefView Scope, IReadOnlyList<PromptView> Prompts);
+
+/// <summary><c>match</c>: <c>ref</c>, <c>prefix</c> or <c>text</c>; <c>snippet</c> only on a text hit.</summary>
+public sealed record SearchHitView(ItemRefView Item, ItemRefView? Run, ItemRefView? Project, string Match, string? Snippet);
+
+public sealed record SearchView(DateTimeOffset AsOf, long Seq, IReadOnlyList<SearchHitView> Hits);

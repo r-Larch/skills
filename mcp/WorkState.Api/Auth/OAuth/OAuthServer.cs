@@ -4,6 +4,7 @@ using Microsoft.IdentityModel.Tokens;
 using ModelContextProtocol.AspNetCore.Authentication;
 using ModelContextProtocol.Authentication;
 using OpenIddict.Abstractions;
+using OpenIddict.EntityFrameworkCore.Models;
 using OpenIddict.Server;
 using OpenIddict.Server.AspNetCore;
 using OpenIddict.Validation;
@@ -71,7 +72,11 @@ public static class OAuthServer
         services.AddSingleton<OAuthKeyRing>();
 
         services.AddOpenIddict()
-            .AddCore(core => core.UseEntityFrameworkCore().UseDbContext<WorkStateDbContext>())
+            .AddCore(core =>
+            {
+                core.UseEntityFrameworkCore().UseDbContext<WorkStateDbContext>();
+                core.ReplaceApplicationManager<OpenIddictEntityFrameworkCoreApplication, WorkStateApplicationManager>();
+            })
             .AddServer(server =>
             {
                 if (Uri.TryCreate(publicUrl?.Trim(), UriKind.Absolute, out var issuer))
@@ -87,6 +92,11 @@ public static class OAuthServer
                     .AllowRefreshTokenFlow()
                     .RequireProofKeyForCodeExchange()
                     .SetRefreshTokenLifetime(RefreshTokenLifetime);
+
+                // A refresh token is a 43-character handle to its payload in openiddict_token: self-contained it
+                // outgrew the 2560-byte blob Windows Credential Manager stores (Foreman, m57). One issued before
+                // this still redeems — ValidateReferenceTokenIdentifier passes a JWT through — into a handle.
+                server.UseReferenceRefreshTokens();
 
                 // S256 only: OpenIddict enables plain beside it by default, and a client offered plain will
                 // take it. With plain gone, a request naming it or naming no method is refused.

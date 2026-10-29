@@ -6,8 +6,12 @@ Owner: skills-5d. Reviewed by autowork-7c (Foreman), 2026-10-22. Unit `workstate
 One JSON contract for two clients: the :5290 dashboard and Foreman (native gpui). Read-only — the
 MCP tools are the agents' only write path. The pre-v1 routes (`/api/projects`, `/api/watch`,
 `/api/runs/{ref}/tree|brief|journal`) were removed once the new dashboard stopped calling them (unit
-`mature/prev1-removal`). Outside v1, `/api` keeps `POST|DELETE /api/session` (sign-in),
-`/api/stream`, `/api/agent-sessions` (doc 14, bearer only) and the dashboard's two writes:
+`mature/prev1-removal`). Outside v1, `/api` keeps `POST|DELETE /api/session` (sign-in), the cookie's
+tenant (`GET /api/session/tenants`, `POST /api/session/tenant`, below), its user (`GET
+/api/session/me`) and password (`POST /api/session/password`), `/api/stream`, `/api/agent-sessions`
+(doc 14, bearer only), the admin API (`/api/admin/*`) and the invite and reset links
+(`/api/invite/{token}`, `/api/reset/{token}`), a project's members (`/api/projects/{id}/members`),
+all below, and the dashboard's two writes:
 
 ### `POST /api/projects/{id}/archive` · `POST /api/projects/{id}/unarchive` (outside v1)
 
@@ -22,6 +26,26 @@ Answers `200 { "id", "ref", "archivedAt": "…" | null, "changed": true }`; 404 
 400 when the id is not a project. Journals `archived` / `unarchived` with the operator's name, role
 `human`.
 
+### `GET|POST /api/projects/{id}/members` · `DELETE /api/projects/{id}/members/{user}` (outside v1)
+
+A project's members (doc 02 §12b, doc 08 §4 "Projects"), for the dashboard's sharing. **Cookie only**
+— a bearer token gets 401 — in the cookie's workspace and no other (C62); writes carry the
+`X-WorkState-Write` guard. Allowed to a member of the project and to an admin of the workspace (a
+system administrator is one of every workspace). **Anyone else gets the same `404 {error}` as an id
+that is no project** — a member of the workspace who is not in the project, a user of another
+workspace — so a private project's existence is not revealed. An admin manages the members of a project
+they are not in, and still reads none of its work (rule 8).
+
+| Route | Answers |
+|---|---|
+| `GET /api/projects/{id}/members` | `200 { projectId, ref, everyone, members: [{ userId, name, addedAt, addedBy, disabledAt }], candidates: [{ userId, name, disabledAt }] }` — `candidates` are the workspace's members not in the project, `everyone` is true when there are none; both by name |
+| `POST /api/projects/{id}/members` `{userId}` · `{all: true}` | `200` the same shape, after adding one member of the workspace, or every one not yet in; `400` for neither or both; `404` when the user is not a member of the workspace. Adding someone already in is `200`, unchanged |
+| `DELETE /api/projects/{id}/members/{user}` | `204`; `404` when the user is not a member of the project; `409` removing the last member |
+
+Each change journals `member_added` / `member_removed` on the project with the users' names, role
+`human`. Removing a user from the workspace (`DELETE /api/admin/tenants/{id}/members/{user}`) is
+`409` too while they are the last member of one of its projects, and names them.
+
 ### `POST /api/sessions/{id}/release` (outside v1)
 
 The Sessions page's Release (doc 11 "Releasing a name"): frees the session's name so the next mint
@@ -30,6 +54,77 @@ bearer token is never evaluated here (a controller uses `POST /api/agent-session
 doc 14 §2). Answers `200 { "sessionId", "name", "releasedAs" }`; 404 for an unknown id; 409 with the
 refs when the session holds live claims, and 409 for a row already released. Journals
 `session_name_released` with the operator's name, role `human`.
+
+### `GET /api/session/tenants` · `POST /api/session/tenant` (outside v1)
+
+The dashboard cookie's tenant (rule 7). **Cookie only**; a bearer token gets 401. `GET` lists the
+workspaces the signed-in user may enter — their memberships in the order granted, then, for a system
+administrator, every other workspace, oldest first:
+```jsonc
+[{ "id": "uuid", "slug": "default", "role": "admin" | "member" | "system-admin", "current": true }]
+```
+`POST {"id": "uuid"}`, with the same `X-WorkState-Write` guard as archiving, re-issues the cookie in
+that workspace: `204`, or `403 {error}` unless the user is a member of it or a system administrator (an
+id that is no workspace is the same 403). A sign-in lands in the user's first membership — a system
+administrator with none, in the oldest workspace — and a user with no membership cannot sign in (`403
+{error}`). A user whose membership of the cookie's tenant is removed is signed out on their next request
+(`401`). The sidebar's workspace switcher calls it (doc 13).
+
+### `GET /api/session/me` (outside v1)
+
+Cookie only. `200 { "id", "name", "systemAdmin": bool, "administers": bool }` — `administers` is
+true for a system administrator and for an admin of any workspace. It decides only what the sidebar
+offers (the Admin link); the admin API judges every call itself.
+
+### `POST /api/session/password` (outside v1)
+
+Cookie only, with the `X-WorkState-Write` guard, rate-limited like sign-in (5 a minute per client, its
+own window). `{ "current", "next" }`: `204` when `current` is the user's password, the cookie
+re-issued with the user's new security stamp; a bare `401`, as sign-in gives, when it is not (the
+dashboard tells it from a lapsed session by asking `GET /api/session`); `400 {error}` for a `next`
+under 12 characters. The user's other cookies are signed out at their next request (doc 08 §4
+"Passwords"); OAuth tokens and minted sessions are not.
+
+### `/api/admin/*` (outside v1)
+
+The Admin page's API (doc 08 §4 "Administration"). **Cookie only** — a bearer token gets 401 — and
+every write carries the `X-WorkState-Write` guard. Each call is judged against the caller's rights as
+the table has them on that request: a user who administers nothing gets `403 {error}` on every route;
+a tenant admin gets 403 for a workspace that is not theirs (asked before whether it exists); a system
+administrator gets 404 for an id that is no workspace. Errors are `{ "error": "…" }` and say what to do.
+
+| Route | Who | Answers |
+|---|---|---|
+| `GET /api/admin/tenants` | admin, system admin | `[{ id, slug, createdAt, members, admins, pendingInvites, current }]` — every workspace for a system administrator, the ones they are an admin of otherwise, oldest first |
+| `POST /api/admin/tenants` `{slug}` | system admin | `201` the same shape; `400` for a slug unlike `default` (lowercase letters and digits, words joined by single hyphens, ≤ 63); `409` when it exists |
+| `GET /api/admin/tenants/{id}/members` | admin of it | `[{ userId, name, role, systemAdmin, joinedAt, disabledAt }]`, admins first |
+| `PUT /api/admin/tenants/{id}/members/{user}` `{role}` | admin of it | `200 { userId, role, changed }`; `400` for a role other than `admin` / `member`; `404` when the user is not a member; `409` demoting the last admin |
+| `DELETE /api/admin/tenants/{id}/members/{user}` | admin of it | `204`, and the user's project memberships there end with it; `404`; `409` removing the last admin, or the last member of one of its projects (named) |
+| `GET /api/admin/tenants/{id}/invites` | admin of it | the unused, unexpired invites, newest first: `[{ id, role, createdBy, createdAt, expiresAt }]` — never a token |
+| `POST /api/admin/tenants/{id}/invites` `{role}` | admin of it | `201 { id, token, url, role, tenant, expiresAt }` — the **only** answer that carries the token; `url` is `<origin>/join/<token>` |
+| `DELETE /api/admin/tenants/{id}/invites/{invite}` | admin of it | `204`; `404` when that workspace has no such unused invite |
+| `GET /api/admin/users` | system admin | `[{ id, name, systemAdmin, createdAt, disabledAt, tenants: [{ id, slug, role }] }]`, by name |
+| `POST /api/admin/users/{id}/disable` · `/enable` | system admin | `200 { id, disabledAt }`; `404`; `409` disabling oneself |
+| `POST /api/admin/users/{id}/reset-link` | system admin; an admin of every workspace the user is in, for a user who is no system admin | `201 { userId, name, token, url, expiresAt }` — the only answer that carries the token; `url` is `<origin>/reset/<token>`, valid 24 hours, replacing the user's unused older link; `403` for anyone else's user, an unknown id included; `404` an unknown id, to a system admin |
+
+### `GET /api/invite/{token}` · `POST /api/invite/{token}/accept` (outside v1)
+
+The invite page's two calls (doc 08 §4 "Invite links"). **No session needed**, rate-limited per
+client (10 a minute, `429` with `Retry-After`). `GET` answers `200 { tenantId, tenant, role,
+expiresAt, signedInAs, member }` — `signedInAs` the dashboard cookie's user, if the request carries
+one, and `member` whether they already are one. `POST`, with the `X-WorkState-Write` guard, takes
+`{ name, password }` without a session and nothing with one: `200 { name, tenantId }` with the
+cookie set in that workspace; `400 {error}` for a blank name or a password under 12 characters; `409
+{error}` for a name already taken (the link stays unused). A used, revoked, expired or unknown token
+is `404 {error}` on both.
+
+### `GET /api/reset/{token}` · `POST /api/reset/{token}` (outside v1)
+
+The reset page's two calls (doc 08 §4 "Passwords"), shaped like the invite's: no session needed,
+rate-limited per client, the `POST` with the `X-WorkState-Write` guard. `GET` answers `200 { name,
+expiresAt }`. `POST { password }` answers `200 { name }` once the password is set — every cookie of
+that user is signed out, and the browser is not signed in — or `400 {error}` for a password under 12
+characters. A used, replaced, expired or unknown token is `404 {error}` on both.
 
 ## Rules
 
@@ -71,9 +166,14 @@ refs when the session holds live claims, and 409 for a row already released. Jou
    `GET /api/v1/*` and `/api/stream`, `workstate.sessions` for the agent-session group (doc 14 §2);
    a valid `/api` token without the route's scope is `403`. The scopes bind the OAuth principal only:
    the cookie, static tokens and `wss_` tokens need no scope. The user behind the token is the
-   dashboard operator, mapped to the controller role as on `/mcp`. Registration is a client-ID
+   signed-in dashboard user, in the one tenant they approved it in (doc 08 §4), mapped to the
+   controller role as on `/mcp`. Registration is a client-ID
    metadata document (an https `client_id`; Foreman's) or DCR (`POST /connect/register`, for
-   development), public clients with PKCE S256, loopback callbacks on any port (RFC 8252); the
+   development), public clients with PKCE S256, loopback callbacks on any port (RFC 8252 §7.3: a
+   requested `http` loopback `redirect_uri` is admitted when a registered callback matches it in
+   scheme, host, path and query — the registered port, or none, is ignored; `localhost` and
+   `127.0.0.1` are different hosts; every other callback is exact, and the token request must name
+   the `redirect_uri` the code was issued to, port included); the
    refresh token lives 30 days. Revoking the **refresh** token at `/connect/revoke` revokes the whole
    authorization (sign-out); revoking an access token revokes only that token.
 6. **Enums are lower_snake strings.** `status` is exactly `ItemStatus`:
@@ -82,6 +182,21 @@ refs when the session holds live claims, and 409 for a row already released. Jou
    `resolution` is exactly `ItemResolution`:
    `accepted|reworked|replanned|escalated|skipped|wontfix|duplicate|obsolete`. A forced close is not a
    resolution; it is the `forced` flag (from the `forced_transition` record).
+7. **The tenant.** Every request acts in one workspace, its credential's (doc 08 §4): the cookie's
+   current tenant, a `wss_` token's session's, an OAuth token's (its `workstate:tenant` claim, else its
+   user's only membership), or the one a static or reader token is bound to. No header or query
+   parameter selects it. Everything a response names is in it: an id from another workspace is 404
+   like a typo, `/resolve` and `/search` look nowhere else, and `/api/stream` carries only its events.
+   A credential with no tenant — an OAuth token whose user is a member of several workspaces, or of
+   none — is `403 {"error": "…"}`, the error saying what to do.
+8. **The project.** Within its tenant, a request whose credential names a user sees the projects that
+   user is a member of, and the workspace's projects no one has joined yet (doc 02 §15b, doc 08 §4); a
+   static or reader token, which names none, sees every project of its workspace. To a user who is not a
+   member, a project's items, runs and events do not exist, and the answer is the one a typo gets: an id
+   of theirs is `404` with the unknown id's body, `/overview` and `/inbox` leave the project out,
+   `/resolve` and `/search` find nothing in it, `/journal` without a scope leaves its events out, and
+   `/api/stream` does not send them — read per event, so a member added sees the next one on a stream
+   already open. Never `403`: a private project's existence is not revealed.
 
 ## Shared shapes
 
@@ -122,6 +237,7 @@ Everything a human needs on landing, in one call.
     "archivedAt": "…" | null,        // doc 02; archived projects are listed, the client hides them
     "lastActivityAt": "…" | null,    // newest journal event in the project's subtree; null = none yet
     "openRuns": 2,                   // runs not done, cancelled or superseded
+    "sharing": { "members": 2, "you": true, "names": ["ana", "ben"] },   // added for sharing, additive
     "runs": [{ "item": ItemRef, "rollup": Rollup, "branch": "feat/x" | null, "worktree": "P:/…" | null,
                "activeClaims": 1, "lastEventAt": "…", "inboxCount": 2,
                "lastVerification": { "passed": true, "at": "…" } | null }]
@@ -130,6 +246,13 @@ Everything a human needs on landing, in one call.
   "inboxCount": 3,
   "honesty": { "doneUnverified": 0, "forced": 0, "ungated": 0, "followupsOpen": 4 } }
 ```
+
+`sharing` (added for the dashboard's sharing marker, additive) is who shares the project (doc 02 §12b):
+`members` its member count, `0` when no one has joined it and so it is open to the whole workspace; `you`
+whether the caller is one of them — false for such a project, and always false for a static or reader
+token, which names no user; `names` the members by name (case-insensitive order), so the marker names them
+without a call per project. Read in one statement under the caller's own tenant transaction, so it says
+nothing about a project rule 8 leaves out — the response does not list one, and its member rows are not read.
 
 ### `GET /api/v1/runs/{id}/board`
 The run as one flat list, **pre-order by seq, stable** (a parent precedes its children; siblings in
@@ -226,6 +349,22 @@ under its tombstone name with `revoked`.
 
 ### `GET /api/v1/resolve?ref=backlog`
 `{ "asOf": "…", "seq": 1234, "matches": [ItemRef] }` — zero, one or many; the client decides.
+
+### `GET /api/v1/search?q=&limit=`
+The dashboard's find (doc 13 "The command palette"), over items only. `limit` defaults to 20, at
+most 50. Hits come in three stages, and an item appears once, at its first: **`ref`** — `q` resolves
+to it by `/resolve`'s rule (`spa-blank-page-seam`, `m/12`, `project/run/ref`; every match of an
+ambiguous ref); **`prefix`** — its ref starts with `q`, ignoring case, taken literally (`%` and `_`
+are not wildcards), shortest ref first; **`text`** — full text over ref, title and intent, best rank
+first. Only the request's workspace. 400 when `q` is missing or blank.
+```jsonc
+{ "asOf": "…", "seq": 1234,
+  "hits": [{ "item": ItemRef, "run": ItemRef | null, "project": ItemRef | null,
+             "match": "ref" | "prefix" | "text", "snippet": "…" | null }] }
+```
+`run` and `project` are the nearest run and project at or above the item (a run's `run` is
+itself, a project's `project` is itself), so a client links and labels a hit without another read.
+`snippet` is plain text — the matching fragment of the intent, else the title — on a `text` hit only.
 
 ### `GET /api/v1/prompts?scope={id}`
 The prompt actions that apply to one project, run or item (doc 13 "The prompt catalogue"), in the

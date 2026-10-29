@@ -90,6 +90,49 @@ export function CopyRef(props: { item: Pick<ItemRef, 'fullRef'> }) {
   )
 }
 
+/**
+ * A link the server will not show again (an invite or a reset): the whole URL in a read-only field that a click
+ * selects, and a Copy button. Where the clipboard is unavailable the field is selected to press Ctrl+C.
+ */
+export function OnceLink(props: { url: string; children: JSX.Element; onDismiss: () => void }) {
+  const [copied, setCopied] = createSignal<'copied' | 'selected'>()
+  let field: HTMLInputElement | undefined
+
+  const copy = async () => {
+    try {
+      await Promise.race([
+        navigator.clipboard.writeText(props.url),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('clipboard timeout')), 1200)),
+      ])
+      setCopied('copied')
+    } catch {
+      field?.select()
+      setCopied('selected')
+    }
+  }
+
+  return (
+    <div class="once" role="group" aria-label="New link">
+      <div class="once-row">
+        <input ref={field} class="mono" readonly value={props.url} aria-label="The link" onFocus={(e) => e.currentTarget.select()} />
+        <button type="button" class="proj-act primary" onClick={() => void copy()}>
+          {copied() === 'copied' ? 'Copied' : 'Copy'}
+        </button>
+        <button type="button" class="proj-act" onClick={() => props.onDismiss()}>
+          Done
+        </button>
+      </div>
+      <p>{props.children}</p>
+      <span class="sr-only" role="status">
+        {copied() === 'copied' ? 'Link copied' : copied() === 'selected' ? 'Link selected, press Ctrl+C' : ''}
+      </span>
+      <Show when={copied() === 'selected'}>
+        <p>The clipboard is unavailable here: the link is selected, press Ctrl+C.</p>
+      </Show>
+    </div>
+  )
+}
+
 /** The quiet link that shows or hides cancelled work; `href` is the page with the flag flipped. */
 export const CancelledToggle = (props: { count: number; shown: boolean; href: string; class?: string }) => (
   <Show when={props.count > 0}>

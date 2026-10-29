@@ -2,6 +2,7 @@ using System.Net;
 using System.Text.Json;
 using System.Threading.Channels;
 using Microsoft.EntityFrameworkCore;
+using WorkState.Api.App.V1;
 using WorkState.Core.Domain;
 using WorkState.Core.Queries;
 using WorkState.Core.Writing;
@@ -126,6 +127,24 @@ public sealed class AppStreamTests(PostgresFixture fixture)
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Equal("text/event-stream", response.Content.Headers.ContentType?.MediaType);
+    }
+
+    /// <summary>doc 10 rule 4: the stream is part of the read API, so it carries its header, refused or open.</summary>
+    [Fact]
+    public async Task The_stream_carries_the_api_header_when_open_and_when_refused()
+    {
+        await using var server = await StartAsync($"header-{Guid.CreateVersion7():n}");
+
+        var refused = await server.NewClient().GetAsync("/api/stream", HttpCompletionOption.ResponseHeadersRead, Ct);
+        Assert.Equal(HttpStatusCode.Unauthorized, refused.StatusCode);
+        Assert.Equal(ApiV1.Version, Assert.Single(refused.Headers.GetValues(ApiV1.Header)));
+
+        using var session = CancellationTokenSource.CreateLinkedTokenSource(Ct);
+        session.CancelAfter(TimeSpan.FromMinutes(1));
+        var open = await (await server.SignInAsync(Ct)).GetAsync(
+            "/api/stream", HttpCompletionOption.ResponseHeadersRead, session.Token);
+        Assert.Equal(HttpStatusCode.OK, open.StatusCode);
+        Assert.Equal(ApiV1.Version, Assert.Single(open.Headers.GetValues(ApiV1.Header)));
     }
 
     /// <summary>

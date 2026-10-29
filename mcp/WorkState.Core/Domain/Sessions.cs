@@ -4,7 +4,7 @@ namespace WorkState.Core.Domain;
 /// doc 11 — what the session that made a call is called. A label beside the role, never a source
 /// of it: the role is the bearer token's and nothing else (doc 01 §6).
 /// <para>
-/// Keyed by (workspace, name) and nothing else, so a resume — a new MCP connection under the same
+/// Keyed by (workspace, user, name) and nothing else, so a resume — a new MCP connection under the same
 /// name — lands on the same row with its claims and its tree. The transport is stateless, so there
 /// is no connection id to key an unnamed call by: an unnamed call has no session.
 /// </para>
@@ -14,7 +14,14 @@ public class AgentSession
     public Guid Id { get; set; }
     public Guid WorkspaceId { get; set; }
 
-    /// <summary>Unique per workspace.</summary>
+    /// <summary>
+    /// The signed-in user whose credential named or minted the session; null for a static token's. While it is
+    /// set the session's token works only while that user may enter the workspace. No foreign key, so a user
+    /// row going away cannot null it into a static session.
+    /// </summary>
+    public Guid? UserId { get; set; }
+
+    /// <summary>Unique per (workspace, user), a null user being one more: the static tokens share theirs.</summary>
     public string Name { get; set; } = "";
 
     public string? ClaudeSessionId { get; set; }
@@ -58,7 +65,10 @@ public class AgentSession
     /// <summary>The minted session that minted this one; null when a static token did.</summary>
     public Guid? MintedBySessionId { get; set; }
 
-    /// <summary>The OAuth user (the access token's subject) behind the latest mint; null when a token that names no user did.</summary>
+    /// <summary>
+    /// The OAuth user's name behind the latest mint, as the access token's subject was before tokens named the
+    /// user by id; null when a token that names no user did. <see cref="UserId"/> is who it is.
+    /// </summary>
     public string? MintedBySubject { get; set; }
 
     /// <summary>

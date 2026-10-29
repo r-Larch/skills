@@ -1,12 +1,13 @@
 import { For, Index, Show, createSignal } from 'solid-js'
 import { A } from '@solidjs/router'
 import { setArchived, type Claim, type ProjectOverview, type RunOverview } from '../api.ts'
-import { boards, inbox, overview, refreshOverview } from '../store.ts'
+import { account, boards, inbox, overview, refreshOverview } from '../store.ts'
 import { CLOSED, countTitle, counted, refState, tally } from '../state.ts'
 import { backlogHref, itemHref, projectHref, runHref } from '../nav.ts'
 import { honestyCells, openTasks } from '../inbox.ts'
 import { byActivity, runIsOpen } from '../projects.ts'
 import { UNKNOWN, ago, claimHolder, clock, day, plural, projectName, projectTagline, short } from '../format.ts'
+import { membersHref, shareMarker } from '../sharing.ts'
 import { CopyRef, Dot, Known, Legend, ProjectName, Segs } from '../ui.tsx'
 import { InboxRowView } from './Inbox.tsx'
 import { PromptActions } from './Prompts.tsx'
@@ -191,6 +192,7 @@ export function ProjectPanel(props: { project: ProjectOverview }) {
         <span class="n">
           {open().length} open, {closed().length} closed
         </span>
+        <ShareMark project={props.project} />
         <A class="backlink" href={backlogHref(props.project.item.id)}>
           Backlog
         </A>
@@ -211,6 +213,24 @@ export function ProjectPanel(props: { project: ProjectOverview }) {
         </Show>
       </Show>
     </div>
+  )
+}
+
+/**
+ * Who shares the project, as one quiet marker: Private, Shared with N, or Open to the workspace. Hover or focus
+ * names the members from the overview's own `sharing`, with no call per card; it opens the project's Members panel.
+ */
+function ShareMark(props: { project: ProjectOverview }) {
+  const marker = () => shareMarker(props.project.sharing, account()?.user.name)
+  return (
+    <A
+      class={`share share-${marker().k}`}
+      href={membersHref(props.project.item.id)}
+      data-tip={marker().detail}
+      aria-label={`${marker().label}. ${marker().detail} Manage members`}
+    >
+      {marker().label}
+    </A>
   )
 }
 

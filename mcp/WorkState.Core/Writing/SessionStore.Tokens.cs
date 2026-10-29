@@ -4,6 +4,7 @@ using System.Text;
 using System.Text.Json;
 using Dapper;
 using Npgsql;
+using WorkState.Core.Data;
 using WorkState.Core.Domain;
 using WorkState.Core.Rendering;
 
@@ -24,7 +25,8 @@ public sealed record MintRequest(
     RepoArg? Repo = null,
     IReadOnlyList<string>? Grants = null,
     string? MintedBySubject = null,
-    string? MintedByAuthorizationId = null);
+    string? MintedByAuthorizationId = null,
+    Guid? UserId = null);
 
 /// <summary>The only place the token exists in the clear; the caller returns it once and drops it.</summary>
 public sealed record MintedToken(Guid SessionId, string Name, ActorRole Role, string Token, DateTimeOffset ExpiresAt);
@@ -32,10 +34,16 @@ public sealed record MintedToken(Guid SessionId, string Name, ActorRole Role, st
 public sealed record MintResult(MintedToken? Minted, string? Conflict);
 
 /// <summary>A live minted token, as the bearer handler sees it.</summary>
-public sealed record TokenSession(Guid SessionId, string Name, ActorRole Role, Guid WorkspaceId, IReadOnlyList<string> Grants);
+public sealed record TokenSession(
+    Guid SessionId,
+    string Name,
+    ActorRole Role,
+    Guid WorkspaceId,
+    IReadOnlyList<string> Grants,
+    Guid? UserId = null);
 
 /// <summary>What the endpoints need to judge who may PATCH or DELETE a session.</summary>
-public sealed record MintedSession(Guid Id, string Name, ActorRole? GrantedRole, Guid? MintedBySessionId);
+public sealed record MintedSession(Guid Id, string Name, ActorRole? GrantedRole, Guid? MintedBySessionId, Guid? UserId = null);
 
 public static class SessionToken
 {
@@ -53,14 +61,27 @@ public sealed partial class SessionStore
     public const int MaxTtlHours = 720;
 
     private sealed record MintRow(Guid Id, string? ClaudeSessionId, string? LaunchedBy, bool Live);
-    private sealed record TokenRow(Guid SessionId, string Name, string Role, Guid WorkspaceId, string Grants);
+    private sealed record TokenRow(Guid SessionId, string Name, string Role, Guid WorkspaceId, string Grants, Guid? UserId);
     private sealed record BoundRow(Guid WorkspaceId, string Name, string? ClaudeSessionId);
-    private sealed record FoundRow(Guid Id, string Name, string? Role, Guid? MintedBy);
+    private sealed record FoundRow(Guid Id, string Name, string? Role, Guid? MintedBy, Guid? UserId);
 
     /// <summary>
-    /// One row per name, so a mint for a name that exists — a header-named session or an earlier
-    /// mint — lands on that row and keeps its id, claims and history; <c>replace</c> swaps only the
-    /// token. The launcher collision rule of doc 11 holds here as it does for headers.
+    /// The minting user's check on every use, as <c>UserStore.EnterAsync</c> makes it for a cookie: the user
+    /// exists, is not disabled, and is a member of the session's workspace or a system administrator.
+    /// </summary>
+    private const string UserMayEnter =
+        """
+        (s.user_id IS NULL OR EXISTS (
+            SELECT 1 FROM app_user u
+             WHERE u.id = s.user_id AND u.disabled_at IS NULL
+               AND (u.is_system_admin OR EXISTS (
+                       SELECT 1 FROM tenant_membership m WHERE m.user_id = u.id AND m.workspace_id = s.workspace_id))))
+        """;
+
+    /// <summary>
+    /// One row per (user, name), so a mint for a name that exists — a header-named session or an earlier
+    /// mint by the same user — lands on that row and keeps its id, claims and history; <c>replace</c> swaps
+    /// only the token. The launcher collision rule of doc 11 holds here as it does for headers.
     /// </summary>
     public async Task<MintResult> MintAsync(
         Guid workspaceId,
@@ -71,27 +92,27 @@ public sealed partial class SessionStore
         var launchedBy = SessionFacts.Clean(request.LaunchedBy);
         var claudeId = SessionFacts.Clean(request.ClaudeSessionId);
 
-        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
-        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+        await using var tenant = await _connections.TenantAsync(cancellationToken);
+        var (connection, transaction) = tenant;
 
         const string upsert =
             """
-            INSERT INTO agent_session (id, workspace_id, name, role, launched_by)
-            VALUES (@id, @workspace, @name, @role::actor_role, @launchedBy)
-            ON CONFLICT (workspace_id, name) DO NOTHING;
+            INSERT INTO agent_session (id, workspace_id, user_id, name, role, launched_by)
+            VALUES (@id, @workspace, @user, @name, @role::actor_role, @launchedBy)
+            ON CONFLICT (workspace_id, user_id, name) DO NOTHING;
 
             SELECT id                AS "Id",
                    claude_session_id AS "ClaudeSessionId",
                    launched_by       AS "LaunchedBy",
                    (token_hash IS NOT NULL AND revoked_at IS NULL AND token_expires_at > now()) AS "Live"
             FROM   agent_session
-            WHERE  workspace_id = @workspace AND name = @name
+            WHERE  workspace_id = @workspace AND user_id IS NOT DISTINCT FROM @user AND name = @name
             FOR    UPDATE;
             """;
 
         var row = await connection.QuerySingleAsync<MintRow>(new CommandDefinition(
             upsert,
-            new { id = Guid.CreateVersion7(), workspace = workspaceId, name, role = Pg.Label(request.Role), launchedBy },
+            new { id = Guid.CreateVersion7(), workspace = workspaceId, user = request.UserId, name, role = Pg.Label(request.Role), launchedBy },
             transaction,
             cancellationToken: cancellationToken));
 
@@ -205,13 +226,14 @@ public sealed partial class SessionStore
     /// waits on the row, re-reads it renewed, skips the write and still authenticates.
     /// <para>
     /// A token minted with an OAuth token lives only as long as that OAuth authorization is valid, read on
-    /// every use with no cache: revoked or pruned, the token reads as unknown from the next call on.
+    /// every use with no cache: revoked or pruned, the token reads as unknown from the next call on. A token a
+    /// user minted works only while that user may enter its workspace (<see cref="UserMayEnter"/>), likewise.
     /// </para>
     /// </summary>
     public async Task<TokenSession?> AuthenticateAsync(string token, CancellationToken cancellationToken = default)
     {
         const string sql =
-            """
+            $"""
             UPDATE agent_session s
                SET token_expires_at = now() + make_interval(hours => coalesce(s.token_ttl_hours, @defaultTtl))
              WHERE s.token_hash = @hash
@@ -221,23 +243,26 @@ public sealed partial class SessionStore
                                               - interval '1 minute'
                AND (s.minted_by_authorization_id IS NULL OR EXISTS (
                        SELECT 1 FROM openiddict_authorization a
-                        WHERE a.id = s.minted_by_authorization_id AND a.status = 'valid'));
+                        WHERE a.id = s.minted_by_authorization_id AND a.status = 'valid'))
+               AND {UserMayEnter};
 
             SELECT s.id                 AS "SessionId",
                    s.name               AS "Name",
                    s.granted_role::text AS "Role",
                    s.workspace_id       AS "WorkspaceId",
-                   array_to_string(s.grants, ',') AS "Grants"
+                   array_to_string(s.grants, ',') AS "Grants",
+                   s.user_id            AS "UserId"
             FROM   agent_session s
             WHERE  s.token_hash = @hash
               AND  s.revoked_at IS NULL
               AND  s.token_expires_at > now()
               AND  (s.minted_by_authorization_id IS NULL OR EXISTS (
                        SELECT 1 FROM openiddict_authorization a
-                        WHERE a.id = s.minted_by_authorization_id AND a.status = 'valid'));
+                        WHERE a.id = s.minted_by_authorization_id AND a.status = 'valid'))
+              AND  {UserMayEnter};
             """;
 
-        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        await using var connection = await _connections.OwnerBypassAsync(Bypass.Authentication, cancellationToken);
         var row = await connection.QuerySingleOrDefaultAsync<TokenRow>(
             new CommandDefinition(
                 sql,
@@ -250,7 +275,8 @@ public sealed partial class SessionStore
                 r.Name,
                 Enum.Parse<ActorRole>(r.Role, ignoreCase: true),
                 r.WorkspaceId,
-                r.Grants.Split(',', StringSplitOptions.RemoveEmptyEntries))
+                r.Grants.Split(',', StringSplitOptions.RemoveEmptyEntries),
+                r.UserId)
             : null;
     }
 
@@ -265,8 +291,8 @@ public sealed partial class SessionStore
         SessionFacts facts,
         CancellationToken cancellationToken = default)
     {
-        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
-        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+        await using var tenant = await _connections.TenantAsync(cancellationToken);
+        var (connection, transaction) = tenant;
 
         var row = await connection.QuerySingleOrDefaultAsync<BoundRow>(
             new CommandDefinition(
@@ -298,12 +324,14 @@ public sealed partial class SessionStore
     {
         const string sql =
             """
-            SELECT id AS "Id", name AS "Name", granted_role::text AS "Role", minted_by_session_id AS "MintedBy"
+            SELECT id AS "Id", name AS "Name", granted_role::text AS "Role", minted_by_session_id AS "MintedBy",
+                   user_id AS "UserId"
             FROM   agent_session
             WHERE  id = @id AND workspace_id = @workspace;
             """;
 
-        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        await using var tenant = await _connections.TenantAsync(cancellationToken);
+        var connection = tenant.Connection;
         var row = await connection.QuerySingleOrDefaultAsync<FoundRow>(
             new CommandDefinition(sql, new { id, workspace = workspaceId }, cancellationToken: cancellationToken));
 
@@ -312,7 +340,8 @@ public sealed partial class SessionStore
                 r.Id,
                 r.Name,
                 r.Role is null ? null : Enum.Parse<ActorRole>(r.Role, ignoreCase: true),
-                r.MintedBy)
+                r.MintedBy,
+                r.UserId)
             : null;
     }
 
@@ -323,8 +352,8 @@ public sealed partial class SessionStore
         ActorRole role,
         CancellationToken cancellationToken = default)
     {
-        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
-        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+        await using var tenant = await _connections.TenantAsync(cancellationToken);
+        var (connection, transaction) = tenant;
 
         var row = await connection.QuerySingleAsync<BoundRow>(
             new CommandDefinition(
@@ -386,8 +415,8 @@ public sealed partial class SessionStore
             FROM   released r;
             """;
 
-        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
-        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+        await using var tenant = await _connections.TenantAsync(cancellationToken);
+        var (connection, transaction) = tenant;
 
         var name = await connection.ExecuteScalarAsync<string>(new CommandDefinition(
             "SELECT name FROM agent_session WHERE id = @session FOR UPDATE;",

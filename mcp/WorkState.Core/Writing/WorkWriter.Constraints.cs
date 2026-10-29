@@ -101,8 +101,8 @@ public sealed partial class WorkWriter
             addedBy = source.Id;
         }
 
-        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
-        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+        await using var tenant = await _connections.TenantAsync(cancellationToken);
+        var (connection, transaction) = tenant;
 
         var (_, minted) = await InsertConstraintAsync(
             connection, transaction, workspaceId, scopeItemId, kind, args, addedBy, cancellationToken);
@@ -209,8 +209,8 @@ public sealed partial class WorkWriter
                 $"work_constrain(ref:\"{reference}\", retire:true, reason:\"…\")"));
         }
 
-        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
-        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+        await using var tenant = await _connections.TenantAsync(cancellationToken);
+        var (connection, transaction) = tenant;
 
         const string sql =
             """

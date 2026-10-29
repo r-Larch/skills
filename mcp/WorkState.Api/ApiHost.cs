@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.DataProtection.KeyManagement;
 using Microsoft.AspNetCore.DataProtection.Repositories;
@@ -40,8 +41,8 @@ public static class ApiHost
         var builder = WebApplication.CreateBuilder(args);
         configure?.Invoke(builder);
 
-        // doc 08 §4 — one process, two audiences. The dashboard's credentials are read once here so
-        // the cookie handler and POST /api/session judge the same values.
+        // doc 08 §4 — one process, two audiences. The dashboard's bootstrap credential is read once here, for
+        // POST /api/session's first sign-in.
         var dashboard = new DashboardOptions();
         builder.Configuration.GetSection(DashboardOptions.Section).Bind(dashboard);
         builder.Services.AddSingleton(dashboard);
@@ -55,7 +56,7 @@ public static class ApiHost
                 options.ControllerToken = builder.Configuration["WorkState:Auth:ControllerToken"];
                 options.ReaderToken = builder.Configuration["WorkState:Auth:ReaderToken"];
             })
-            .AddCookie(DashboardAuth.SchemeName, options => DashboardAuth.Configure(options, dashboard, PublicUrl(builder.Configuration)))
+            .AddCookie(DashboardAuth.SchemeName, options => DashboardAuth.Configure(options, PublicUrl(builder.Configuration)))
 
             // Registered with or without a store, because WorkStatePolicies.Any names it; without one there
             // is no OAuth server and it admits no one and challenges as the static scheme does.
@@ -72,7 +73,8 @@ public static class ApiHost
             .AddPolicy(WorkStatePolicies.Any, policy => policy
                 .AddAuthenticationSchemes(StaticTokenHandler.SchemeName, OAuthTokenHandler.SchemeName)
                 .RequireAuthenticatedUser()
-                .RequireRole(WorkStatePolicies.Worker))
+                .RequireRole(WorkStatePolicies.Worker)
+                .AddRequirements(new TenantRequirement()))
             .AddPolicy(WorkStatePolicies.Worker, policy => policy
                 .AddAuthenticationSchemes(StaticTokenHandler.SchemeName)
                 .RequireAuthenticatedUser()
@@ -102,7 +104,8 @@ public static class ApiHost
             .AddPolicy(DashboardAuth.Policy, policy => policy
                 .AddAuthenticationSchemes(DashboardAuth.SchemeName)
                 .RequireAuthenticatedUser()
-                .RequireRole(DashboardAuth.Role))
+                .RequireRole(DashboardAuth.Role)
+                .AddRequirements(new TenantRequirement()))
 
             // doc 10 rule 5: the read API is the one surface both audiences share, so it is the one
             // policy that names both schemes. It still grants nothing either scheme lacks on its own.
@@ -111,7 +114,7 @@ public static class ApiHost
                 .AddAuthenticationSchemes(DashboardAuth.SchemeName, StaticTokenHandler.SchemeName, OAuthTokenHandler.SchemeName)
                 .RequireAuthenticatedUser()
                 .RequireRole(DashboardAuth.Role, WorkStatePolicies.Worker, WorkStatePolicies.Reader)
-                .AddRequirements(new OAuthScopeRequirement(OAuthServer.ReadScope)))
+                .AddRequirements(new OAuthScopeRequirement(OAuthServer.ReadScope), new TenantRequirement()))
 
             // WorkStatePolicies.Orchestrator plus OAuth, kept apart from it because the tool policies must
             // stay static-only; the cookie is still not a bearer here.
@@ -119,7 +122,10 @@ public static class ApiHost
                 .AddAuthenticationSchemes(StaticTokenHandler.SchemeName, OAuthTokenHandler.SchemeName)
                 .RequireAuthenticatedUser()
                 .RequireRole(WorkStatePolicies.Orchestrator)
-                .AddRequirements(new OAuthScopeRequirement(OAuthServer.SessionsScope)));
+                .AddRequirements(new OAuthScopeRequirement(OAuthServer.SessionsScope), new TenantRequirement()));
+
+        // The endpoint policies above are the only gate to a request path; the tool policies run behind /mcp's.
+        builder.Services.AddSingleton<IAuthorizationMiddlewareResultHandler, TenantRefusalHandler>();
 
         RateLimits.Add(builder.Services);
 
@@ -132,7 +138,7 @@ public static class ApiHost
                 {
                     Name = "workstate",
                     Title = "WorkState",
-                    Version = "0.9.0",
+                    Version = "1.1.0",
                 };
                 options.ServerInstructions = WorkStateServerInstructions.Text;
             })
@@ -177,6 +183,17 @@ public static class ApiHost
         app.UseAuthentication();
         app.UseAuthorization();
 
+        // doc 02 §15. After authorization, which is where an endpoint policy's schemes (the cookie, OAuth) put
+        // their principal on the request: from here on a tenant connection acts in its workspace, or in none, and
+        // sees its user's projects (§15b).
+        app.Use(async (context, next) =>
+        {
+            using (RequestUser.Enter(context.User))
+            {
+                await next(context);
+            }
+        });
+
         app.MapGet("/health", () => Results.Ok(new { status = "ok" })).AllowAnonymous();
 
         app.MapMcp(OAuthServer.McpPath).RequireAuthorization(WorkStatePolicies.Any);
@@ -206,12 +223,6 @@ public static class ApiHost
             builder.Configuration.GetConnectionString(ConnectionStringName)
             ?? builder.Configuration["WorkState:ConnectionString"];
 
-        var slug = builder.Configuration["WorkState:Workspace"];
-        builder.Services.AddSingleton(new WorkspaceOptions
-        {
-            Slug = string.IsNullOrWhiteSpace(slug) ? null : slug,
-        });
-
         if (string.IsNullOrWhiteSpace(connectionString))
         {
             return;
@@ -222,7 +233,7 @@ public static class ApiHost
         // not have. The service owns this database outright, so it brings it up itself.
         if (builder.Configuration.GetValue("WorkState:Migrate", true))
         {
-            builder.Services.AddSingleton(new SchemaOwner(connectionString));
+            builder.Services.AddSingleton(sp => new SchemaOwner(connectionString, sp.GetRequiredService<ILogger<SchemaOwner>>()));
         }
 
         builder.Services.AddSingleton(_ => WorkStateDataSource.Create(connectionString));
@@ -257,6 +268,17 @@ public static class ApiHost
             sp.GetRequiredService<IHttpContextAccessor>(),
             PublicUrl(builder.Configuration)));
         builder.Services.AddSingleton(sp => new SessionStore(sp.GetRequiredService<NpgsqlDataSource>()));
+        builder.Services.AddSingleton(sp => new UserStore(sp.GetRequiredService<NpgsqlDataSource>()));
+        builder.Services.AddSingleton(sp => new AdminStore(sp.GetRequiredService<NpgsqlDataSource>()));
+        builder.Services.AddSingleton(sp => new UserLinkStore(sp.GetRequiredService<NpgsqlDataSource>()));
+        builder.Services.AddScoped<RequestTenant>();
+
+        // The static tokens' configured binding (doc 08 §4), the one reader of WorkState:Workspace.
+        var slug = builder.Configuration["WorkState:Workspace"];
+        builder.Services.AddSingleton(sp => new StaticTokenTenant(
+            new WorkspaceOptions { Slug = string.IsNullOrWhiteSpace(slug) ? null : slug.Trim() },
+            sp.GetRequiredService<BoardQueries>(),
+            sp.GetRequiredService<WorkWriter>()));
 
         OAuthServer.Add(builder.Services, connectionString, PublicUrl(builder.Configuration));
     }

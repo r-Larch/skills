@@ -412,6 +412,10 @@ namespace WorkState.Core.Migrations
                         .HasColumnType("text")
                         .HasColumnName("tree");
 
+                    b.Property<Guid?>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
                     b.Property<Guid>("WorkspaceId")
                         .HasColumnType("uuid")
                         .HasColumnName("workspace_id");
@@ -431,9 +435,11 @@ namespace WorkState.Core.Migrations
                         .HasDatabaseName("agent_session_client_key_unique")
                         .HasFilter("client_key IS NOT NULL");
 
-                    b.HasIndex("WorkspaceId", "Name")
+                    b.HasIndex("WorkspaceId", "UserId", "Name")
                         .IsUnique()
                         .HasDatabaseName("agent_session_name_unique");
+
+                    NpgsqlIndexBuilderExtensions.AreNullsDistinct(b.HasIndex("WorkspaceId", "UserId", "Name"), false);
 
                     b.ToTable("agent_session", null, t =>
                         {
@@ -501,6 +507,50 @@ namespace WorkState.Core.Migrations
                         .HasDatabaseName("ix_agent_token_workspace_id");
 
                     b.ToTable("agent_token", (string)null);
+                });
+
+            modelBuilder.Entity("WorkState.Core.Domain.AppUser", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<DateTimeOffset?>("DisabledAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("disabled_at");
+
+                    b.Property<bool>("IsSystemAdmin")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("is_system_admin");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("name");
+
+                    b.Property<string>("PasswordHash")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("password_hash");
+
+                    b.Property<Guid>("SecurityStamp")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("security_stamp")
+                        .HasDefaultValueSql("gen_random_uuid()");
+
+                    b.HasKey("Id")
+                        .HasName("pk_app_user");
+
+                    b.ToTable("app_user", (string)null);
                 });
 
             modelBuilder.Entity("WorkState.Core.Domain.Artifact", b =>
@@ -735,6 +785,10 @@ namespace WorkState.Core.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("item_id");
 
+                    b.Property<Guid?>("KeyUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("key_user_id");
+
                     b.Property<Guid?>("KeyWorkspaceId")
                         .HasColumnType("uuid")
                         .HasColumnName("key_workspace_id");
@@ -784,12 +838,12 @@ namespace WorkState.Core.Migrations
                     b.HasIndex("SessionId")
                         .HasDatabaseName("ix_claim_session_id");
 
-                    b.HasIndex("SerializationKey", "KeyWorkspaceId")
+                    b.HasIndex("SerializationKey", "KeyWorkspaceId", "KeyUserId")
                         .IsUnique()
                         .HasDatabaseName("claim_one_writer_per_tree")
                         .HasFilter("released_at IS NULL AND writes AND session_id IS NULL");
 
-                    NpgsqlIndexBuilderExtensions.AreNullsDistinct(b.HasIndex("SerializationKey", "KeyWorkspaceId"), false);
+                    NpgsqlIndexBuilderExtensions.AreNullsDistinct(b.HasIndex("SerializationKey", "KeyWorkspaceId", "KeyUserId"), false);
 
                     b.ToTable("claim", (string)null);
                 });
@@ -1739,6 +1793,42 @@ namespace WorkState.Core.Migrations
                     b.ToTable("project_config", (string)null);
                 });
 
+            modelBuilder.Entity("WorkState.Core.Domain.ProjectMember", b =>
+                {
+                    b.Property<Guid>("ProjectItemId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("project_item_id");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.Property<DateTimeOffset>("AddedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("added_at")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<Guid?>("AddedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("added_by");
+
+                    b.Property<Guid>("WorkspaceId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("workspace_id");
+
+                    b.HasKey("ProjectItemId", "UserId")
+                        .HasName("pk_project_member");
+
+                    b.HasIndex("AddedBy")
+                        .HasDatabaseName("ix_project_member_added_by");
+
+                    b.HasIndex("UserId", "WorkspaceId")
+                        .HasDatabaseName("ix_project_member_user_id_workspace_id");
+
+                    b.ToTable("project_member", (string)null);
+                });
+
             modelBuilder.Entity("WorkState.Core.Domain.ProjectRepo", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1765,6 +1855,10 @@ namespace WorkState.Core.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("project_item_id");
 
+                    b.Property<Guid?>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
                     b.Property<Guid>("WorkspaceId")
                         .HasColumnType("uuid")
                         .HasColumnName("workspace_id");
@@ -1775,9 +1869,14 @@ namespace WorkState.Core.Migrations
                     b.HasIndex("ProjectItemId")
                         .HasDatabaseName("project_repo_project_idx");
 
-                    b.HasIndex("WorkspaceId", "Key")
+                    b.HasIndex("UserId", "WorkspaceId")
+                        .HasDatabaseName("ix_project_repo_user_id_workspace_id");
+
+                    b.HasIndex("WorkspaceId", "UserId", "Key")
                         .IsUnique()
                         .HasDatabaseName("project_repo_key_unique");
+
+                    NpgsqlIndexBuilderExtensions.AreNullsDistinct(b.HasIndex("WorkspaceId", "UserId", "Key"), false);
 
                     b.ToTable("project_repo", null, t =>
                         {
@@ -1896,6 +1995,107 @@ namespace WorkState.Core.Migrations
                         .HasDatabaseName("run_serialization_idx");
 
                     b.ToTable("run_config", (string)null);
+                });
+
+            modelBuilder.Entity("WorkState.Core.Domain.TenantMembership", b =>
+                {
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.Property<Guid>("WorkspaceId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("workspace_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<string>("Role")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("role");
+
+                    b.HasKey("UserId", "WorkspaceId")
+                        .HasName("pk_tenant_membership");
+
+                    b.HasIndex("WorkspaceId")
+                        .HasDatabaseName("tenant_membership_workspace_idx");
+
+                    b.ToTable("tenant_membership", null, t =>
+                        {
+                            t.HasCheckConstraint("tenant_membership_role_known", "role IN ('admin', 'member')");
+                        });
+                });
+
+            modelBuilder.Entity("WorkState.Core.Domain.UserLink", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<DateTimeOffset>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("expires_at");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("kind");
+
+                    b.Property<string>("Role")
+                        .HasColumnType("text")
+                        .HasColumnName("role");
+
+                    b.Property<string>("TokenHash")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("token_hash");
+
+                    b.Property<DateTimeOffset?>("UsedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("used_at");
+
+                    b.Property<Guid?>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.Property<Guid?>("WorkspaceId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("workspace_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_user_link");
+
+                    b.HasIndex("CreatedBy")
+                        .HasDatabaseName("ix_user_link_created_by");
+
+                    b.HasIndex("TokenHash")
+                        .IsUnique()
+                        .HasDatabaseName("user_link_token_hash_idx");
+
+                    b.HasIndex("UserId")
+                        .HasDatabaseName("user_link_user_idx");
+
+                    b.HasIndex("WorkspaceId")
+                        .HasDatabaseName("user_link_workspace_idx");
+
+                    b.ToTable("user_link", null, t =>
+                        {
+                            t.HasCheckConstraint("user_link_shape", "(kind = 'invite' AND workspace_id IS NOT NULL AND role IN ('admin', 'member') AND user_id IS NULL) OR (kind = 'reset' AND user_id IS NOT NULL AND workspace_id IS NULL AND role IS NULL)");
+                        });
                 });
 
             modelBuilder.Entity("WorkState.Core.Domain.Verification", b =>
@@ -2409,6 +2609,29 @@ namespace WorkState.Core.Migrations
                         .HasConstraintName("fk_project_config_item_item_id");
                 });
 
+            modelBuilder.Entity("WorkState.Core.Domain.ProjectMember", b =>
+                {
+                    b.HasOne("WorkState.Core.Domain.AppUser", null)
+                        .WithMany()
+                        .HasForeignKey("AddedBy")
+                        .OnDelete(DeleteBehavior.SetNull)
+                        .HasConstraintName("fk_project_member_app_user_added_by");
+
+                    b.HasOne("WorkState.Core.Domain.Item", null)
+                        .WithMany()
+                        .HasForeignKey("ProjectItemId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_project_member_item_project_item_id");
+
+                    b.HasOne("WorkState.Core.Domain.TenantMembership", null)
+                        .WithMany()
+                        .HasForeignKey("UserId", "WorkspaceId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_project_member_tenant_membership_user_id_workspace_id");
+                });
+
             modelBuilder.Entity("WorkState.Core.Domain.ProjectRepo", b =>
                 {
                     b.HasOne("WorkState.Core.Domain.Item", null)
@@ -2424,6 +2647,12 @@ namespace WorkState.Core.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("fk_project_repo_workspace_workspace_id");
+
+                    b.HasOne("WorkState.Core.Domain.TenantMembership", null)
+                        .WithMany()
+                        .HasForeignKey("UserId", "WorkspaceId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .HasConstraintName("fk_project_repo_tenant_membership_user_id_workspace_id");
                 });
 
             modelBuilder.Entity("WorkState.Core.Domain.Report", b =>
@@ -2457,6 +2686,44 @@ namespace WorkState.Core.Migrations
                         .OnDelete(DeleteBehavior.NoAction)
                         .IsRequired()
                         .HasConstraintName("fk_run_config_item_project_item_id");
+                });
+
+            modelBuilder.Entity("WorkState.Core.Domain.TenantMembership", b =>
+                {
+                    b.HasOne("WorkState.Core.Domain.AppUser", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_tenant_membership_app_user_user_id");
+
+                    b.HasOne("WorkState.Core.Domain.Workspace", null)
+                        .WithMany()
+                        .HasForeignKey("WorkspaceId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_tenant_membership_workspace_workspace_id");
+                });
+
+            modelBuilder.Entity("WorkState.Core.Domain.UserLink", b =>
+                {
+                    b.HasOne("WorkState.Core.Domain.AppUser", null)
+                        .WithMany()
+                        .HasForeignKey("CreatedBy")
+                        .OnDelete(DeleteBehavior.SetNull)
+                        .HasConstraintName("fk_user_link_app_user_created_by");
+
+                    b.HasOne("WorkState.Core.Domain.AppUser", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .HasConstraintName("fk_user_link_app_user_user_id");
+
+                    b.HasOne("WorkState.Core.Domain.Workspace", null)
+                        .WithMany()
+                        .HasForeignKey("WorkspaceId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .HasConstraintName("fk_user_link_workspace_workspace_id");
                 });
 
             modelBuilder.Entity("WorkState.Core.Domain.Verification", b =>

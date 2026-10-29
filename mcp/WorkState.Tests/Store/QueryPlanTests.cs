@@ -30,6 +30,9 @@ public sealed partial class QueryPlanTests(PostgresFixture fixture)
 
     public static bool Enabled => Environment.GetEnvironmentVariable("WORKSTATE_EXPLAIN") == "1";
 
+    /// <summary>doc 15 §7: <c>-e WORKSTATE_EXPLAIN_RLS=1</c> measures as the tenant role, under its policies.</summary>
+    private static bool Rls => Environment.GetEnvironmentVariable("WORKSTATE_EXPLAIN_RLS") == "1";
+
     [Fact(Skip = "opt-in: set WORKSTATE_EXPLAIN=1", SkipUnless = nameof(Enabled))]
     public async Task The_hot_reads_are_explained_against_a_5000_item_workspace()
     {
@@ -93,6 +96,12 @@ public sealed partial class QueryPlanTests(PostgresFixture fixture)
     private async Task<Report> MeasureAsync(string database, string connectionString, PlanWorld world)
     {
         await using var source = WorkStateDataSource.Create(connectionString);
+        if (!Rls)
+        {
+            WorkStateConnections.RunUnscopedAsOwner(source);
+        }
+
+        using var tenant = Rls ? TenantScope.Enter(world.WorkspaceId) : null;
         var queries = new WorkStateQueries(source);
         var board = new BoardQueries(source);
         var api = new ApiQueries(source);
@@ -228,6 +237,11 @@ public sealed partial class QueryPlanTests(PostgresFixture fixture)
             }
 
             using var json = JsonDocument.Parse(entry[(duration.Index + duration.Length)..]);
+            if (json.RootElement.GetProperty("Query Text").GetString()?.StartsWith("SELECT set_config(", StringComparison.Ordinal) == true)
+            {
+                continue;
+            }
+
             var jit = json.RootElement.TryGetProperty("JIT", out var compiled)
                       && compiled.TryGetProperty("Timing", out var timing)
                 ? Num(timing, "Total")

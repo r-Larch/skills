@@ -51,6 +51,14 @@ app deploy workstate
 Every connected Claude Code session then needs `/mcp` → Reconnect: MCP sessions live in the
 process.
 
+The server accepts no static role token (doc 08 §4): `compose.yml` passes none, and `gen-env.sh`
+writes none. A `.env` from before 1.0.0 still holds `WORKSTATE_{WORKER,ORCHESTRATOR,CONTROLLER}_TOKEN`
+lines; they are unused, and removing them prints nothing:
+
+```bash
+sed -i '/^WORKSTATE_\(WORKER\|ORCHESTRATOR\|CONTROLLER\)_TOKEN=/d' .env
+```
+
 ## Restore
 
 ```bash

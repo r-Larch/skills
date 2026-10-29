@@ -17,6 +17,9 @@ public sealed record Actor(string Name, ActorRole Role)
     /// <summary>The session's name, from <c>X-WorkState-Agent</c>.</summary>
     public string? Session { get; init; }
 
+    /// <summary>The signed-in user the credential belongs to; null for a static token. A project they create is theirs.</summary>
+    public Guid? UserId { get; init; }
+
     /// <summary>What a surface prints for this writer: the session where there is one.</summary>
     public string Label => Session ?? Name;
 

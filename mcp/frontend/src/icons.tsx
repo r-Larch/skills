@@ -38,6 +38,20 @@ export const SessionsIcon = () => (
   </svg>
 )
 
+export const AdminIcon = () => (
+  <svg viewBox="0 0 24 24" {...stroke} aria-hidden="true">
+    <path d="M12 3l7 3v5c0 4.5-3 8.3-7 10-4-1.7-7-5.5-7-10V6z" />
+    <path d="M9 12l2 2 4-4" />
+  </svg>
+)
+
+export const SearchIcon = () => (
+  <svg viewBox="0 0 24 24" {...stroke} aria-hidden="true">
+    <circle cx="11" cy="11" r="6.5" />
+    <path d="M16 16l4.5 4.5" />
+  </svg>
+)
+
 export const CopyIcon = () => (
   <svg viewBox="0 0 24 24" {...stroke} aria-hidden="true">
     <rect x="8" y="8" width="12" height="12" rx="2" />

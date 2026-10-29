@@ -187,8 +187,8 @@ public sealed partial class SearchScopeTests(PostgresFixture fixture)
     [Fact]
     public async Task A_workspace_assumption_is_printed_qualified_and_the_printed_ref_resolves_back()
     {
-        // assumption_ref_unique is NULLS NOT DISTINCT on (ref_scope_id, ref), so a workspace-wide ref
-        // is unique across every workspace in the shared fixture database: A1 belongs to AmbiguousRefTests.
+        // assumption_ref_unique is NULLS NOT DISTINCT on (workspace_id, ref_scope_id, ref) since TenantRefs, so a
+        // workspace-wide ref is unique within its own workspace, not across the shared fixture database.
         const string number = "A57";
         var world = await SeedAsync();
         await using (var db = fixture.NewContext())

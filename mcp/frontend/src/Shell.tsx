@@ -1,13 +1,17 @@
 import { For, Show, createEffect, createSignal, on as onChange, type ParentProps } from 'solid-js'
 import { A, useLocation } from '@solidjs/router'
-import { boards, failure, overview } from './store.ts'
+import { account, boards, failure, overview } from './store.ts'
 import { link } from './live.ts'
 import { toggleTheme } from './theme.ts'
 import { countTitle, counted, tally } from './state.ts'
-import { projectHref, runHref } from './nav.ts'
+import { ACCOUNT, ADMIN, projectHref, runHref } from './nav.ts'
 import { clock, short } from './format.ts'
 import { ProjectName } from './ui.tsx'
-import { ActivityIcon, CheckIcon, InboxIcon, OverviewIcon, SessionsIcon } from './icons.tsx'
+import { ActivityIcon, AdminIcon, CheckIcon, InboxIcon, OverviewIcon, SearchIcon, SessionsIcon } from './icons.tsx'
+import { showSwitcher } from './admin.ts'
+import { switchFailure, switchWorkspace } from './tenant.ts'
+import Palette, { openPalette } from './Palette.tsx'
+import { chordLabel } from './palette.ts'
 import {
   archivedOpen,
   byActivity,
@@ -17,7 +21,7 @@ import {
   setArchivedOpen,
   type ProjectGroup,
 } from './projects.ts'
-import type { ProjectOverview, RunOverview } from './api.ts'
+import { signOut, type ProjectOverview, type RunOverview } from './api.ts'
 
 export default function Shell(props: ParentProps) {
   const location = useLocation()
@@ -47,6 +51,20 @@ export default function Shell(props: ParentProps) {
           <span class="brand-name">WorkState</span>
         </A>
 
+        <TenantSwitcher />
+
+        <button
+          type="button"
+          class="side-find"
+          aria-haspopup="dialog"
+          aria-keyshortcuts="Control+P Meta+P /"
+          onClick={openPalette}
+        >
+          <SearchIcon />
+          <span class="side-find-t">Search refs, items, commands</span>
+          <kbd>{chordLabel(navigator.userAgent)}</kbd>
+        </button>
+
         <nav class="nav">
           <A href="/" class={on('/') ? 'on' : ''}>
             <OverviewIcon />
@@ -67,6 +85,12 @@ export default function Shell(props: ParentProps) {
             <SessionsIcon />
             Sessions
           </A>
+          <Show when={account()?.user.administers}>
+            <A href={ADMIN} class={location.pathname.startsWith(ADMIN) ? 'on' : ''}>
+              <AdminIcon />
+              Admin
+            </A>
+          </Show>
         </nav>
 
         <div class="side-h">Projects</div>
@@ -120,6 +144,7 @@ export default function Shell(props: ParentProps) {
             Theme
           </button>
         </div>
+        <AccountMenu />
       </aside>
 
       <main class="main" ref={main}>
@@ -132,7 +157,63 @@ export default function Shell(props: ParentProps) {
         </Show>
         {props.children}
       </main>
+
+      <Palette />
     </div>
+  )
+}
+
+/** The signed-in user's name, opening Change password and Sign out. */
+function AccountMenu() {
+  const [open, setOpen] = createSignal(false)
+  return (
+    <Show when={account()}>
+      {(a) => (
+        <div class="side-account">
+          <button type="button" class="side-toggle" aria-expanded={open()} onClick={() => setOpen(!open())}>
+            <span class="caret">{open() ? '▾' : '▸'}</span>
+            <span class="side-account-n">{a().user.name}</span>
+          </button>
+          <Show when={open()}>
+            <div class="side-account-m">
+              <A href={ACCOUNT} onClick={() => setOpen(false)}>
+                Change password
+              </A>
+              <button type="button" onClick={() => void signOut()}>
+                Sign out
+              </button>
+            </div>
+          </Show>
+        </div>
+      )}
+    </Show>
+  )
+}
+
+/**
+ * The workspace the session acts in, as a choice among the ones the user may enter — shown only when there is
+ * more than one. Switching re-issues the cookie (`POST /api/session/tenant`) and reloads at the overview.
+ */
+function TenantSwitcher() {
+  const tenants = () => account()?.tenants ?? []
+  const current = () => tenants().find((t) => t.current)
+  return (
+    <Show when={showSwitcher(tenants())}>
+      <label class="side-tenant">
+        <span>Workspace</span>
+        <select
+          value={current()?.id ?? ''}
+          aria-label="Switch workspace"
+          onChange={(e) => {
+            const to = e.currentTarget.value
+            if (to !== current()?.id) void switchWorkspace(to)
+          }}
+        >
+          <For each={tenants()}>{(t) => <option value={t.id}>{t.slug}</option>}</For>
+        </select>
+      </label>
+      <Show when={switchFailure()}>{(message) => <div class="side-none">{message()}</div>}</Show>
+    </Show>
   )
 }
 

@@ -1,5 +1,6 @@
 import { createEffect, createSignal, on, onCleanup, type Accessor } from 'solid-js'
 import * as api from './api.ts'
+import type { SessionTenant } from './connect.ts'
 import { onFrames } from './live.ts'
 
 /**
@@ -47,6 +48,26 @@ async function loadOverview(runs: 'all' | string[]): Promise<void> {
   }
 }
 
+/**
+ * Who is signed in and which workspaces they may enter: the sidebar's Admin link, its tenant switcher and the
+ * palette's commands. Not live: the journal's member_added / member_removed are a project's members, which the
+ * overview and the Members panel re-read on their frame, and say nothing about a workspace's — so an admin write
+ * that may change the caller's own rights asks again with `refreshAccount`.
+ */
+export type Account = { user: api.SessionUser; tenants: SessionTenant[] }
+
+const [account, setAccount] = createSignal<Account>()
+export { account }
+
+export async function refreshAccount(): Promise<void> {
+  try {
+    const [user, { tenants }] = await Promise.all([api.me(), api.sessionTenants()])
+    setAccount({ user, tenants: tenants ?? [] })
+  } catch (error) {
+    note(error)
+  }
+}
+
 /** After a write: the journal frame would bring the same re-read, this one does not wait for it. */
 export const refreshOverview = (): Promise<void> => loadOverview([])
 
@@ -62,6 +83,7 @@ async function loadInbox(): Promise<void> {
 export function startStore(): void {
   void loadOverview('all')
   void loadInbox()
+  void refreshAccount()
 
   onCleanup(
     onFrames((frames) => {

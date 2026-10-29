@@ -16,7 +16,7 @@ public static partial class ApiV1
         BoardReader reader,
         BoardQueries board,
         ApiQueries api,
-        WorkspaceOptions workspace,
+        RequestTenant tenant,
         CancellationToken cancellationToken)
     {
         if (scope is not { } id)
@@ -25,8 +25,8 @@ public static partial class ApiV1
         }
 
         var book = new V1Book(api, board);
-        if (await SnapshotAsync(board, api, workspace, cancellationToken) is not { } snapshot
-            || !await KnownAsync(book, snapshot, id, cancellationToken))
+        var snapshot = await SnapshotAsync(api, tenant, cancellationToken);
+        if (!await KnownAsync(book, snapshot, id, cancellationToken))
         {
             return NoItem(id);
         }

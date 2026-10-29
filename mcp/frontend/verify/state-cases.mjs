@@ -10,7 +10,10 @@ import { DEFAULT_FILTER, FILTERS, asFilter, cancelledLines, plan, planQuery, wit
 import { boardHref, copyValue, itemHref, pathCrumbs, routeReads } from '../src/nav.ts'
 import { appIconHref, consentForm, consentStep, consentView, hiddenFields, iconStep, initials, isConnectPath, returnTarget, scopeLines, signInHref, signInStart, signInStep } from '../src/connect.ts'
 import { formerName, isReleased, releasable, tokenLabel } from '../src/sessions.ts'
+import { arrange, chordLabel, commands, entryHref, isPaletteChord, isSlash, matchCommands } from '../src/palette.ts'
 import { HANDLE, LIST_MIN, PANEL_MIN, PANEL_SHARE, WIDTH_KEY, clampWidth, docks, panelWidth, rememberWidth, rememberedWidth } from '../src/split.ts'
+import { MEMBERS_ANCHOR, memberLine, membersHref, projectOnPath, shareMarker } from '../src/sharing.ts'
+import { expiresIn, isLastAdmin, isLinkPath, joinStep, joinToken, nameProblem, passwordMessage, passwordProblem, resetStep, resetToken, roleLabel, showSwitcher, slugFrom, slugProblem } from '../src/admin.ts'
 
 let failures = 0
 
@@ -250,6 +253,26 @@ check('a stale consent field is never forwarded twice', hiddenFields('?client_id
 check('what it gets: openid is not a line', scopeLines(search).map((l) => l.scope), ['mcp', 'offline_access'])
 check('what it gets: mcp is controller access', scopeLines(search)[0].label, 'Full access to your WorkState as controller')
 
+console.log('\n── the consent page: the workspace it acts in, and the switch ───────────────')
+const tenants = [
+  { id: 't-a', slug: 'alpha', role: 'member', current: true },
+  { id: 't-b', slug: 'beta', role: 'admin', current: false },
+]
+const inA = consentStep(loading, { t: 'loaded', info, tenants })
+const where = (v) => ({ tenant: v.tenant?.slug ?? null, others: v.others.map((t) => t.slug), switching: v.switchingTo, canAnswer: v.canAnswer })
+check('the session\'s tenant is named, the other offered', where(consentView(inA)), { tenant: 'alpha', others: ['beta'], switching: null, canAnswer: true })
+check('one tenant: nothing to switch to', where(consentView(consentStep(loading, { t: 'loaded', info, tenants: [tenants[0]] }))), { tenant: 'alpha', others: [], switching: null, canAnswer: true })
+check('no tenants answered: none named', consentView(shown).tenant, null)
+const moving = consentStep(inA, { t: 'switch', to: 't-b' })
+check('switching: named, and no answer meanwhile', where(consentView(moving)), { tenant: 'alpha', others: ['beta'], switching: 'beta', canAnswer: false })
+check('switching: an answer meanwhile changes nothing', consentStep(moving, { t: 'answer', answer: 'granted' }), moving)
+check('a switch to the current tenant changes nothing', consentStep(inA, { t: 'switch', to: 't-a' }), inA)
+check('a switch to a tenant not offered changes nothing', consentStep(inA, { t: 'switch', to: 't-elsewhere' }), inA)
+check('a switch during an answer changes nothing', consentStep(consentStep(inA, { t: 'answer', answer: 'granted' }), { t: 'switch', to: 't-b' }).k, 'answering')
+check('a refused switch shows the server\'s words', consentView(consentStep(moving, { t: 'switch-failed', message: 'nope' })).error, 'nope')
+check('approve: the tenant shown goes with the answer', consentForm(search, 'granted', 't-a').slice(-2), [['workstate_tenant', 't-a'], ['consent', 'granted']])
+check('a stale tenant field is never forwarded twice', hiddenFields('?client_id=c1&workstate_tenant=t-a'), [['client_id', 'c1']])
+
 console.log('\n── the consent page: the client\'s icon, or its initials ────────────────────')
 check('the icon is asked of this origin, for this client', appIconHref('?client_id=https%3A%2F%2Fclaude.ai%2Foauth%2Fm&x=1'), '/connect/app-icon?client_id=https%3A%2F%2Fclaude.ai%2Foauth%2Fm')
 check('no client id, no icon request', appIconHref('?scope=mcp'), null)
@@ -295,6 +318,154 @@ check('a tombstone shows the name it had', formerName(tomb), 'mw-workflow')
 check('a live name offers Release', releasable({ session: { name: 'mw-workflow' } }), true)
 check('a released row offers nothing', releasable({ session: { name: tomb } }), false)
 check('every token state reads', ['none', 'live', 'revoked', 'expired'].map(tokenLabel), ['named by header, no token', 'token live', 'token revoked', 'token expired'])
+
+console.log('\n── the command palette: what opens it, what matches, what Enter opens ───────')
+const key = (over) => ({ key: 'p', ctrlKey: false, metaKey: false, altKey: false, shiftKey: false, ...over })
+check('Ctrl+P opens', isPaletteChord(key({ ctrlKey: true })), true)
+check('Cmd+P opens', isPaletteChord(key({ metaKey: true })), true)
+check('Ctrl+Shift+P is left alone', isPaletteChord(key({ ctrlKey: true, shiftKey: true })), false)
+check('a bare p is typing', isPaletteChord(key({})), false)
+check('caps lock still opens', isPaletteChord(key({ key: 'P', ctrlKey: true })), true)
+check('/ outside a field opens', isSlash(key({ key: '/' }), false), true)
+check('/ in a field is typed', isSlash(key({ key: '/' }), true), false)
+check('the hint on a Mac', chordLabel('Mozilla/5.0 (Macintosh; Intel Mac OS X 14_5)'), '⌘P')
+check('the hint elsewhere', chordLabel('Mozilla/5.0 (Windows NT 10.0; Win64; x64)'), 'Ctrl P')
+
+const projects = [
+  { item: { id: 'p1', ref: 'workstate', title: 'WorkState — the tracker', kind: 'project' } },
+  { item: { id: 'p2', ref: 'aw', title: 'Autowork', kind: 'project' } },
+]
+const all = commands(projects)
+const labels = (cs) => cs.map((c) => c.label)
+check('every command, in order', labels(all), [
+  'Go to Overview', 'Go to Needs you', 'Go to Activity', 'Go to Sessions',
+  'Open project WorkState', 'Open WorkState backlog', 'Open project Autowork', 'Open Autowork backlog',
+  'Toggle theme',
+])
+check('a project and its backlog link through nav', all.slice(4, 6).map((c) => c.href), ['/projects/p1', '/projects/p1/backlog'])
+check('empty query keeps them all', matchCommands(all, '  ').length, all.length)
+check('a page by name', labels(matchCommands(all, 'activity')), ['Go to Activity'])
+check('a label that starts with the query leads', labels(matchCommands(all, 'open project')), ['Open project WorkState', 'Open project Autowork'])
+check('every word must appear', labels(matchCommands(all, 'workstate backlog')), ['Open WorkState backlog'])
+check('a project by its ref', labels(matchCommands(all, 'AW')), ['Open project Autowork', 'Open Autowork backlog'])
+check('the theme by a keyword', labels(matchCommands(all, 'dark')), ['Toggle theme'])
+check('a ref matches no command', labels(matchCommands(all, 'm/12')), [])
+
+const hit = (id, match, run) => ({ item: { id, kind: 'task', ref: id, fullRef: id }, run, project: null, match, snippet: null })
+const some = matchCommands(all, 'sessions')
+const textOnly = arrange(some, [hit('t1', 'text', { id: 'r1' })])
+check('commands lead without an exact ref', [textOnly.itemsFirst, textOnly.entries.map((e) => e.kind)], [false, ['command', 'item']])
+const exact = arrange(some, [hit('t2', 'ref', { id: 'r1' }), hit('t3', 'prefix', null)])
+check('an exact ref puts items first', [exact.itemsFirst, exact.entries.map((e) => e.kind)], [true, ['item', 'item', 'command']])
+check('Enter on an item in a run opens its board', entryHref(exact.entries[0]), '/runs/r1/t2')
+check('Enter on an item outside a run opens its page', entryHref(exact.entries[1]), '/items/t3')
+check('Enter on a page command', entryHref(exact.entries[2]), '/sessions')
+check('the theme navigates nowhere', entryHref({ kind: 'command', command: all.at(-1) }), null)
+
+console.log('\n── admin: the rules the pages hint with, the switcher, the palette ──────────')
+check('a password of 11 is short', passwordProblem('a'.repeat(11)), 'A password needs at least 12 characters.')
+check('a password of 12 is enough', passwordProblem('a'.repeat(12)), null)
+check('a blank name is refused', nameProblem('   ') !== null, true)
+check('a name is trimmed before it is judged', nameProblem('  ada  '), null)
+check('a control character is refused', nameProblem('ada\u0007') !== null, true)
+check('slugs like default pass', ['default', 'team-two', 'a1'].map(slugProblem), [null, null, null])
+check('slugs unlike them fail', ['Team', 'team--two', '-team', 'team-', 'tea m', ''].map((s) => slugProblem(s) !== null), [true, true, true, true, true, true])
+check('a typed slug is lowered and hyphenated', slugFrom('  Team Two '), 'team-two')
+check('roles read', ['admin', 'member', 'system-admin'].map(roleLabel), ['Admin', 'Member', 'System admin'])
+check('one workspace shows no switcher', showSwitcher([{ id: 'a' }]), false)
+check('two workspaces show it', showSwitcher([{ id: 'a' }, { id: 'b' }]), true)
+const crew = [{ userId: 'u1', role: 'admin' }, { userId: 'u2', role: 'member' }]
+check('the only admin is locked', isLastAdmin(crew, 'u1'), true)
+check('a member is not', isLastAdmin(crew, 'u2'), false)
+check('one of two admins is not', isLastAdmin([...crew, { userId: 'u3', role: 'admin' }], 'u1'), false)
+const t0 = Date.parse('2026-10-28T12:00:00Z')
+check('fourteen days out', expiresIn('2026-11-11T12:00:00Z', t0), 'in 14 days')
+check('a day out reads in hours', expiresIn('2026-10-29T12:00:00Z', t0), 'in 24 hours')
+check('minutes out', expiresIn('2026-10-28T12:05:00Z', t0), 'in 5 minutes')
+check('past is expired', expiresIn('2026-10-28T11:00:00Z', t0), 'expired')
+
+console.log('\n── the invite page: its path, and every step ───────────────────────────────')
+const tok = 'Gx3c1oZk5mJ1VtJm6Vv3lR0yq8Jt4vWfZrjSx5i0bEk'
+check('an invite path names its token', joinToken(`/join/${tok}`), tok)
+check('not an invite path', ['/join/', '/join/a/b', '/joins/x', '/'].map(joinToken), [null, null, null, null])
+check('the invite page is a link page', [isLinkPath(`/join/${tok}`), isLinkPath('/admin')], [true, false])
+check('a link page is no connect page', isConnectPath(`/join/${tok}`), false)
+const view = { tenantId: 't', tenant: 'team-two', role: 'member', expiresAt: '2026-11-11T12:00:00Z', signedInAs: null, member: false }
+const invited = joinStep({ k: 'loading' }, { t: 'loaded', invite: view })
+check('a usable invite shows the create form', [invited.k, invited.mode], ['shown', 'create'])
+check('an unusable one says so in the server words', joinStep({ k: 'loading' }, { t: 'failed', status: 404, error: 'gone' }), { k: 'invalid', message: 'gone' })
+check('no answer at all says so', joinStep({ k: 'loading' }, { t: 'failed', status: 0, error: null }).message, 'WorkState did not answer. Check that it is running, then reload this page.')
+check('sign in instead', joinStep(invited, { t: 'mode', mode: 'sign-in' }).mode, 'sign-in')
+const accepting = joinStep(invited, { t: 'accept' })
+check('accept is one at a time', [accepting.k, joinStep(accepting, { t: 'accept' }).k], ['accepting', 'accepting'])
+check('a taken name goes back to the form with the reason', joinStep(accepting, { t: 'refused', status: 409, error: 'taken' }), { ...invited, error: 'taken' })
+check('a link used meanwhile ends the page', joinStep(accepting, { t: 'refused', status: 404, error: null }).k, 'invalid')
+check('throttled says to wait', joinStep(accepting, { t: 'refused', status: 429, error: null }).error, 'Too many attempts. Wait a minute, then try again.')
+check('accepted', joinStep(accepting, { t: 'accepted' }), { k: 'joined', tenant: 'team-two' })
+
+const withAccount = (account) => labels(commands(projects, account))
+const reachable = [{ id: 'a', slug: 'default', current: true }, { id: 'b', slug: 'team-two', current: false }]
+check('a member gets no admin command', withAccount({ administers: false, systemAdmin: false, tenants: reachable.slice(0, 1) }), labels(all))
+check('an admin of several gets Admin and each switch', withAccount({ administers: true, systemAdmin: false, tenants: reachable }), [
+  'Go to Overview', 'Go to Needs you', 'Go to Activity', 'Go to Sessions', 'Go to Admin',
+  'Open project WorkState', 'Open WorkState backlog', 'Open project Autowork', 'Open Autowork backlog',
+  'Switch to workspace team-two', 'Toggle theme',
+])
+const sys = commands(projects, { administers: true, systemAdmin: true, tenants: reachable })
+check('a system administrator also gets Users', labels(sys).slice(4, 6), ['Go to Admin', 'Go to Users'])
+check('admin commands open their pages', sys.slice(4, 6).map((c) => c.href), ['/admin', '/admin/users'])
+const switchTo = sys.find((c) => c.action === 'tenant')
+check('a switch names its workspace and opens nothing', [switchTo.tenant, entryHref({ kind: 'command', command: switchTo })], ['b', null])
+check('a switch by the word workspace', labels(matchCommands(sys, 'workspace team')), ['Switch to workspace team-two'])
+check('reads for the admin pages', ['/admin', '/admin/users', '/admin/tenants/T'].map(routeReads), [
+  ['/api/admin/tenants'], ['/api/admin/users'], ['/api/admin/tenants', '/api/admin/tenants/T/members', '/api/admin/tenants/T/invites'],
+])
+
+console.log('\n── passwords: the reset page and the account page ─────────────────────────')
+check('a reset path names its token', resetToken(`/reset/${tok}`), tok)
+check('a reset page is a link page, an invite path no reset', [isLinkPath(`/reset/${tok}`), resetToken(`/join/${tok}`)], [true, null])
+const resetShown = resetStep({ k: 'loading' }, { t: 'loaded', reset: { name: 'ada', expiresAt: '2026-10-29T12:00:00Z' } })
+check('a usable reset link shows the form', resetShown, { k: 'shown', reset: { name: 'ada', expiresAt: '2026-10-29T12:00:00Z' }, error: null })
+check('an unusable one says so', resetStep({ k: 'loading' }, { t: 'failed', status: 404, error: 'used' }), { k: 'invalid', message: 'used' })
+const saving = resetStep(resetShown, { t: 'save' })
+check('saving is one at a time', [saving.k, resetStep(saving, { t: 'save' }).k], ['saving', 'saving'])
+check('a weak password goes back with the reason', resetStep(saving, { t: 'refused', status: 400, error: 'short' }).error, 'short')
+check('a link used meanwhile ends the page', resetStep(saving, { t: 'refused', status: 404, error: null }).k, 'invalid')
+check('saved names whose password it set', resetStep(saving, { t: 'saved' }), { k: 'done', name: 'ada' })
+check('a change that worked says the other sessions ended', passwordMessage({ k: 'ok' }).startsWith('Password changed. Your other sessions are signed out'), true)
+check('a wrong current password says nothing changed', passwordMessage({ k: 'wrong' }), 'The current password is not right. Nothing changed.')
+check('a refusal is the server words', passwordMessage({ k: 'refused', error: 'A password needs at least 12 characters.' }), 'A password needs at least 12 characters.')
+check('reads for the account page', routeReads('/account'), ['/api/session/me'])
+
+console.log('\n── sharing: the overview marker, the Members panel, its palette command ────')
+const mark = (sharing, me) => {
+  const m = shareMarker(sharing, me)
+  return [m.k, m.label, m.detail]
+}
+check('0 members: open to the workspace', mark({ members: 0, you: false, names: [] }, 'ada'), [
+  'open', 'Open to the workspace', 'No one has joined yet, so everyone in the workspace can see it.',
+])
+check('1, you: private', mark({ members: 1, you: true, names: ['ada'] }, 'ada'), ['private', 'Private', 'Only you.'])
+check('1, not you: private to them', mark({ members: 1, you: false, names: ['ben'] }), ['private', 'Private to ben', 'Only ben.'])
+check('2, you: shared with the 1 other', mark({ members: 2, you: true, names: ['ada', 'ben'] }, 'ada'), ['shared', 'Shared with 1', 'You and ben.'])
+check('3, you: shared with 2 others, named', mark({ members: 3, you: true, names: ['ada', 'ben', 'cy'] }, 'ben'), [
+  'shared', 'Shared with 2', 'You, ada and cy.',
+])
+check('3, not you: the whole count', mark({ members: 3, you: false, names: ['ada', 'ben', 'cy'] }), ['shared', 'Shared with 3', 'ada, ben and cy.'])
+check('you, own name not known yet: names everyone', mark({ members: 2, you: true, names: ['ada', 'ben'] }), ['shared', 'Shared with 1', 'ada and ben.'])
+check('a member line: who added, when', memberLine({ addedBy: 'ada', disabledAt: null }, '29 Oct'), 'Added by ada 29 Oct')
+check('a member line: no adder, disabled', memberLine({ addedBy: null, disabledAt: '2026-10-29T00:00:00Z' }, '29 Oct'), 'Added 29 Oct · disabled')
+check('the Members anchor', [MEMBERS_ANCHOR, membersHref('P')], ['members', '/projects/P#members'])
+check('a project page names its project, its backlog does not', ['/projects/P', '/projects/P/', '/projects/P/backlog', '/'].map(projectOnPath), [
+  'P', 'P', null, null,
+])
+const onPage = commands(projects, undefined, 'P')
+const manage = onPage.find((c) => c.label === 'Manage members')
+check('Manage members on a project page opens its panel', manage && [manage.href, entryHref({ kind: 'command', command: manage })], [
+  '/projects/P#members', '/projects/P#members',
+])
+check('no Manage members off a project page', commands(projects).some((c) => c.label === 'Manage members'), false)
+check('Manage members by the word share', labels(matchCommands(onPage, 'share')), ['Manage members'])
 
 console.log(failures === 0 ? '\nAll checks passed.' : `\n${failures} check(s) failed.`)
 if (failures > 0) process.exitCode = 1

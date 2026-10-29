@@ -5,11 +5,49 @@ using System.Text.Encodings.Web;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.Extensions.Options;
 using Microsoft.Net.Http.Headers;
+using WorkState.Core.Queries;
 using WorkState.Core.Writing;
 using ActorRole = WorkState.Core.Domain.ActorRole;
 using WorkState.Mcp;
 
 namespace WorkState.Api.Auth;
+
+/// <summary>
+/// <c>WorkState:Workspace</c>: the workspace the static role tokens and the reader token are bound to. It is
+/// those credentials' own configured binding, read only by <see cref="StaticTokenTenant"/> — never a default
+/// for any other credential. It goes when static tokens do.
+/// </summary>
+public sealed class WorkspaceOptions
+{
+    public string? Slug { get; set; }
+}
+
+/// <summary>
+/// The tenant a static token acts in: the configured slug's workspace, created on first use; unset, the
+/// oldest workspace, or a new <c>default</c> when there is none. A workspace is never deleted, so the id is
+/// resolved once.
+/// </summary>
+public sealed class StaticTokenTenant(WorkspaceOptions options, BoardQueries board, WorkWriter writer)
+{
+    private sealed record Bound(Guid Id);
+
+    private volatile Bound? _bound;
+
+    public async Task<Guid> IdAsync(CancellationToken cancellationToken)
+    {
+        if (_bound is { } bound)
+        {
+            return bound.Id;
+        }
+
+        var id = options.Slug is null && await board.WorkspaceAsync(null, cancellationToken) is { } oldest
+            ? oldest
+            : await writer.EnsureWorkspaceAsync(options.Slug, cancellationToken);
+
+        _bound = new Bound(id);
+        return id;
+    }
+}
 
 public sealed class StaticTokenOptions : AuthenticationSchemeOptions
 {
@@ -68,6 +106,11 @@ public sealed class StaticTokenHandler(
                 identity.AddClaim(new Claim(CallerSession.ClientKeyClaim, key));
             }
 
+            if (Context.RequestServices.GetService<StaticTokenTenant>() is { } tenant)
+            {
+                identity.AddClaim(new Claim(RequestTenant.Claim, (await tenant.IdAsync(Context.RequestAborted)).ToString()));
+            }
+
             return AuthenticateResult.Success(Ticket(identity));
         }
 
@@ -77,9 +120,10 @@ public sealed class StaticTokenHandler(
     }
 
     /// <summary>
-    /// doc 14 §2 — a minted token is looked up by its hash; unknown, revoked and expired fail alike.
-    /// The principal carries the granted role, nested as the static ones are, and the session, which
-    /// is what binds the name to the credential instead of to a header.
+    /// doc 14 §2 — a minted token is looked up by its hash; unknown, revoked and expired fail alike, and so
+    /// does one whose user may no longer enter its workspace. The principal carries the granted role, nested
+    /// as the static ones are, the session, which is what binds the name to the credential instead of to a
+    /// header, and the user who minted it, whose further mints are theirs too.
     /// </summary>
     private async Task<AuthenticateResult> MintedAsync(string presented)
     {
@@ -90,8 +134,14 @@ public sealed class StaticTokenHandler(
         }
 
         var identity = Identity(Nested(session.Role));
+        identity.AddClaim(new Claim(RequestTenant.Claim, session.WorkspaceId.ToString()));
         identity.AddClaim(new Claim(CallerSession.SessionIdClaim, session.SessionId.ToString()));
         identity.AddClaim(new Claim(CallerSession.SessionNameClaim, session.Name));
+        if (session.UserId is { } user)
+        {
+            identity.AddClaim(new Claim(CallerSession.UserIdClaim, user.ToString()));
+        }
+
         foreach (var grant in session.Grants)
         {
             identity.AddClaim(new Claim(CallerSession.GrantClaim, grant));
