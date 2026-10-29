@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Hosting.Server;
 using Microsoft.AspNetCore.Hosting.Server.Features;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using ModelContextProtocol.Client;
@@ -94,11 +95,28 @@ internal sealed class AppServer : IAsyncDisposable
     private static async Task SoleMemberAsync(IServiceProvider services, CancellationToken cancellationToken)
     {
         var users = services.GetRequiredService<UserStore>();
-        var operatorUser = await users.SignInAsync(Username, Password, services.GetRequiredService<DashboardOptions>(), cancellationToken);
+        var dashboard = services.GetRequiredService<DashboardOptions>();
+        await using var connection = await services.GetRequiredService<NpgsqlDataSource>().OpenConnectionAsync(cancellationToken);
+
+        // The first sign-in creates the operator only on an empty app_user, and a test world that seeds its own
+        // users into the shared database may run first: the order follows test ids, which follow the checkout's
+        // path. Then the operator is created here, as the first sign-in would have.
+        var operatorUser = await users.SignInAsync(Username, Password, dashboard, cancellationToken);
+        if (operatorUser is null)
+        {
+            await connection.ExecuteAsync(
+                """
+                INSERT INTO app_user (id, name, password_hash, is_system_admin)
+                SELECT @id, @name, @hash, true
+                WHERE NOT EXISTS (SELECT 1 FROM app_user WHERE lower(name) = lower(@name));
+                """,
+                new { id = Guid.CreateVersion7(), name = Username, hash = new PasswordHasher<AppUser>().HashPassword(new AppUser(), Password) });
+            operatorUser = await users.SignInAsync(Username, Password, dashboard, cancellationToken);
+        }
+
         Assert.NotNull(operatorUser);
 
         var workspace = await services.GetRequiredService<StaticTokenTenant>().IdAsync(cancellationToken);
-        await using var connection = await services.GetRequiredService<NpgsqlDataSource>().OpenConnectionAsync(cancellationToken);
         await connection.ExecuteAsync(
             """
             DELETE FROM tenant_membership WHERE user_id = @Id AND workspace_id <> @workspace;
