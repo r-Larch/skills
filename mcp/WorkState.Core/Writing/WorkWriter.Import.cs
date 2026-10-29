@@ -504,12 +504,17 @@ public sealed partial class WorkWriter
                 + "ref, existing or created above in this batch>\""));
         }
 
-        if (!parents[kind].Contains(parent.Kind))
+        var misplaced = await ParentKindRefusalAsync(
+            connection,
+            transaction,
+            call,
+            kind,
+            parent.Id,
+            allowed => [$"work_import(project:\"{project.Ref}\", items:[…]) with parent:\"<a {allowed} ref>\""],
+            cancellationToken);
+        if (misplaced is not null)
         {
-            return ImportStep.No(Refusal.Blocked(
-                $"{call} — a {kind} cannot hang off {parent.Ref}, which is a {parent.Kind}.",
-                $"a {kind}'s parent is a {string.Join(" or ", parents[kind])}",
-                $"work_import(project:\"{project.Ref}\", items:[…]) with parent:\"<a {string.Join(" or ", parents[kind])} ref>\""));
+            return ImportStep.No(misplaced);
         }
 
         var refScope = parent.RefScopeId == parent.Id ? parent.Id : parent.RefScopeId;

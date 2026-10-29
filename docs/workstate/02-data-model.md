@@ -217,8 +217,8 @@ both have a `2.3`. So **`ref` is unique within its nearest ref-scoping ancestor*
 
 `UNIQUE NULLS NOT DISTINCT (workspace_id, ref_scope_id, ref)` still makes plan-audit check #3
 unviolatable — now per run, which is the scope in which duplicate task numbers actually cause harm.
-`workspace_id` is in the key so that the few rows with no ref scope (a feature with no parent, an
-assumption on no item) are unique per workspace rather than across every workspace on the server.
+`workspace_id` is in the key so that the few rows with no ref scope (an assumption on no item, a
+feature with no parent stored before m63) are unique per workspace rather than across every workspace on the server.
 The key compares `ref` case-sensitively; the server's free-ref probes compare `lower(ref)`.
 
 **A ref-scoping row is numbered among its siblings.** A project or a run is its own ref scope
@@ -256,7 +256,15 @@ CREATE TABLE item_kind (
 ```
 
 Default ladder: `project → feature → run → phase → task → subtask`, plus the
-attach-anywhere kinds `finding`, `followup`, `question`, `incident`, `spike`.
+attach-anywhere kinds `finding`, `followup`, `question`, `incident`, `spike`. A `task` may also sit under
+a `task` (`{phase,run,task}`, migration TaskUnderTask, m63): tasks nest in practice, and each keeps its
+own criteria and verify guard.
+
+**Root = project.** The kind with an empty `allowed_parent_kinds` is a root, and only `project` has one;
+every other kind needs a parent of a kind its list names. A root that is no project would sit outside
+every project and so outside project access: no members, visible to the whole workspace. `work_create`,
+`work_move` and `work_import` all check this one rule (doc 07 §1). The rows are seeded by InitialTree
+only; a later change to them is a migration, which a fresh database runs too.
 
 ### Parallel orchestrators — what actually has to serialize
 
@@ -1208,7 +1216,8 @@ its project. Hidden from no one:
 - **A project with no member** — a static token's project on an install that has no user yet, or one
   the importer wrote into an empty tenant. It is the tenant's until its first member joins, which makes
   it private from the next statement on; so it is never orphaned.
-- **A root that is no project**, which has no members: a parentless feature and everything under it.
+- **A root that is no project**, which has no members: a parentless feature and everything under it. No
+  writer creates one since m63 (only a project is a root, see "Kinds are data"); one stored before stays visible.
 - **Workspace rows that name no item**: an assumption, a rule or an agent token with no scope, a
   document with no item, a note addressed to nothing and from nothing, an event with no item. They
   belong to the workspace, not to a project, so every member of it reads them.
