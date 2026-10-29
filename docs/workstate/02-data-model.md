@@ -871,6 +871,41 @@ OAuth token, or whose minted `wss_` token, named or minted the session; a static
 none. `agent_session_name_unique` is `(workspace_id, user_id, name) NULLS NOT DISTINCT`, so a name is
 unique among one user's sessions and the static tokens share one namespace per workspace (doc 11).
 
+### 12b. Project members — `project_member`
+
+```sql
+CREATE TABLE project_member (          -- who may work in a project (m58, migration ProjectMembers)
+  project_item_id uuid NOT NULL REFERENCES item ON DELETE CASCADE,       -- an item of kind project
+  user_id         uuid NOT NULL,
+  workspace_id    uuid NOT NULL,                                          -- the project's; RLS reads it
+  added_by        uuid REFERENCES app_user ON DELETE SET NULL,           -- null: migration or static token
+  added_at        timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (project_item_id, user_id),
+  FOREIGN KEY (user_id, workspace_id) REFERENCES tenant_membership ON DELETE CASCADE
+);
+```
+
+A project's members, like a case's users in Nomos: every member has full read and write, and a
+project with every member of its workspace is the tenant-wide one (doc 08 §4 "Projects"). The rules:
+
+- **A member is a member of the project's workspace.** The foreign key to `tenant_membership` makes
+  it so in the database, and it is why removing a user from a workspace removes their project
+  memberships there — the rows go with the membership. The code checks it too, before it adds
+  anyone, and refuses a user of another workspace as unknown. That the row's `workspace_id` is its
+  project's is the writer's: every insert copies it from the item, and the policy below keeps it in
+  the caller's tenant.
+- **New projects are private.** `work_create(kind:"project")` makes the caller's user its one member
+  (`CallerIdentity.UserId`: an OAuth token or a user-minted `wss_` session). With no user — a static
+  token, the offline importer — or a user who is not in the workspace, every current member of the
+  workspace becomes a member instead.
+- **The migration** gave every project that existed every member of its workspace (`added_by` null):
+  nothing that was visible to a member before became private.
+- **A project keeps one member.** Removing its last member is refused, and so is removing that user
+  from the workspace (`AdminStore`), naming the projects; both take the workspace row's lock, so the
+  two cannot each remove one of a project's last two members. Disabling a user removes nothing.
+- **Nothing filters on it yet.** Membership is recorded and managed (doc 10 "Outside v1"); enforcing
+  it on every read and write path is the project-access unit's.
+
 ---
 
 ## 13. Views the server leans on
@@ -977,7 +1012,7 @@ image is one.
 
 | policy | tables |
 |---|---|
-| its own column, `workspace_id = tenant` | `item`, `item_link`, `doc`, `event`, `assumption`, `constraint_rule`, `note`, `verification`, `project_repo`, `agent_token`, `agent_session`, `import_record`, `tenant_membership`, `user_link` (a reset link has no workspace, so no tenant sees it) |
+| its own column, `workspace_id = tenant` | `item`, `item_link`, `doc`, `event`, `assumption`, `constraint_rule`, `note`, `verification`, `project_repo`, `agent_token`, `agent_session`, `import_record`, `tenant_membership`, `user_link` (a reset link has no workspace, so no tenant sees it), `project_member` (m58, created with its policy by its own migration) |
 | its own id, `id = tenant` | `workspace` |
 | its parent `item` is the tenant's | `item_criterion`, `attempt`, `artifact`, `claim`, `project_config`, `run_config` |
 | through two parents | `report` (→ `attempt` → `item`), `doc_block` (→ `doc`), `doc_block_revision` (→ `doc_block` → `doc`) |
@@ -998,7 +1033,9 @@ supported: the bypass below and `LEAKPROOF` both need a superuser.
 
 `RlsTests` reads the catalogue, so a table added later cannot slip past. Every table must be a tenant
 table, forced and with its policy, or one of the global or server-owned tables above. Every view must
-run as its caller.
+run as its caller. A tenant table added after TenantRls is created with its policy by its own
+migration and listed in `TenantTables` (`WorkState.Core/Data`), which the tests read; TenantRls's own
+lists stay what that migration applied.
 
 ### LEAKPROOF — the indexes a policy would otherwise switch off
 

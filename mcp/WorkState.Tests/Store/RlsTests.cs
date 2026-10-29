@@ -319,7 +319,7 @@ public sealed class RlsTests(PostgresFixture fixture) : IAsyncLifetime
     public async Task Rls_every_tenant_table_is_forced_every_other_table_is_classified_and_every_view_runs_as_its_caller()
     {
         string[] global = ["app_user", "item_kind"];
-        var tenant = TenantRls.Direct.Keys.Concat(TenantRls.ThroughParent.Keys).ToHashSet();
+        var tenant = TenantTables.Direct.Keys.Concat(TenantTables.ThroughParent.Keys).ToHashSet();
         var ownerOnly = TenantRls.OwnerOnly.Select(t => t.Trim('"')).ToHashSet();
 
         await using var connection = await fixture.DataSource.OpenConnectionAsync(Ct);
@@ -364,8 +364,8 @@ public sealed class RlsTests(PostgresFixture fixture) : IAsyncLifetime
 
     /// <summary>Every tenant table and the predicate that names tenant A's rows in it, as the owner reads them.</summary>
     private static IEnumerable<(string Table, string Predicate)> Tables()
-        => TenantRls.Direct.Select(t => (t.Key, $"{t.Value} = @tenant"))
-            .Concat(TenantRls.ThroughParent.Select(t => (t.Key, t.Value.Replace(TenantRls.Tenant, "@tenant"))));
+        => TenantTables.Direct.Select(t => (t.Key, $"{t.Value} = @tenant"))
+            .Concat(TenantTables.ThroughParent.Select(t => (t.Key, t.Value.Replace(TenantRls.Tenant, "@tenant"))));
 
     private static async Task<(int Backend, string User, string? Workspace)> SettingsAsync(NpgsqlConnection connection)
         => await connection.QuerySingleAsync<(int, string, string?)>(
@@ -387,6 +387,7 @@ internal sealed record RlsWorld(Guid WorkspaceId, Guid ProjectId, Guid RunId)
             """
             INSERT INTO app_user (id, name, password_hash) VALUES (@user, @userName, 'x');
             INSERT INTO tenant_membership (user_id, workspace_id, role) VALUES (@user, @ws, 'member');
+            INSERT INTO project_member (project_item_id, user_id, workspace_id) VALUES (@project, @user, @ws);
             INSERT INTO user_link (id, kind, token_hash, workspace_id, role, expires_at)
             VALUES (gen_random_uuid(), 'invite', 'rls-' || @tag, @ws, 'member', now() + interval '1 day');
             INSERT INTO agent_session (id, workspace_id, name, role) VALUES (gen_random_uuid(), @ws, 'rls', 'worker');
