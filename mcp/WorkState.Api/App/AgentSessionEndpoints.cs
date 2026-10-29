@@ -49,18 +49,29 @@ public static class AgentSessionEndpoints
         sessions.MapPost("/{id:guid}/release", ReleaseByBearerAsync);
     }
 
-    /// <summary>The dashboard's Release: the operator, by cookie, under the same guard as archiving.</summary>
+    /// <summary>
+    /// The dashboard's Release, by cookie, under the same guard as archiving. An admin of the tenant frees any stuck name
+    /// in it; a member only their own (<see cref="OwnsAsync"/>), and anyone else's is not found.
+    /// </summary>
     public static void MapSessionRelease(this RouteGroupBuilder api)
     {
         api.MapGroup("/sessions").DashboardWrite()
-            .MapPost("/{id:guid}/release", (Guid id, HttpContext context, [FromServices] SessionStore store,
-                    [FromServices] RequestTenant tenant, CancellationToken cancellationToken)
-                => ReleaseAsync(
+            .MapPost("/{id:guid}/release", async (Guid id, HttpContext context, [FromServices] SessionStore store,
+                [FromServices] UserStore users, [FromServices] RequestTenant tenant, CancellationToken cancellationToken) =>
+            {
+                if (await store.FindAsync(tenant.Id, id, cancellationToken) is { } session
+                    && !await OwnsAsync(session, context.User, users, tenant.Id, cancellationToken))
+                {
+                    return NotFound(id);
+                }
+
+                return await ReleaseAsync(
                     id,
                     new Actor(context.User.Identity?.Name ?? DashboardAuth.Role, ActorRole.Human),
                     store,
                     tenant,
-                    cancellationToken));
+                    cancellationToken);
+            });
     }
 
     private static async Task<IResult> MintAsync(
@@ -199,7 +210,7 @@ public static class AgentSessionEndpoints
         if (await store.FindAsync(tenant.Id, id, cancellationToken) is { } session
             && !await OwnsAsync(session, context.User, users, tenant.Id, cancellationToken))
         {
-            return AnotherUsers(session);
+            return NotFound(id);
         }
 
         return await ReleaseAsync(id, new Actor(Pg(ActorRole.Controller), ActorRole.Controller), store, tenant, cancellationToken);
@@ -228,7 +239,7 @@ public static class AgentSessionEndpoints
                 StatusCodes.Status409Conflict,
                 $"the session \"{result.Name}\" still holds live claims on {result.Held}; it may still be working. "
                 + $"Revoking it (DELETE /api/agent-sessions/{id}) releases them, and then its name can be released"),
-            _ => Error(StatusCodes.Status404NotFound, $"no agent session with id {id}"),
+            _ => NotFound(id),
         };
     }
 
@@ -236,7 +247,8 @@ public static class AgentSessionEndpoints
     /// "The same principal, or a controller." A static token has no session, so for a session a
     /// static token minted, the same principal is any static caller of a role at least the one it
     /// granted; for one a minted token minted, it is that minting session. On top, a credential that
-    /// names a user changes only that user's sessions (<see cref="OwnsAsync"/>).
+    /// names a user changes only that user's sessions (<see cref="OwnsAsync"/>); another user's is not found, so no
+    /// answer says that it exists.
     /// </summary>
     private static async Task<IResult?> ManagedAsync(
         Guid id,
@@ -246,9 +258,10 @@ public static class AgentSessionEndpoints
         RequestTenant tenant,
         CancellationToken cancellationToken)
     {
-        if (await store.FindAsync(tenant.Id, id, cancellationToken) is not { } session)
+        if (await store.FindAsync(tenant.Id, id, cancellationToken) is not { } session
+            || !await OwnsAsync(session, user, users, tenant.Id, cancellationToken))
         {
-            return Error(StatusCodes.Status404NotFound, $"no agent session with id {id}");
+            return NotFound(id);
         }
 
         var caller = Rank(user);
@@ -264,7 +277,7 @@ public static class AgentSessionEndpoints
                 $"the session \"{session.Name}\" was not minted by this caller; only its minter or a controller may change it");
         }
 
-        return await OwnsAsync(session, user, users, tenant.Id, cancellationToken) ? null : AnotherUsers(session);
+        return null;
     }
 
     /// <summary>
@@ -277,14 +290,28 @@ public static class AgentSessionEndpoints
         UserStore users,
         Guid tenant,
         CancellationToken cancellationToken)
-        => CallerUser(user) is not { } caller
-           || session.UserId == caller
-           || await users.ManagesAsync(caller, tenant, cancellationToken);
+        => await SessionOwnerAsync(user, users, tenant, cancellationToken) is not { } owner || session.UserId == owner;
 
-    private static IResult AnotherUsers(MintedSession session)
-        => Error(
-            StatusCodes.Status403Forbidden,
-            $"the session \"{session.Name}\" is another user's; only they, or an admin of this workspace, may change it");
+    /// <summary>
+    /// doc 10 <c>/sessions</c> — whose sessions a caller sees and changes: null for every session of the tenant (an admin
+    /// of it, a system administrator, or a credential with no user), else the caller's own user. A principal that names
+    /// two users acts for no one, and <see cref="Guid.Empty"/> owns nothing.
+    /// </summary>
+    internal static async Task<Guid?> SessionOwnerAsync(
+        ClaimsPrincipal user,
+        UserStore users,
+        Guid tenant,
+        CancellationToken cancellationToken)
+    {
+        if (!RequestUser.TryOf(user, out var caller))
+        {
+            return Guid.Empty;
+        }
+
+        return caller is { } id && !await users.ManagesAsync(id, tenant, cancellationToken) ? id : null;
+    }
+
+    private static IResult NotFound(Guid id) => Error(StatusCodes.Status404NotFound, $"no agent session with id {id}");
 
     private static ActorRole? ParseRole(string? role) => role?.Trim().ToLowerInvariant() switch
     {

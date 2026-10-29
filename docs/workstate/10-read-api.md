@@ -51,7 +51,9 @@ Each change journals `member_added` / `member_removed` on the project with the u
 The Sessions page's Release (doc 11 "Releasing a name"): frees the session's name so the next mint
 creates the session fresh. Cookie only and the same `X-WorkState-Write` guard as archiving; a
 bearer token is never evaluated here (a controller uses `POST /api/agent-sessions/{id}/release`,
-doc 14 §2). Answers `200 { "sessionId", "name", "releasedAs" }`; 404 for an unknown id; 409 with the
+doc 14 §2). Answers `200 { "sessionId", "name", "releasedAs" }`; 404 for an unknown id, and for a
+session that is not the caller's (a member releases only their own, as `/api/v1/sessions` lists only
+their own; an admin of the tenant or a system administrator releases any); 409 with the
 refs when the session holds live claims, and 409 for a row already released. Journals
 `session_name_released` with the operator's name, role `human`.
 
@@ -346,6 +348,15 @@ Sessions (doc 11), most recently seen first. `active=true` limits to the last 30
 `token` (added for the Sessions page, additive) is the row's minted token: `none` for a session only
 ever named by header, else whether it is live, revoked or expired. A released row (doc 11) is listed
 under its tombstone name with `revoked`.
+
+**Whose sessions (m62).** A session belongs to no project, so project access does not cover it; it
+belongs to the user it was minted under (`agent_session.user_id`). A **member** sees only their own
+sessions. A **tenant admin** or a **system administrator** sees every session of the tenant (the
+Sessions page releases stuck names with it), and so does a credential with **no user** (a static or
+local token). The rule reads the principal only, like the tenant (rule 7). `claudeSessionId=` and
+`name=` filter within what the caller sees, so Foreman, calling with the OAuth token of the user who
+minted its sessions, still finds its own. Each session's `claims` follow project access as every claim
+does: a claim on an item of a project the caller may not see is not listed.
 
 ### `GET /api/v1/resolve?ref=backlog`
 `{ "asOf": "…", "seq": 1234, "matches": [ItemRef] }` — zero, one or many; the client decides.
