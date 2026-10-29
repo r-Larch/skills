@@ -5,7 +5,7 @@
  *
  *   node verify/state-cases.mjs
  */
-import { CLOSED, LEAF, countTitle, counted, independent, progress, state, tally } from '../src/state.ts'
+import { CLOSED, LEAF, answer, countTitle, counted, independent, progress, state, tally } from '../src/state.ts'
 import { DEFAULT_FILTER, FILTERS, asFilter, cancelledLines, plan, planQuery, withoutCancelled } from '../src/plan.ts'
 import { boardHref, copyValue, itemHref, pathCrumbs, routeReads } from '../src/nav.ts'
 import { appIconHref, consentForm, consentStep, consentView, hiddenFields, iconStep, initials, isConnectPath, returnTarget, scopeLines, signInHref, signInStart, signInStep } from '../src/connect.ts'
@@ -49,6 +49,8 @@ const cases = [
   ['done container (run)', input({ kind: 'run', status: 'done' }), { k: 'proven', label: 'Done' }],
   ['done leaf, independent proof', input({ status: 'done', proof: true }), { k: 'proven', label: 'Verified' }],
   ['done leaf, no independent proof', input({ status: 'done' }), { k: 'claimed', label: 'Done, not verified' }],
+  ['done question, answered (a human verification)', input({ kind: 'question', status: 'done', proof: true }), { k: 'proven', label: 'Answered' }],
+  ['done question, no answer recorded', input({ kind: 'question', status: 'done' }), { k: 'claimed', label: 'Done, not verified' }],
   ['done leaf, proof unknown (ItemRef only)', input({ status: 'done', proof: null }), { k: 'claimed', label: 'Done' }],
   ['open, waiting on an open blocker', input({ waitingOn: ['m7/2.1'] }), { k: 'wait', label: 'Waiting on m7/2.1' }],
   ['ready, waiting on two', input({ status: 'ready', waitingOn: ['a', 'b'] }), { k: 'wait', label: 'Waiting on a, b' }],
@@ -57,6 +59,16 @@ const cases = [
   ['ready', input({ status: 'ready' }), { k: 'idle', label: 'Open' }],
 ]
 for (const [label, i, expected] of cases) check(label, state(i), expected)
+
+console.log('\n── answer(): the decision a done question closed with ───────────────────────')
+const question = (status, notes) => ({ item: { id: 'q', kind: 'question', status }, notes })
+const decision = (body, at, from = 'q', kind = 'decision') => ({ kind, body, from: { id: from }, createdAt: at })
+check('done question, its decision note', answer(question('done', [decision('Use Postgres 17', '2026-10-29T10:00:00Z')])), 'Use Postgres 17')
+check('the latest of two decisions', answer(question('done', [decision('old', '2026-10-28T10:00:00Z'), decision('new', '2026-10-29T10:00:00Z')])), 'new')
+check('a decision from another item is not its answer', answer(question('done', [decision('elsewhere', '2026-10-29T10:00:00Z', 'x')])), null)
+check('an observation is not an answer', answer(question('done', [decision('seen', '2026-10-29T10:00:00Z', 'q', 'observation')])), null)
+check('an open question has no answer yet', answer(question('open', [decision('early', '2026-10-29T10:00:00Z')])), null)
+check('a task has no answer', answer({ ...question('done', [decision('d', '2026-10-29T10:00:00Z')]), item: { id: 'q', kind: 'task', status: 'done' } }), null)
 
 console.log('\n── independent(): who may prove a leaf ──────────────────────────────────────')
 check('passed, run by orchestrator', independent({ passed: true, runBy: 'orchestrator' }), true)

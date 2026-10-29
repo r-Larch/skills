@@ -193,6 +193,11 @@ public sealed partial class WorkWriter(NpgsqlDataSource dataSource, BoardQueries
 
         await ApplyAsync(connection, transaction, item.Id, status, resolution, actor, cancellationToken);
 
+        if (Answered(item, status, args))
+        {
+            await AnswerAsync(connection, transaction, item, actor, args.Reason!.Trim(), cancellationToken);
+        }
+
         var claimLine = status == ItemStatus.InProgress
             ? await AcquireAsync(connection, transaction, item, actor, args.Tree, cancellationToken)
             : await ReleaseAsync(connection, transaction, item, status, cancellationToken);
@@ -238,7 +243,12 @@ public sealed partial class WorkWriter(NpgsqlDataSource dataSource, BoardQueries
             lines.Add($"    backlog {Glyph.Flat(carried)}");
         }
 
-        if (args.Reason is { Length: > 0 })
+        if (Answered(item, status, args))
+        {
+            lines.Add($"    answer  {Glyph.Row(args.Reason, 86)}");
+            lines.Add("            recorded as a human verification and a decision note");
+        }
+        else if (args.Reason is { Length: > 0 })
         {
             lines.Add($"    reason  {Glyph.Row(args.Reason, 86)}");
         }
@@ -331,6 +341,16 @@ public sealed partial class WorkWriter(NpgsqlDataSource dataSource, BoardQueries
         var unmet = DoneGuard.Evaluate(
             await DoneFactsAsync(connection, transaction, item, args.Commit, cancellationToken));
 
+        if (item.Kind == "question" && string.IsNullOrWhiteSpace(args.Reason))
+        {
+            unmet = [
+                .. unmet,
+                new Unmet(
+                    "a question closes with its answer, and none was given",
+                    $"work_status(ref:\"{item.Ref}\", to:\"done\", reason:\"<the answer>\")"),
+            ];
+        }
+
         if (unmet.Count == 0)
         {
             return null;
@@ -351,6 +371,45 @@ public sealed partial class WorkWriter(NpgsqlDataSource dataSource, BoardQueries
     }
 
     /// <summary>The unmet conditions a <c>force</c> went over, so the event records what was skipped.</summary>
+    /// <summary>A question's <c>done</c> carries its answer in <c>reason</c> (doc 01 §4, condition 6).</summary>
+    private static bool Answered(ItemRow item, ItemStatus status, StatusArgs args)
+        => item.Kind == "question" && status == ItemStatus.Done && !string.IsNullOrWhiteSpace(args.Reason);
+
+    /// <summary>
+    /// The answer is the human's decision, so it is recorded as one: a passed <c>run_by = human</c>
+    /// verification, which is what the dashboard reads as proof, and a <c>decision</c> note.
+    /// </summary>
+    private static async Task AnswerAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        ItemRow item,
+        Actor actor,
+        string answer,
+        CancellationToken cancellationToken)
+    {
+        const string sql =
+            """
+            INSERT INTO verification (id, workspace_id, item_id, result_line, passed, run_by, session_id)
+            VALUES (@id, @workspace, @item, @result, true, 'human'::verify_runner, @session);
+            """;
+
+        await connection.ExecuteAsync(new CommandDefinition(
+            sql,
+            new
+            {
+                id = Guid.CreateVersion7(),
+                workspace = item.WorkspaceId,
+                item = item.Id,
+                result = Glyph.Flat(answer),
+                session = actor.SessionId,
+            },
+            transaction,
+            cancellationToken: cancellationToken));
+
+        await InsertNoteAsync(
+            connection, transaction, item.WorkspaceId, actor, NoteKind.Decision, answer, item.Id, null, cancellationToken);
+    }
+
     private async Task<string[]?> ForcedAsync(
         NpgsqlConnection connection,
         NpgsqlTransaction transaction,
