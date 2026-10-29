@@ -123,7 +123,7 @@ public sealed class RlsMigrationTests(PostgresFixture fixture)
 
     private static async Task AssertUpAsync(NpgsqlConnection connection)
     {
-        var tables = TenantRls.Direct.Count + TenantRls.ThroughParent.Count;
+        var tables = TenantTables.Direct.Count + TenantTables.ThroughParent.Count;
         Assert.Equal(new State(tables, tables, TenantRls.Views.Count, true, 2, TenantRls.Leakproof.Count), await StateAsync(connection));
     }
 

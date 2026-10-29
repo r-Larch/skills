@@ -43,7 +43,13 @@ public enum MemberChange
 
     /// <summary>Refused: it would leave the workspace with no admin.</summary>
     LastAdmin,
+
+    /// <summary>Refused: the user is the last member of a project in the workspace (<see cref="MemberRemoval.SoleMemberOf"/>).</summary>
+    LastProjectMember,
 }
+
+/// <summary>A removal, as it came out; <see cref="SoleMemberOf"/> names the projects that refused it.</summary>
+public sealed record MemberRemoval(MemberChange Change, IReadOnlyList<string> SoleMemberOf);
 
 /// <summary>
 /// The admin pages' reads and writes over <c>workspace</c>, <c>tenant_membership</c> and <c>app_user</c>. It
@@ -153,19 +159,22 @@ public sealed class AdminStore(NpgsqlDataSource dataSource)
     }
 
     /// <summary>Sets a member's role, refusing to demote the workspace's last admin.</summary>
-    public Task<MemberChange> SetRoleAsync(Guid tenant, Guid user, string role, CancellationToken cancellationToken)
-        => ChangeAsync(tenant, user, role, cancellationToken);
+    public async Task<MemberChange> SetRoleAsync(Guid tenant, Guid user, string role, CancellationToken cancellationToken)
+        => (await ChangeAsync(tenant, user, role, cancellationToken)).Change;
 
-    /// <summary>Ends a membership, refusing to remove the workspace's last admin.</summary>
-    public Task<MemberChange> RemoveAsync(Guid tenant, Guid user, CancellationToken cancellationToken)
+    /// <summary>
+    /// Ends a membership, refusing to remove the workspace's last admin or the last member of one of its projects.
+    /// The user's project memberships in the workspace go with it: they reference the membership (doc 02 §12b).
+    /// </summary>
+    public Task<MemberRemoval> RemoveAsync(Guid tenant, Guid user, CancellationToken cancellationToken)
         => ChangeAsync(tenant, user, null, cancellationToken);
 
     /// <summary>
     /// One membership change under the workspace row's lock, so two admins demoting each other at once cannot
     /// both see the other still there. <c>NO KEY UPDATE</c> conflicts with itself and not with the key-share lock
-    /// every write referencing the workspace takes.
+    /// every write referencing the workspace takes. A project member's removal takes the same lock.
     /// </summary>
-    private async Task<MemberChange> ChangeAsync(Guid tenant, Guid user, string? role, CancellationToken cancellationToken)
+    private async Task<MemberRemoval> ChangeAsync(Guid tenant, Guid user, string? role, CancellationToken cancellationToken)
     {
         await using var bypass = await _connections.OwnerBypassTransactionAsync(Bypass.Administration, cancellationToken);
         var (connection, transaction) = bypass;
@@ -184,12 +193,12 @@ public sealed class AdminStore(NpgsqlDataSource dataSource)
 
         if (current is null)
         {
-            return MemberChange.NotMember;
+            return new MemberRemoval(MemberChange.NotMember, []);
         }
 
         if (current == role)
         {
-            return MemberChange.Unchanged;
+            return new MemberRemoval(MemberChange.Unchanged, []);
         }
 
         if (current == TenantMembership.Admin)
@@ -202,7 +211,28 @@ public sealed class AdminStore(NpgsqlDataSource dataSource)
 
             if (otherAdmins == 0)
             {
-                return MemberChange.LastAdmin;
+                return new MemberRemoval(MemberChange.LastAdmin, []);
+            }
+        }
+
+        if (role is null)
+        {
+            var soleMemberOf = (await connection.QueryAsync<string>(new CommandDefinition(
+                """
+                SELECT i.ref
+                FROM   project_member pm JOIN item i ON i.id = pm.project_item_id
+                WHERE  pm.workspace_id = @tenant AND pm.user_id = @user
+                  AND  NOT EXISTS (SELECT 1 FROM project_member o
+                                   WHERE o.project_item_id = pm.project_item_id AND o.user_id <> @user)
+                ORDER  BY lower(i.ref);
+                """,
+                new { tenant, user },
+                transaction,
+                cancellationToken: cancellationToken))).AsList();
+
+            if (soleMemberOf.Count > 0)
+            {
+                return new MemberRemoval(MemberChange.LastProjectMember, soleMemberOf);
             }
         }
 
@@ -215,7 +245,7 @@ public sealed class AdminStore(NpgsqlDataSource dataSource)
             cancellationToken: cancellationToken));
 
         await transaction.CommitAsync(cancellationToken);
-        return MemberChange.Changed;
+        return new MemberRemoval(MemberChange.Changed, []);
     }
 
     /// <summary>Every user with their memberships, by name.</summary>

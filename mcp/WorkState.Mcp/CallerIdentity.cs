@@ -20,8 +20,13 @@ public sealed class CallerIdentity(IHttpContextAccessor accessor)
         get
         {
             var role = Role;
+            if (role == Actor.System)
+            {
+                return role;
+            }
 
-            return accessor.HttpContext?.Items[CallerSession.ItemKey] is SessionRef session && role != Actor.System
+            role = role with { UserId = UserId };
+            return accessor.HttpContext?.Items[CallerSession.ItemKey] is SessionRef session
                 ? role with { SessionId = session.Id, Session = session.Name }
                 : role;
         }

@@ -46,6 +46,27 @@ public class TenantMembership
 }
 
 /// <summary>
+/// A user who may work in a project (doc 02 §12b). Every member has full read and write; a project with every
+/// member of its workspace is the tenant-wide one. The user must be a member of the project's workspace: the
+/// key <c>(user_id, workspace_id)</c> references <see cref="TenantMembership"/>, so leaving the workspace ends
+/// the project memberships with it.
+/// </summary>
+public class ProjectMember
+{
+    public Guid ProjectItemId { get; set; }
+
+    public Guid UserId { get; set; }
+
+    /// <summary>The project's workspace, for the row-level policy and the reference to the membership.</summary>
+    public Guid WorkspaceId { get; set; }
+
+    /// <summary>Null when no user added them: the migration, or a project created by a static token.</summary>
+    public Guid? AddedBy { get; set; }
+
+    public DateTimeOffset AddedAt { get; set; }
+}
+
+/// <summary>
 /// A single-use link an administrator copies to someone: an <see cref="Invite"/> into a workspace with a role,
 /// or a <see cref="Reset"/> of one user's password. Only the SHA-256 of its token is kept (C64); the token is
 /// in the create response and nowhere else.

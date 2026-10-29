@@ -374,6 +374,27 @@ no system administrator and every one of whose workspaces they administer — ne
 a membership in a workspace that is not theirs (C63); every refusal, an unknown id included, is the
 same 403.
 
+**Projects: private by default, shared by members (m58).** A project has a member list
+(`project_member`, doc 02 §12b) — the people who may work in it. Every member has full read and
+write; there is no read-only member. A project is **private to its creator** until shared: the user
+whose OAuth token or minted `wss_` session ran `work_create` is its one member. A credential with no
+user — a static token on a local install, or the offline importer — has no creator to name, so the
+project gets **every current member of the workspace**, the same rule the migration applied to every
+project that existed before members did. So does a user who is not a member of the workspace they act
+in (a system administrator visiting it), since only a workspace's members can be project members.
+Sharing is the dashboard's: `GET|POST /api/projects/{id}/members`, `DELETE
+/api/projects/{id}/members/{user}` (doc 10 "Outside v1"), allowed to a member of the project and to
+an admin of its workspace (a system administrator is one of every workspace). Anyone else — a
+member of the workspace who is not in the project, a user of another workspace — gets the 404 an
+unknown id gets, so a private project's existence is not revealed. **Add everyone** (`{"all":
+true}`) is how a project becomes tenant-wide; a member who joins the workspace later is not added
+to its projects. A project keeps at least one member: removing its last is refused (409), and so is
+removing that user from the workspace, naming the projects, until someone else is in each.
+Otherwise leaving a workspace ends its project memberships with it; **disabling a user does not**
+(they may be enabled again). Membership is recorded and shared here; reads and writes are not yet
+filtered by it — every member of a workspace still sees all of its projects until the project-access
+unit enforces it on every path.
+
 **`WORKSTATE_PUBLIC_URL`** (`WorkState:PublicUrl`, **optional**; compose passes
 `${WORKSTATE_PUBLIC_URL:-}`) is the base of the `web` line `work_brief` and `work_get` print
 (doc 01 §8). Unset, the line names the scheme and host the MCP request came in on — from the host

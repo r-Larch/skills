@@ -1039,7 +1039,7 @@ namespace WorkState.Core.Migrations
                         .ValueGeneratedOnAddOrUpdate()
                         .HasColumnType("tsvector")
                         .HasColumnName("search")
-                        .HasComputedColumnSql("setweight(to_tsvector('english', coalesce(heading, '')), 'A') ||\r\nsetweight(to_tsvector('english', body), 'B')", true);
+                        .HasComputedColumnSql("setweight(to_tsvector('english', coalesce(heading, '')), 'A') ||\nsetweight(to_tsvector('english', body), 'B')", true);
 
                     b.Property<decimal>("Seq")
                         .HasColumnType("numeric")
@@ -1386,7 +1386,7 @@ namespace WorkState.Core.Migrations
                         .ValueGeneratedOnAddOrUpdate()
                         .HasColumnType("tsvector")
                         .HasColumnName("search")
-                        .HasComputedColumnSql("setweight(to_tsvector('simple', coalesce(ref, '')), 'A') ||\r\nsetweight(to_tsvector('english', coalesce(title, '')), 'B') ||\r\nsetweight(to_tsvector('english', coalesce(intent, '')), 'C')", true);
+                        .HasComputedColumnSql("setweight(to_tsvector('simple', coalesce(ref, '')), 'A') ||\nsetweight(to_tsvector('english', coalesce(title, '')), 'B') ||\nsetweight(to_tsvector('english', coalesce(intent, '')), 'C')", true);
 
                     b.Property<decimal>("Seq")
                         .HasColumnType("numeric")
@@ -1787,6 +1787,42 @@ namespace WorkState.Core.Migrations
                         .HasName("pk_project_config");
 
                     b.ToTable("project_config", (string)null);
+                });
+
+            modelBuilder.Entity("WorkState.Core.Domain.ProjectMember", b =>
+                {
+                    b.Property<Guid>("ProjectItemId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("project_item_id");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.Property<DateTimeOffset>("AddedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("added_at")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<Guid?>("AddedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("added_by");
+
+                    b.Property<Guid>("WorkspaceId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("workspace_id");
+
+                    b.HasKey("ProjectItemId", "UserId")
+                        .HasName("pk_project_member");
+
+                    b.HasIndex("AddedBy")
+                        .HasDatabaseName("ix_project_member_added_by");
+
+                    b.HasIndex("UserId", "WorkspaceId")
+                        .HasDatabaseName("ix_project_member_user_id_workspace_id");
+
+                    b.ToTable("project_member", (string)null);
                 });
 
             modelBuilder.Entity("WorkState.Core.Domain.ProjectRepo", b =>
@@ -2558,6 +2594,29 @@ namespace WorkState.Core.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("fk_project_config_item_item_id");
+                });
+
+            modelBuilder.Entity("WorkState.Core.Domain.ProjectMember", b =>
+                {
+                    b.HasOne("WorkState.Core.Domain.AppUser", null)
+                        .WithMany()
+                        .HasForeignKey("AddedBy")
+                        .OnDelete(DeleteBehavior.SetNull)
+                        .HasConstraintName("fk_project_member_app_user_added_by");
+
+                    b.HasOne("WorkState.Core.Domain.Item", null)
+                        .WithMany()
+                        .HasForeignKey("ProjectItemId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_project_member_item_project_item_id");
+
+                    b.HasOne("WorkState.Core.Domain.TenantMembership", null)
+                        .WithMany()
+                        .HasForeignKey("UserId", "WorkspaceId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_project_member_tenant_membership_user_id_workspace_id");
                 });
 
             modelBuilder.Entity("WorkState.Core.Domain.ProjectRepo", b =>

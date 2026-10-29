@@ -194,6 +194,11 @@ public sealed partial class WorkWriter
 
             await CriteriaAsync(connection, transaction, row2.Id, wanted.Criteria ?? [], cancellationToken);
 
+            if (kind == "project")
+            {
+                await FirstMembersAsync(connection, transaction, workspaceId, row2.Id, actor.UserId, cancellationToken);
+            }
+
             var restored = await UnarchiveForNewWorkAsync(
                 connection, transaction, workspaceId, row2.Id, reference, actor, cancellationToken);
 

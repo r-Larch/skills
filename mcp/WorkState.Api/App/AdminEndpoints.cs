@@ -98,10 +98,12 @@ public static class AdminEndpoints
                 return refused;
             }
 
-            return await admins.RemoveAsync(id, user, context.RequestAborted) switch
+            var removal = await admins.RemoveAsync(id, user, context.RequestAborted);
+            return removal.Change switch
             {
                 MemberChange.NotMember => NotMember(id),
                 MemberChange.LastAdmin => LastAdmin(id),
+                MemberChange.LastProjectMember => LastProjectMember(removal.SoleMemberOf),
                 _ => Results.NoContent(),
             };
         });
@@ -318,6 +320,13 @@ public static class AdminEndpoints
             StatusCodes.Status409Conflict,
             "That is this workspace's last admin, and a workspace keeps at least one. Make another member an admin first "
             + $"(PUT /api/admin/tenants/{tenant}/members/{{user}} with {{\"role\": \"admin\"}}).");
+
+    private static IResult LastProjectMember(IReadOnlyList<string> projects)
+        => Error(
+            StatusCodes.Status409Conflict,
+            $"That user is the last member of {(projects.Count == 1 ? "the project" : "the projects")} {string.Join(", ", projects)}, "
+            + "and a project keeps at least one. Add another member to each first (POST /api/projects/{id}/members with "
+            + "{\"userId\": …} or {\"all\": true}), then remove the user from the workspace.");
 
     private static IResult Error(int status, string error) => Results.Json(new { error }, statusCode: status);
 }

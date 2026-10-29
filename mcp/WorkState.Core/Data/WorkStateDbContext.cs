@@ -34,6 +34,7 @@ public class WorkStateDbContext(DbContextOptions<WorkStateDbContext> options) : 
     public DbSet<AppUser> Users => Set<AppUser>();
     public DbSet<TenantMembership> TenantMemberships => Set<TenantMembership>();
     public DbSet<UserLink> UserLinks => Set<UserLink>();
+    public DbSet<ProjectMember> ProjectMembers => Set<ProjectMember>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -84,6 +85,17 @@ public class WorkStateDbContext(DbContextOptions<WorkStateDbContext> options) : 
             e.HasIndex(x => x.WorkspaceId).HasDatabaseName("tenant_membership_workspace_idx");
             e.Property(x => x.CreatedAt).HasDefaultValueSql("now()");
             e.ToTable(t => t.HasCheckConstraint("tenant_membership_role_known", "role IN ('admin', 'member')"));
+        });
+
+        b.Entity<ProjectMember>(e =>
+        {
+            e.ToTable("project_member");
+            e.HasKey(x => new { x.ProjectItemId, x.UserId });
+            e.HasOne<Item>().WithMany().HasForeignKey(x => x.ProjectItemId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne<TenantMembership>().WithMany().HasForeignKey(x => new { x.UserId, x.WorkspaceId })
+                .OnDelete(DeleteBehavior.Cascade);
+            e.HasOne<AppUser>().WithMany().HasForeignKey(x => x.AddedBy).OnDelete(DeleteBehavior.SetNull);
+            e.Property(x => x.AddedAt).HasDefaultValueSql("now()");
         });
 
         b.Entity<UserLink>(e =>

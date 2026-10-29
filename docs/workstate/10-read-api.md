@@ -10,7 +10,8 @@ MCP tools are the agents' only write path. The pre-v1 routes (`/api/projects`, `
 tenant (`GET /api/session/tenants`, `POST /api/session/tenant`, below), its user (`GET
 /api/session/me`) and password (`POST /api/session/password`), `/api/stream`, `/api/agent-sessions`
 (doc 14, bearer only), the admin API (`/api/admin/*`) and the invite and reset links
-(`/api/invite/{token}`, `/api/reset/{token}`), all below, and the dashboard's two writes:
+(`/api/invite/{token}`, `/api/reset/{token}`), a project's members (`/api/projects/{id}/members`),
+all below, and the dashboard's two writes:
 
 ### `POST /api/projects/{id}/archive` · `POST /api/projects/{id}/unarchive` (outside v1)
 
@@ -24,6 +25,25 @@ because it needs no token endpoint and no state, and the cookie is `SameSite=Str
 Answers `200 { "id", "ref", "archivedAt": "…" | null, "changed": true }`; 404 for an unknown id;
 400 when the id is not a project. Journals `archived` / `unarchived` with the operator's name, role
 `human`.
+
+### `GET|POST /api/projects/{id}/members` · `DELETE /api/projects/{id}/members/{user}` (outside v1)
+
+A project's members (doc 02 §12b, doc 08 §4 "Projects"), for the dashboard's sharing. **Cookie only**
+— a bearer token gets 401 — in the cookie's workspace and no other (C62); writes carry the
+`X-WorkState-Write` guard. Allowed to a member of the project and to an admin of the workspace (a
+system administrator is one of every workspace). **Anyone else gets the same `404 {error}` as an id
+that is no project** — a member of the workspace who is not in the project, a user of another
+workspace — so a private project's existence is not revealed.
+
+| Route | Answers |
+|---|---|
+| `GET /api/projects/{id}/members` | `200 { projectId, ref, everyone, members: [{ userId, name, addedAt, addedBy, disabledAt }], candidates: [{ userId, name, disabledAt }] }` — `candidates` are the workspace's members not in the project, `everyone` is true when there are none; both by name |
+| `POST /api/projects/{id}/members` `{userId}` · `{all: true}` | `200` the same shape, after adding one member of the workspace, or every one not yet in; `400` for neither or both; `404` when the user is not a member of the workspace. Adding someone already in is `200`, unchanged |
+| `DELETE /api/projects/{id}/members/{user}` | `204`; `404` when the user is not a member of the project; `409` removing the last member |
+
+Each change journals `member_added` / `member_removed` on the project with the users' names, role
+`human`. Removing a user from the workspace (`DELETE /api/admin/tenants/{id}/members/{user}`) is
+`409` too while they are the last member of one of its projects, and names them.
 
 ### `POST /api/sessions/{id}/release` (outside v1)
 
@@ -78,7 +98,7 @@ administrator gets 404 for an id that is no workspace. Errors are `{ "error": "�
 | `POST /api/admin/tenants` `{slug}` | system admin | `201` the same shape; `400` for a slug unlike `default` (lowercase letters and digits, words joined by single hyphens, ≤ 63); `409` when it exists |
 | `GET /api/admin/tenants/{id}/members` | admin of it | `[{ userId, name, role, systemAdmin, joinedAt, disabledAt }]`, admins first |
 | `PUT /api/admin/tenants/{id}/members/{user}` `{role}` | admin of it | `200 { userId, role, changed }`; `400` for a role other than `admin` / `member`; `404` when the user is not a member; `409` demoting the last admin |
-| `DELETE /api/admin/tenants/{id}/members/{user}` | admin of it | `204`; `404`; `409` removing the last admin |
+| `DELETE /api/admin/tenants/{id}/members/{user}` | admin of it | `204`, and the user's project memberships there end with it; `404`; `409` removing the last admin, or the last member of one of its projects (named) |
 | `GET /api/admin/tenants/{id}/invites` | admin of it | the unused, unexpired invites, newest first: `[{ id, role, createdBy, createdAt, expiresAt }]` — never a token |
 | `POST /api/admin/tenants/{id}/invites` `{role}` | admin of it | `201 { id, token, url, role, tenant, expiresAt }` — the **only** answer that carries the token; `url` is `<origin>/join/<token>` |
 | `DELETE /api/admin/tenants/{id}/invites/{invite}` | admin of it | `204`; `404` when that workspace has no such unused invite |

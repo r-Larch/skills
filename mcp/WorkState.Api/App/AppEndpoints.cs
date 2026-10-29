@@ -28,6 +28,7 @@ public static class AppEndpoints
         api.MapResets();
         api.MapAgentSessions();
         api.MapProjectArchive();
+        api.MapProjectMembers();
         api.MapSessionRelease();
 
         // doc 10 rule 5: the stream and the v1 reads take a cookie, an agent token or a reader token.
