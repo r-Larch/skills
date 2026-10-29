@@ -8,6 +8,14 @@ What changes for someone who has the `rlarch` plugin installed, newest first. Fo
 
 ### Changed
 
+- WorkState server **1.1.2** (no plugin change; one migration): one parent-kind rule.
+  `work_create`, `work_move` and `work_import` share the same check. Only a project is top-level,
+  and a feature with no parent is refused. A task may now sit under a task (migration
+  `TaskUnderTask`). Every `work_assume` call that `work_threads`, attention and `work_report` print
+  works when copied as is: an ambiguous bare ref like `A1` is printed run-qualified. Closing a
+  question takes its answer (`work_status(question, done)` records it as a human verification and a
+  decision note). The dashboard shows the question as Answered, and it no longer counts as closed
+  without proof. On a phone the dashboard shows the page first, with the sidebar behind a Menu button.
 - WorkState server **1.1.1** (no plugin change; one migration): fixes found while building 1.1.0. A
   claim made without an agent session belongs to its user, so another user with the same role name
   can no longer retake or extend it. `work_move` refuses a parent the item's kind doesn't allow: a
