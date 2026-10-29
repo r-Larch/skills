@@ -239,12 +239,16 @@ public sealed class ApiQueries(NpgsqlDataSource dataSource)
         return ids.Count == 0 ? [] : await ListAsync<SessionTokenRow>(sql, new { ids = ids.ToArray() }, cancellationToken);
     }
 
-    /// <summary>doc 10 <c>/sessions</c>: most recently seen first; <paramref name="active"/> is the last 30 minutes.</summary>
+    /// <summary>
+    /// doc 10 <c>/sessions</c>: most recently seen first; <paramref name="active"/> is the last 30 minutes, and a
+    /// <paramref name="user"/> keeps that user's sessions only.
+    /// </summary>
     public async Task<IReadOnlyList<SessionRow>> SessionsAsync(
         Guid workspaceId,
         bool active,
         string? name,
         string? claudeSessionId,
+        Guid? user,
         CancellationToken cancellationToken = default)
     {
         const string sql =
@@ -255,12 +259,13 @@ public sealed class ApiQueries(NpgsqlDataSource dataSource)
                AND  (NOT @active OR s.last_seen_at >= now() - interval '30 minutes')
                AND  (@name IS NULL OR s.name = @name)
                AND  (@claude IS NULL OR s.claude_session_id = @claude)
+               AND  (@user::uuid IS NULL OR s.user_id = @user)
              ORDER  BY s.last_seen_at DESC, s.name;
              """;
 
         return await ListAsync<SessionRow>(
             sql,
-            new { workspace = workspaceId, active, name, claude = claudeSessionId },
+            new { workspace = workspaceId, active, name, claude = claudeSessionId, user },
             cancellationToken);
     }
 

@@ -781,6 +781,10 @@ namespace WorkState.Core.Migrations
                         .HasColumnName("heartbeat_at")
                         .HasDefaultValueSql("now()");
 
+                    b.Property<Guid?>("HolderUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("holder_user_id");
+
                     b.Property<Guid>("ItemId")
                         .HasColumnType("uuid")
                         .HasColumnName("item_id");

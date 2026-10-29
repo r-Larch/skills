@@ -758,6 +758,7 @@ CREATE TABLE claim (
   tree         text,                 -- the normalised tree: the caller passed, if any
   writes       boolean NOT NULL DEFAULT true,   -- read-only recon claims do not serialize
   agent_name   text NOT NULL,
+  holder_user_id uuid,               -- the user who took it (Actor.UserId), whatever the key; NULL: no user
   agent_token_id uuid,
   role         actor_role NOT NULL,
   acquired_at  timestamptz NOT NULL DEFAULT now(),
@@ -794,6 +795,13 @@ person's machine, so it locks per **user** too (`key_user_id`, the caller's `Act
 fallback — is the workspace's and blocks across users. A path claimed by a credential with no user keeps
 NULL and is the workspace's, as every path was before m60 (migration `MachineKeys`, which also gave a live
 path claim taken by a session with a user that user).
+
+**The holder.** `holder_user_id` is who took the claim, apart from what it locks: `key_user_id` is the
+lock's key and is NULL for a name, while users share role names (every OAuth controller is
+`controller`). A claim with a session is that session's; one without is the caller's only for the same
+`agent_name` and the same `holder_user_id` (`IS NOT DISTINCT FROM`), so NULL matches only a caller
+with no user — a static or local token, as before. Migration `ClaimHolderUser` (m62) set it on every
+live claim with a session from `agent_session.user_id`; the rest keep NULL.
 
 > **Changed 2026-10-22 (ws/8).** Claims were per run: with no `tree` parameter, every unit of a run
 > fell back to the run's key (`30m lease on "m0"`), so a controller running parallel units in

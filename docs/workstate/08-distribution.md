@@ -169,6 +169,12 @@ They also add the project policies, the access seq with its triggers, and per-us
 rows and claim keys. Each existing root binding is copied to every user who can see its project.
 `/api/stream` also carries the `X-WorkState-Api` header now.
 
+`1.1.1` (no plugin change) fixes three gaps 1.1.0 left open. A claim records its holder's user, so a
+claim made without a session is retaken or extended only by the same user. `work_move` enforces
+`item_kind.allowed_parent_kinds`. Agent sessions are per user for a workspace member (doc 10
+`/sessions`). Its one migration (`ClaimHolderUser`) adds `claim.holder_user_id` and backfills it on
+live claims from their session's user.
+
 ---
 
 ## 3. Should the skills use it? — Yes, and as a **hard** dependency

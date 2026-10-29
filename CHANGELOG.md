@@ -8,6 +8,14 @@ What changes for someone who has the `rlarch` plugin installed, newest first. Fo
 
 ### Changed
 
+- WorkState server **1.1.1** (no plugin change; one migration): fixes found while building 1.1.0. A
+  claim made without an agent session belongs to its user, so another user with the same role name
+  can no longer retake or extend it. `work_move` refuses a parent the item's kind doesn't allow: a
+  project stays a root, and a task sits under a phase or a run. A workspace member sees and changes
+  only their own agent sessions (`/api/v1/sessions`, the dashboard's Release, and
+  `/api/agent-sessions/{id}`); someone else's answers 404 instead of 403. Before, any member could
+  release any session from the Sessions page. Admins and credentials with no user still see every
+  session.
 - WorkState server **1.1.0** (no plugin change; four migrations): private and shared projects. A
   project's work is visible only to its members, which Postgres row-level security enforces; a
   non-member gets the same "not found" as for a ref that doesn't exist. Every existing project
