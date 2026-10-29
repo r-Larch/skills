@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
+using WorkState.Api.Auth;
 using WorkState.Core.Queries;
 using WorkState.Core.Writing;
 using WorkState.Mcp;
@@ -146,13 +147,15 @@ public static partial class ApiV1
         return Results.Ok(new BacklogView(snapshot.AsOf, snapshot.Seq, book.Item(runId), groups));
     }
 
-    /// <summary>doc 11's sessions, most recently seen first, each with what it holds now.</summary>
+    /// <summary>doc 11's sessions, most recently seen first, each with what it holds now; a member sees their own only (doc 10).</summary>
     private static async Task<IResult> SessionsAsync(
         [FromQuery] bool? active,
         [FromQuery] string? name,
         [FromQuery] string? claudeSessionId,
+        HttpContext context,
         BoardQueries board,
         ApiQueries api,
+        UserStore users,
         RequestTenant tenant,
         CancellationToken cancellationToken)
     {
@@ -164,6 +167,7 @@ public static partial class ApiV1
             active == true,
             string.IsNullOrWhiteSpace(name) ? null : name.Trim(),
             string.IsNullOrWhiteSpace(claudeSessionId) ? null : claudeSessionId.Trim(),
+            await AgentSessionEndpoints.SessionOwnerAsync(context.User, users, tenant.Id, cancellationToken),
             cancellationToken);
 
         var claims = await api.SessionClaimsAsync([.. sessions.Select(s => s.Id)], cancellationToken);

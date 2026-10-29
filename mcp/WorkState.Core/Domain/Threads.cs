@@ -119,6 +119,13 @@ public class Claim
     public bool Writes { get; set; } = true;
 
     public string AgentName { get; set; } = "";
+
+    /// <summary>
+    /// The signed-in user who took the claim, whatever its key: what makes a claim with no session the caller's own
+    /// is this and the agent name together, since users share role names. Null for a credential with no user.
+    /// </summary>
+    public Guid? HolderUserId { get; set; }
+
     public Guid? AgentTokenId { get; set; }
     public ActorRole Role { get; set; }
     public DateTimeOffset AcquiredAt { get; set; }

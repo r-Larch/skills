@@ -54,6 +54,7 @@ public sealed partial class WorkWriter
                    CASE WHEN s.ref IS NULL THEN i.ref ELSE s.ref || '/' || i.ref END
                                        AS "QualifiedRef",
                    c.session_id        AS "SessionId",
+                   c.holder_user_id    AS "HolderUserId",
                    coalesce(hs.name, c.agent_name) AS "Holder"
             FROM   claim c
             JOIN   item i ON i.id = c.item_id
@@ -79,7 +80,7 @@ public sealed partial class WorkWriter
             return null;
         }
 
-        var you = live.SessionId is null && actor.SessionId is null && live.AgentName == actor.Name
+        var you = live.SessionId is null && actor.SessionId is null && SameHolder(live, actor)
             ? " — that is you"
             : string.Empty;
 
@@ -116,11 +117,18 @@ public sealed partial class WorkWriter
             [.. routes]);
     }
 
-    /// <summary>The holder re-taking its own item: the same session, or the same name where neither has one.</summary>
+    /// <summary>The holder re-taking its own item: the same session, or the same user and name where the claim has none.</summary>
     private static bool Retakes(ClaimHolder holder, Actor actor)
         => holder.SessionId is { } session
             ? session == actor.SessionId
-            : holder.AgentName == actor.Name;
+            : SameHolder(holder, actor);
+
+    /// <summary>
+    /// Users share role names, so a name alone is not a holder: a claim with no user is the caller's only when the caller
+    /// has none either — a static or local token, as before users.
+    /// </summary>
+    private static bool SameHolder(ClaimHolder holder, Actor actor)
+        => holder.AgentName == actor.Name && holder.HolderUserId == actor.UserId;
 
     /// <summary>
     /// doc 11 — one writer per tree is one session per tree. Only a session can share a tree with
@@ -161,12 +169,13 @@ public sealed partial class WorkWriter
                SET heartbeat_at = now(), expires_at = now() + make_interval(mins => @ttl),
                    session_id = coalesce(@session, session_id)
              WHERE item_id = @item AND released_at IS NULL
-               AND (session_id = @session OR (session_id IS NULL AND agent_name = @agent));
+               AND (session_id = @session
+                    OR (session_id IS NULL AND agent_name = @agent AND holder_user_id IS NOT DISTINCT FROM @user));
             """;
 
         var extended = await connection.ExecuteAsync(new CommandDefinition(
             extend,
-            new { item = item.Id, agent = actor.Name, session = actor.SessionId, ttl },
+            new { item = item.Id, agent = actor.Name, user = actor.UserId, session = actor.SessionId, ttl },
             transaction,
             cancellationToken: cancellationToken));
 
@@ -180,10 +189,10 @@ public sealed partial class WorkWriter
         const string acquire =
             """
             INSERT INTO claim
-                (id, item_id, serialization_key, key_workspace_id, key_user_id, tree, writes, agent_name, role,
-                 acquired_at, heartbeat_at, expires_at, session_id)
-            VALUES (@id, @item, @key, @keyWorkspace, @keyUser, @tree, true, @agent, @role::actor_role,
-                    now(), now(), now() + make_interval(mins => @ttl), @session);
+                (id, item_id, serialization_key, key_workspace_id, key_user_id, tree, writes, agent_name, holder_user_id,
+                 role, acquired_at, heartbeat_at, expires_at, session_id)
+            VALUES (@id, @item, @key, @keyWorkspace, @keyUser, @tree, true, @agent, @user,
+                    @role::actor_role, now(), now(), now() + make_interval(mins => @ttl), @session);
             """;
 
         await connection.ExecuteAsync(new CommandDefinition(
@@ -197,6 +206,7 @@ public sealed partial class WorkWriter
                 keyUser = treeLock.User,
                 tree = treeLock.Tree,
                 agent = actor.Name,
+                user = actor.UserId,
                 role = Pg.Label(actor.Role),
                 ttl,
                 session = actor.SessionId,
@@ -280,13 +290,14 @@ public sealed partial class WorkWriter
               FROM item i
              WHERE i.id = @item
                AND c.released_at IS NULL
-               AND (c.session_id = @session OR (c.session_id IS NULL AND c.agent_name = @agent))
+               AND (c.session_id = @session
+                    OR (c.session_id IS NULL AND c.agent_name = @agent AND c.holder_user_id IS NOT DISTINCT FROM @user))
                AND (c.item_id = i.id OR c.item_id = ANY(i.ancestors));
             """;
 
         await connection.ExecuteAsync(new CommandDefinition(
             sql,
-            new { item = itemId, agent = actor.Name, session = actor.SessionId, ttl },
+            new { item = itemId, agent = actor.Name, user = actor.UserId, session = actor.SessionId, ttl },
             transaction,
             cancellationToken: cancellationToken));
     }

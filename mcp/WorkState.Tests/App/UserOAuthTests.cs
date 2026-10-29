@@ -214,13 +214,12 @@ public sealed class UserOAuthTests(PostgresFixture fixture)
             Assert.Equal(userA, (await db.AgentSessions.SingleAsync(s => s.Id == second, Ct)).UserId);
         }
 
-        // A member changes only what they minted.
+        // A member changes only what they minted; anyone else's session is not found (m62 C, controller decision).
         var refused = await world.Bearer(a).DeleteAsync($"/api/agent-sessions/{theirs}", Ct);
-        Assert.Equal(HttpStatusCode.Forbidden, refused.StatusCode);
-        Assert.Contains("another user's", await ErrorAsync(refused), StringComparison.Ordinal);
-        Assert.Equal(HttpStatusCode.Forbidden, (await PatchAsync(world, a, theirs)).StatusCode);
-        Assert.Equal(HttpStatusCode.Forbidden, (await world.Bearer(a).PostAsync($"/api/agent-sessions/{theirs}/release", null, Ct)).StatusCode);
-        Assert.Equal(HttpStatusCode.Forbidden, (await world.Bearer(a).DeleteAsync($"/api/agent-sessions/{shared}", Ct)).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, refused.StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await PatchAsync(world, a, theirs)).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await world.Bearer(a).PostAsync($"/api/agent-sessions/{theirs}/release", null, Ct)).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await world.Bearer(a).DeleteAsync($"/api/agent-sessions/{shared}", Ct)).StatusCode);
         Assert.Equal(HttpStatusCode.NoContent, (await PatchAsync(world, a, mine)).StatusCode);
 
         // UserAB's own session in B is no session of theirs in A: their A token finds nothing there.

@@ -67,8 +67,9 @@ Rules:
 - **A user's sessions** (m51): a credential that names a user — an OAuth token, or a `wss_` token a
   user minted — adds a rule on top, for PATCH, DELETE and `release` alike: a member changes only the
   sessions that user minted; an admin of the tenant (membership role `admin`) or a system
-  administrator, any session in it; otherwise `403` naming the session as another user's. A static
-  token names no user and keeps the rule above alone.
+  administrator, any session in it; otherwise `404`, with the same body as an unknown id, so the
+  answer never says another user's session exists (m62; it was `403` naming it). The check runs
+  before the minter rule. A static token names no user and keeps the rule above alone.
 - **Revoke** also returns the released claims' `in_progress` items to `ready` and journals
   `claim_revoked`, as the expiry sweep does for an expired claim.
 - Revoked, expired and unknown tokens are refused on `/mcp` itself (HTTP 401), before any tool runs.

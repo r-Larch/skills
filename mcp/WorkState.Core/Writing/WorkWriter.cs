@@ -72,6 +72,7 @@ public sealed partial class WorkWriter(NpgsqlDataSource dataSource, BoardQueries
         string ItemRef,
         string QualifiedRef,
         Guid? SessionId,
+        Guid? HolderUserId,
         string Holder);
 
     /// <summary>
