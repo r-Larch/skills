@@ -4,7 +4,7 @@ import type { SessionHolding } from '../api.ts'
 import { load } from '../store.ts'
 import { ago, plural } from '../format.ts'
 import { formerName, isReleased, releasable, tokenLabel } from '../sessions.ts'
-import { Dot, Known } from '../ui.tsx'
+import { Confirm, Dot, Known } from '../ui.tsx'
 
 /** doc 11's sessions, most recently seen first, each with the operator's Release. */
 export default function Sessions() {
@@ -90,21 +90,18 @@ function ReleaseControl(props: { name: string; id: string; onReleased: () => voi
         Release
       </button>
       <Show when={confirming()}>
-        <div class="confirm" role="alertdialog" aria-label={`Release ${props.name}?`} style={{ 'margin-top': '8px' }}>
-          <p>
-            Release <strong>{props.name}</strong>? Its token stops working and the next launch under this name starts a
-            new session. Nothing is deleted: its claims, evidence and journal stay with the old row, kept under a
-            released name. A session that still holds claims is refused.
-          </p>
-          <div class="confirm-b">
-            <button type="button" class="proj-act danger" disabled={busy()} onClick={() => void release()}>
-              Release
-            </button>
-            <button type="button" class="proj-act" disabled={busy()} onClick={() => setConfirming(false)}>
-              Cancel
-            </button>
-          </div>
-        </div>
+        <Confirm
+          label={`Release ${props.name}?`}
+          action="Release"
+          busy={busy()}
+          onConfirm={() => void release()}
+          onCancel={() => setConfirming(false)}
+          style={{ 'margin-top': '8px' }}
+        >
+          Release <strong>{props.name}</strong>? Its token stops working and the next launch under this name starts a
+          new session. Nothing is deleted: its claims, evidence and journal stay with the old row, kept under a
+          released name. A session that still holds claims is refused.
+        </Confirm>
       </Show>
       <Show when={error()}>{(message) => <div class="failure confirm-err">Couldn't release it: {message()}</div>}</Show>
     </div>
