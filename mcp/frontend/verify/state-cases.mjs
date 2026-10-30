@@ -14,6 +14,7 @@ import { arrange, chordLabel, commands, entryHref, isPaletteChord, isSlash, matc
 import { HANDLE, LIST_MIN, PANEL_MIN, PANEL_SHARE, WIDTH_KEY, clampWidth, docks, panelWidth, rememberWidth, rememberedWidth } from '../src/split.ts'
 import { MEMBERS_ANCHOR, memberLine, membersHref, projectOnPath, shareMarker } from '../src/sharing.ts'
 import { PHONE_QUERY, closesOnMove, pageName } from '../src/menu.ts'
+import { appLine, revokeWarning, sessionsLabel } from '../src/apps.ts'
 import { expiresIn, isLastAdmin, isLinkPath, joinStep, joinToken, nameProblem, passwordMessage, passwordProblem, resetStep, resetToken, roleLabel, showSwitcher, slugFrom, slugProblem } from '../src/admin.ts'
 
 let failures = 0
@@ -496,6 +497,26 @@ check('Manage members on a project page opens its panel', manage && [manage.href
 ])
 check('no Manage members off a project page', commands(projects).some((c) => c.label === 'Manage members'), false)
 check('Manage members by the word share', labels(matchCommands(onPage, 'share')), ['Manage members'])
+
+console.log('── connected apps: the account page rows ───────────────────────────────────')
+const app = (over) => ({
+  id: 'a1',
+  clientId: 'c1',
+  name: 'Claude Code',
+  scopes: ['mcp', 'offline_access'],
+  createdAt: '2026-10-27T12:00:00Z',
+  lastUsedAt: '2026-10-30T11:55:00Z',
+  sessions: 1,
+  ...over,
+})
+const asOf = '2026-10-30T12:00:00Z'
+check('sessions: 0, 1, 2', [0, 1, 2].map(sessionsLabel), ['0 agent sessions', '1 agent session', '2 agent sessions'])
+check('a used app: scopes, connected, last used, sessions', appLine(app({}), asOf), 'mcp offline_access · connected 3d ago · last used 5m ago · 1 agent session')
+check('never used', appLine(app({ lastUsedAt: null, sessions: 0 }), asOf), 'mcp offline_access · connected 3d ago · not used yet · 0 agent sessions')
+check('no creation date', appLine(app({ createdAt: null }), asOf), 'mcp offline_access · last used 5m ago · 1 agent session')
+check('revoke, no sessions', revokeWarning(app({ sessions: 0 })), 'Claude Code will need to sign in again.')
+check('revoke, one session', revokeWarning(app({})), 'Claude Code will need to sign in again, and its agent session stops.')
+check('revoke, three sessions', revokeWarning(app({ sessions: 3 })), 'Claude Code will need to sign in again, and its 3 agent sessions stop.')
 
 console.log(failures === 0 ? '\nAll checks passed.' : `\n${failures} check(s) failed.`)
 if (failures > 0) process.exitCode = 1

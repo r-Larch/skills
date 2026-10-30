@@ -8,6 +8,11 @@ What changes for someone who has the `rlarch` plugin installed, newest first. Fo
 
 ### Changed
 
+- WorkState server **1.1.3** (no plugin change; no migration): Connected apps. The Account page
+  lists the apps that hold your OAuth access in this workspace, with their scopes, when they
+  connected, when they last signed in or refreshed, and how many agent sessions run under each.
+  Revoke signs the app out and stops those sessions, which releases their claims. You see and
+  revoke only your own apps (`GET /api/session/apps`, `POST /api/session/apps/{id}/revoke`).
 - WorkState server **1.1.2** (no plugin change; one migration): one parent-kind rule.
   `work_create`, `work_move` and `work_import` share the same check. Only a project is top-level,
   and a feature with no parent is refused. A task may now sit under a task (migration

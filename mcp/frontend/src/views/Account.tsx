@@ -1,9 +1,12 @@
-import { Show, createSignal } from 'solid-js'
+import { For, Show, createSignal } from 'solid-js'
 import * as api from '../api.ts'
-import { account } from '../store.ts'
+import { account, load } from '../store.ts'
 import { PASSWORD_MIN, type PasswordChange, passwordMessage, passwordProblem } from '../admin.ts'
+import { type ConnectedApp, appLine, revokeWarning } from '../apps.ts'
+import { type IconState, iconStep, initials } from '../connect.ts'
+import { Confirm, Known } from '../ui.tsx'
 
-/** `/account` (doc 13): who is signed in, and the password change. */
+/** `/account` (doc 13): who is signed in, the apps that hold their access, and the password change. */
 export default function Account() {
   const [current, setCurrent] = createSignal('')
   const [next, setNext] = createSignal('')
@@ -58,6 +61,8 @@ export default function Account() {
         </div>
       </div>
 
+      <ConnectedApps />
+
       <form class="panel account-form" onSubmit={(event) => void submit(event)}>
         <div class="panel-h">
           <h2>Change password</h2>
@@ -83,5 +88,93 @@ export default function Account() {
         </div>
       </form>
     </div>
+  )
+}
+
+/** The user's OAuth approvals in this workspace, most recently used first, each with Revoke. */
+function ConnectedApps() {
+  const [tick, setTick] = createSignal(0)
+  const page = load(() => String(tick()), () => api.connectedApps(), { live: false })
+
+  return (
+    <div class="panel account-apps">
+      <div class="panel-h">
+        <h2>Connected apps</h2>
+      </div>
+      <Show when={page.error()}>{(e) => <div class="failure">{e()}</div>}</Show>
+      <Known value={page.data()}>
+        {(p) => (
+          <For each={p().apps} fallback={<div class="empty">No apps hold access to this workspace.</div>}>
+            {(app) => <AppRow app={app} asOf={p().asOf} onRevoked={() => setTick((n) => n + 1)} />}
+          </For>
+        )}
+      </Known>
+    </div>
+  )
+}
+
+function AppRow(props: { app: ConnectedApp; asOf: string; onRevoked: () => void }) {
+  const [confirming, setConfirming] = createSignal(false)
+  const [busy, setBusy] = createSignal(false)
+  const [error, setError] = createSignal<string>()
+
+  const revoke = async () => {
+    setBusy(true)
+    setError(undefined)
+    try {
+      await api.revokeApp(props.app.id)
+      setConfirming(false)
+      props.onRevoked()
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : String(failure))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div class="row">
+      <AppIcon clientId={props.app.clientId} name={props.app.name} />
+      <div>
+        <div class="row-t">{props.app.name}</div>
+        <div class="row-m">{appLine(props.app, props.asOf)}</div>
+        <Show when={confirming()}>
+          <Confirm
+            label={`Revoke ${props.app.name}?`}
+            action="Revoke"
+            busy={busy()}
+            onConfirm={() => void revoke()}
+            onCancel={() => setConfirming(false)}
+            style={{ 'margin-top': '8px' }}
+          >
+            Revoke <strong>{props.app.name}</strong>? {revokeWarning(props.app)}
+          </Confirm>
+        </Show>
+        <Show when={error()}>{(message) => <div class="failure confirm-err">Couldn't revoke it: {message()}</div>}</Show>
+      </div>
+      <button type="button" class="proj-act" disabled={busy() || confirming()} onClick={() => setConfirming(true)}>
+        Revoke
+      </button>
+    </div>
+  )
+}
+
+/** The consent page's icon for the client, or its initials when it declared none. */
+function AppIcon(props: { clientId: string; name: string }) {
+  const [icon, setIcon] = createSignal<IconState>(props.clientId ? 'loading' : 'initials')
+
+  return (
+    <span class="app-ic" aria-hidden="true">
+      <Show when={props.clientId}>
+        <img
+          src={`/connect/app-icon?client_id=${encodeURIComponent(props.clientId)}`}
+          alt=""
+          hidden={icon() !== 'image'}
+          onLoad={() => setIcon(iconStep(icon(), 'load'))}
+          onError={() => setIcon(iconStep(icon(), 'error'))}
+        />
+      </Show>
+      <Show when={icon() !== 'image'}>{initials(props.name)}</Show>
+    </span>
   )
 }
