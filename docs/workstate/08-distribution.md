@@ -180,6 +180,10 @@ alike. Only a project is a root. Its one migration (`TaskUnderTask`) lets a task
 which 19 live rows already did. It also makes printed assumption refs callable, records a
 question's answer when it closes, and gives the dashboard a phone layout.
 
+`1.1.3` (no plugin change, no migration) adds Connected apps to the Account page: a user lists
+the OAuth authorizations they hold in the workspace and revokes one, which also revokes the agent
+sessions minted under it.
+
 ---
 
 ## 3. Should the skills use it? — Yes, and as a **hard** dependency
