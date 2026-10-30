@@ -283,17 +283,35 @@ public static class OAuthServer
                                 ?? throw new InvalidOperationException("No HTTP request on the OpenIddict transaction."))
                     .HttpContext.RequestServices;
 
-                var authorizations = services.GetRequiredService<IOpenIddictAuthorizationManager>();
-                if (await authorizations.FindByIdAsync(id, context.CancellationToken) is { } authorization)
-                {
-                    await authorizations.TryRevokeAsync(authorization, context.CancellationToken);
-                    await services.GetRequiredService<IOpenIddictTokenManager>()
-                        .RevokeByAuthorizationIdAsync(id, context.CancellationToken);
-                }
+                await RevokeAuthorizationAsync(
+                    services.GetRequiredService<IOpenIddictAuthorizationManager>(),
+                    services.GetRequiredService<IOpenIddictTokenManager>(),
+                    id,
+                    context.CancellationToken);
             })
             .SetOrder(OpenIddictServerHandlers.Revocation.RevokeToken.Descriptor.Order + 1000)
             .SetType(OpenIddictServerHandlerType.Custom)
             .Build();
+
+    /// <summary>
+    /// Ends an authorization and every token issued under it, and so every <c>wss_</c> session minted with one of them
+    /// (<c>SessionStore.AuthenticateAsync</c>): a client's sign-out at <see cref="RevokePath"/>, and the dashboard's
+    /// Revoke (<see cref="ConnectedApps"/>). The count of tokens revoked, or null when there is no such authorization.
+    /// </summary>
+    public static async Task<long?> RevokeAuthorizationAsync(
+        IOpenIddictAuthorizationManager authorizations,
+        IOpenIddictTokenManager tokens,
+        string id,
+        CancellationToken cancellationToken)
+    {
+        if (await authorizations.FindByIdAsync(id, cancellationToken) is not { } authorization)
+        {
+            return null;
+        }
+
+        await authorizations.TryRevokeAsync(authorization, cancellationToken);
+        return await tokens.RevokeByAuthorizationIdAsync(id, cancellationToken);
+    }
 
     /// <summary>
     /// The audience check, as <c>AddAudiences</c> would make it if the audience were fixed: OpenIddict's own

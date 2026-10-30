@@ -8,7 +8,8 @@ MCP tools are the agents' only write path. The pre-v1 routes (`/api/projects`, `
 `/api/runs/{ref}/tree|brief|journal`) were removed once the new dashboard stopped calling them (unit
 `mature/prev1-removal`). Outside v1, `/api` keeps `POST|DELETE /api/session` (sign-in), the cookie's
 tenant (`GET /api/session/tenants`, `POST /api/session/tenant`, below), its user (`GET
-/api/session/me`) and password (`POST /api/session/password`), `/api/stream`, `/api/agent-sessions`
+/api/session/me`), password (`POST /api/session/password`) and connected apps (`GET /api/session/apps`,
+`POST /api/session/apps/{id}/revoke`), `/api/stream`, `/api/agent-sessions`
 (doc 14, bearer only), the admin API (`/api/admin/*`) and the invite and reset links
 (`/api/invite/{token}`, `/api/reset/{token}`), a project's members (`/api/projects/{id}/members`),
 all below, and the dashboard's two writes:
@@ -86,6 +87,21 @@ re-issued with the user's new security stamp; a bare `401`, as sign-in gives, wh
 dashboard tells it from a lapsed session by asking `GET /api/session`); `400 {error}` for a `next`
 under 12 characters. The user's other cookies are signed out at their next request (doc 08 §4
 "Passwords"); OAuth tokens and minted sessions are not.
+
+### `GET /api/session/apps` · `POST /api/session/apps/{id}/revoke` (outside v1)
+
+Cookie only: a bearer token, static or OAuth, gets 401, as on `/api/session/password`. The cookie's user's valid OAuth approvals in the
+cookie's tenant, never another user's or another tenant's (m65). `GET` answers `200 { "asOf", "apps": [{ "id",
+"clientId", "name", "scopes", "createdAt", "lastUsedAt", "sessions" }] }`, most recently used first: `name` is the
+client's display name, else its client id; `lastUsedAt` is when the newest token under the approval was issued (a
+sign-in or a refresh), or null; `sessions` counts the live `wss_` sessions minted with its tokens. No token or
+secret is ever in it.
+
+`POST …/revoke` carries the `X-WorkState-Write` guard. It revokes the approval and every token under it — the same
+method a client's sign-out at `/connect/revoke` runs — then each live session minted under it, as the user, which
+releases their claims (doc 11). `200 { "tokensRevoked", "sessionsRevoked" }`. An id that is not one of the
+caller's valid approvals in this tenant — another user's, another tenant's, unknown or already revoked — is
+`404 {error}`, never 403, and nothing changes.
 
 ### `/api/admin/*` (outside v1)
 

@@ -128,7 +128,7 @@ public static class OAuthEndpoints
             : Results.LocalRedirect(ConsentUrl(await AuthorizeUrlAsync(http.Request)));
     }
 
-    private static bool IsFor(ImmutableDictionary<string, JsonElement> properties, Guid tenant)
+    internal static bool IsFor(ImmutableDictionary<string, JsonElement> properties, Guid tenant)
         => properties.TryGetValue(TenantProperty, out var value)
            && value.ValueKind == JsonValueKind.String
            && Guid.TryParse(value.GetString(), out var approved)

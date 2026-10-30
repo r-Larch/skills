@@ -180,3 +180,26 @@ export const Legend = () => (
     <span><i style={{ background: 'var(--idle)' }} />Open</span>
   </div>
 )
+
+/** The inline ask before a write (doc 13): what it does in the children, then the action and Cancel. */
+export const Confirm = (props: {
+  label: string
+  action: string
+  busy: boolean
+  onConfirm: () => void
+  onCancel: () => void
+  children: JSX.Element
+  style?: JSX.CSSProperties
+}) => (
+  <div class="confirm" role="alertdialog" aria-label={props.label} style={props.style}>
+    <p>{props.children}</p>
+    <div class="confirm-b">
+      <button type="button" class="proj-act danger" disabled={props.busy} onClick={() => props.onConfirm()}>
+        {props.action}
+      </button>
+      <button type="button" class="proj-act" disabled={props.busy} onClick={() => props.onCancel()}>
+        Cancel
+      </button>
+    </div>
+  </div>
+)

@@ -1,5 +1,6 @@
 import { createSignal } from 'solid-js'
 import type { InviteView, PasswordChange, ResetView } from './admin.ts'
+import type { ConnectedApps, RevokedApp } from './apps.ts'
 import type { AppInfo, SessionTenant } from './connect.ts'
 import type { Sharing } from './sharing.ts'
 
@@ -538,6 +539,13 @@ export async function removeProjectMember(project: string, user: string): Promis
 export async function setArchived(project: string, archived: boolean): Promise<void> {
   await write(`/api/projects/${id(project)}/${archived ? 'archive' : 'unarchive'}`)
 }
+
+/** The signed-in user's OAuth approvals in this workspace (doc 13). */
+export const connectedApps = () => json<ConnectedApps>('/api/session/apps')
+
+/** Ends the approval, every token under it and the agent sessions minted with them. */
+export const revokeApp = async (app: string): Promise<RevokedApp> =>
+  (await write(`/api/session/apps/${id(app)}/revoke`)).json() as Promise<RevokedApp>
 
 /** Frees the session's name for the next mint; the row stays, renamed, for its history (doc 11). */
 export const releaseSession = async (session: string): Promise<Released> =>

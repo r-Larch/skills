@@ -57,6 +57,13 @@ use. `PATCH` / `DELETE` / `release` keep the role rule above, and a credential t
 one: a member changes only the sessions they minted; an admin of the tenant, or a system
 administrator, any session in it.
 
+**Revoked with the app that minted it (2026-10-30, m65).** A session minted with an OAuth token records its
+authorization (`minted_by_authorization_id`) and authenticates only while that authorization is valid. When the
+user revokes the app on the dashboard's Account page (`POST /api/session/apps/{id}/revoke`, doc 10), each live
+session minted under it is revoked as `DELETE /api/agent-sessions/{id}` revokes one: its row reads revoked and its
+claims are released and journalled, with the user as the actor and `human` as the role. A client's own sign-out at
+`/connect/revoke` ends the authorization the same way, and its sessions stop authenticating.
+
 **Or by naming itself (2026-10-26, unit `mature/session-names`).** A hand-started session shares the
 user-scope static registration, so it has no header of its own — and a fixed `X-WorkState-Agent` in
 `~/.claude.json` would give every session the same name. The registration's `headersHelper`,

@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Mvc;
 using WorkState.Api.App.V1;
 using WorkState.Api.Auth;
+using WorkState.Api.Auth.OAuth;
 using WorkState.Mcp;
 
 namespace WorkState.Api.App;
@@ -137,6 +138,9 @@ public static class AppEndpoints
                 DashboardAuth.Principal(signedIn, RequestTenant.Of(context.User)!.Value, stamp));
             return Results.NoContent();
         }).RequireRateLimiting(RateLimits.Password);
+
+        api.MapGet("/session/apps", ConnectedApps.ListAsync).RequireAuthorization(DashboardAuth.Policy);
+        api.MapGroup("/session/apps").DashboardWrite().MapPost("/{id}/revoke", ConnectedApps.RevokeAsync);
 
         api.MapDelete("/session", async (HttpContext context) =>
         {

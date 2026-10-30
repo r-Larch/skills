@@ -42,6 +42,9 @@ public sealed record TokenSession(
     IReadOnlyList<string> Grants,
     Guid? UserId = null);
 
+/// <summary>A live session and the OAuth authorization whose token minted it.</summary>
+public sealed record MintedUnder(string AuthorizationId, Guid SessionId);
+
 /// <summary>What the endpoints need to judge who may PATCH or DELETE a session.</summary>
 public sealed record MintedSession(Guid Id, string Name, ActorRole? GrantedRole, Guid? MintedBySessionId, Guid? UserId = null);
 
@@ -345,6 +348,36 @@ public sealed partial class SessionStore
             : null;
     }
 
+    /// <summary>The workspace's live sessions minted with a token of one of <paramref name="authorizationIds"/>.</summary>
+    public async Task<IReadOnlyList<MintedUnder>> LiveMintedUnderAsync(
+        Guid workspaceId,
+        IReadOnlyCollection<string> authorizationIds,
+        CancellationToken cancellationToken = default)
+    {
+        if (authorizationIds.Count == 0)
+        {
+            return [];
+        }
+
+        const string sql =
+            """
+            SELECT minted_by_authorization_id AS "AuthorizationId", id AS "SessionId"
+            FROM   agent_session
+            WHERE  workspace_id = @workspace
+              AND  minted_by_authorization_id = ANY(@ids)
+              AND  revoked_at IS NULL
+              AND  token_expires_at > now();
+            """;
+
+        await using var tenant = await _connections.TenantAsync(cancellationToken);
+        var rows = await tenant.Connection.QueryAsync<MintedUnder>(new CommandDefinition(
+            sql,
+            new { workspace = workspaceId, ids = authorizationIds.ToArray() },
+            cancellationToken: cancellationToken));
+
+        return rows.AsList();
+    }
+
     /// <summary>doc 11 — a change of Claude session under one name is kept as history.</summary>
     public async Task SetClaudeSessionAsync(
         Guid sessionId,
@@ -385,7 +418,11 @@ public sealed partial class SessionStore
     /// released claim is handled as an expired one is (<see cref="Housekeeping.SweepAsync"/>): its
     /// item returns to <c>ready</c> and the journal says why, so the frontier offers it again.
     /// </summary>
-    public async Task RevokeAsync(Guid sessionId, ActorRole role, CancellationToken cancellationToken = default)
+    public Task RevokeAsync(Guid sessionId, ActorRole role, CancellationToken cancellationToken = default)
+        => RevokeAsync(sessionId, new Actor(Pg.Label(role), role), cancellationToken);
+
+    /// <inheritdoc cref="RevokeAsync(Guid, ActorRole, CancellationToken)"/>
+    public async Task RevokeAsync(Guid sessionId, Actor actor, CancellationToken cancellationToken = default)
     {
         const string sql =
             """
@@ -426,7 +463,7 @@ public sealed partial class SessionStore
 
         await connection.ExecuteAsync(new CommandDefinition(
             sql,
-            new { session = sessionId, actor = Pg.Label(role), role = Pg.Label(role), name },
+            new { session = sessionId, actor = actor.Name, role = Pg.Label(actor.Role), name },
             transaction,
             cancellationToken: cancellationToken));
 
