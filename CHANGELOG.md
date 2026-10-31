@@ -8,6 +8,11 @@ What changes for someone who has the `rlarch` plugin installed, newest first. Fo
 
 ### Changed
 
+- **rlarch 2.8.2: skills name what they create under a project or its backlog, and link it for you.**
+  `controller`, `orchestrate` and `workstate` pass `ref:` (a short kebab name) when they create a run
+  under a project or a followup in the backlog, which WorkState now requires there. When they tell you
+  about an item they name it by that ref as a link, `[voice-buffer-cap](<base>/r/<full ref>)`, built
+  from the `web` base the server prints, instead of a bare `1/2`.
 - WorkState server **1.1.3** (no plugin change; no migration): Connected apps. The Account page
   lists the apps that hold your OAuth access in this workspace, with their scopes, when they
   connected, when they last signed in or refreshed, and how many agent sessions run under each.

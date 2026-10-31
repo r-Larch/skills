@@ -89,7 +89,7 @@ You cannot budget without prices. Rough order of magnitude:
 
 4. **Create the run in the store.** One `work_create` call per level, top-down, reading the refs each call prints back before the next — a parent must already exist when its children are created:
    - the **project**, only when `work_brief(repo: …)` says this repo is not bound to one — with `repo:` the same `{remote, root}`, exactly as its NEXT line prints it. If it belongs to a project that exists, bind it with `work_update(ref, repo:)` instead; never create a second project for a repo;
-   - a **run** under it — `parent:` the project ref, `ref:` a short slug of your choosing, `intent:` the goal paragraph;
+   - a **run** under it — `parent:` the project ref, `ref:` a short kebab slug of your choosing (the server refuses an unnamed item under a project or its backlog), `intent:` the goal paragraph;
    - the **phases** (`parent:` the run ref), then the **tasks** (`parent:` their phase ref), per `references/decompose.md`.
 
    Then write the run's **binding rules** — the repo's safety rules, stack facts, verification commands and hazards — once, with `work_constrain(scope: "<run ref>", kind: …, text: …)`. They render into the BINDING block of every brief in the run, so no brief restates them. A `red_line` must carry a `route:` — what to do instead, or who to ask.
