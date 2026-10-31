@@ -3,7 +3,7 @@ import { acceptInvite, inviteInfo, signOut } from './api.ts'
 import { type InviteView, type JoinEvent, type JoinState, PASSWORD_MIN, joinStep, joinToken, nameProblem, passwordProblem, roleLabel } from './admin.ts'
 import { day } from './format.ts'
 import Gate from './Gate.tsx'
-import { CheckIcon } from './icons.tsx'
+import { Brand } from './brand.tsx'
 
 /**
  * `/join/{token}`, the page an invite link opens — outside the dashboard's router, store and stream, and in
@@ -52,10 +52,7 @@ export default function Join() {
         <div class="gate-wrap">
           <div class="panel gate consent">
             <div class="brand">
-              <span class="brand-mark">
-                <CheckIcon size={16} weight={2.6} />
-              </span>
-              <span class="brand-name">WorkState</span>
+              <Brand ground="theme" />
             </div>
             <Switch>
               <Match when={state().k === 'loading'}>
@@ -66,7 +63,7 @@ export default function Join() {
                   <>
                     <p class="consent-title">{text()}</p>
                     <p class="consent-note">
-                      <a href="/">Open WorkState</a>
+                      <a href="/">Open Workman</a>
                     </p>
                   </>
                 )}

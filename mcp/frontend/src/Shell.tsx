@@ -7,7 +7,8 @@ import { countTitle, counted, tally } from './state.ts'
 import { ACCOUNT, ADMIN, projectHref, runHref } from './nav.ts'
 import { clock, short } from './format.ts'
 import { ProjectName } from './ui.tsx'
-import { ActivityIcon, AdminIcon, CheckIcon, InboxIcon, MenuIcon, OverviewIcon, SearchIcon, SessionsIcon } from './icons.tsx'
+import { ActivityIcon, AdminIcon, InboxIcon, MenuIcon, OverviewIcon, SearchIcon, SessionsIcon } from './icons.tsx'
+import { Brand, BrandIcon } from './brand.tsx'
 import { PHONE_QUERY, closesOnMove, pageName } from './menu.ts'
 import { showSwitcher } from './admin.ts'
 import { switchFailure, switchWorkspace } from './tenant.ts'
@@ -102,8 +103,8 @@ export default function Shell(props: ParentProps) {
         >
           <MenuIcon />
         </button>
-        <A href="/" class="brand-mark" aria-label="WorkState overview">
-          <CheckIcon size={16} weight={2.6} />
+        <A href="/" class="brand-mark" aria-label="Workman overview">
+          <BrandIcon />
         </A>
         <span class="topbar-page">{pageName(location.pathname, overview()?.projects)}</span>
         <button
@@ -125,10 +126,7 @@ export default function Shell(props: ParentProps) {
 
       <aside class="side" id="side" ref={side}>
         <A href="/" class="brand">
-          <span class="brand-mark">
-            <CheckIcon size={16} weight={2.6} />
-          </span>
-          <span class="brand-name">WorkState</span>
+          <Brand ground="dark" />
         </A>
 
         <TenantSwitcher />

@@ -22,7 +22,8 @@ import {
   signInStep,
 } from './connect.ts'
 import Gate from './Gate.tsx'
-import { CheckIcon, LinkIcon } from './icons.tsx'
+import { LinkIcon } from './icons.tsx'
+import { BrandIcon, Brand as WorkmanBrand } from './brand.tsx'
 
 /**
  * The OAuth authorize step's two pages, outside the dashboard's router and store: an MCP client sent the
@@ -56,7 +57,7 @@ function SignIn() {
         <Notice>This sign-in link does not lead back to an authorization request. Start the connection again from your MCP client.</Notice>
       </Match>
       <Match when={state().k === 'form'}>
-        <Gate intro="Sign in to connect an MCP client to this WorkState." onSignedIn={() => step({ t: 'signed-in' })} />
+        <Gate intro="Sign in to connect an MCP client to this Workman." onSignedIn={() => step({ t: 'signed-in' })} />
       </Match>
       <Match when={true}>
         <Notice quiet>Continuing…</Notice>
@@ -117,7 +118,7 @@ function Consent() {
           <Show when={view().client} fallback={<p class="consent-title muted">Loading the client…</p>}>
             {(client) => (
               <p class="consent-title">
-                <strong>{client()}</strong> wants to connect to your WorkState.
+                <strong>{client()}</strong> wants to connect to your Workman.
               </p>
             )}
           </Show>
@@ -125,7 +126,7 @@ function Consent() {
           <Show when={view().client !== null}>
             <div class="consent-sec">
               <h2>Workspace</h2>
-              <Show when={view().tenant} fallback={<p class="bad">WorkState could not say which workspace this connection is for. Deny, then start again.</p>}>
+              <Show when={view().tenant} fallback={<p class="bad">Workman could not say which workspace this connection is for. Deny, then start again.</p>}>
                 {(tenant) => (
                   <p>
                     It acts in <strong class="wrap">{tenant().slug}</strong> and in no other workspace.
@@ -158,7 +159,7 @@ function Consent() {
                 )}
               </Show>
               <p class="consent-note">
-                <Show when={view().declaredBy} fallback={<>The name is the one the client registered itself under; WorkState cannot vouch for it.</>}>
+                <Show when={view().declaredBy} fallback={<>The name is the one the client registered itself under; Workman cannot vouch for it.</>}>
                   {(host) => (
                     <>
                       The name is published by <strong class="wrap">{host()}</strong>.
@@ -200,7 +201,7 @@ function Consent() {
             </button>
           </div>
 
-          <p class="consent-note">WorkState remembers an approval for this client in this workspace, so its next connection here does not ask again.</p>
+          <p class="consent-note">Workman remembers an approval for this client in this workspace, so its next connection here does not ask again.</p>
         </form>
       </div>
     </Show>
@@ -208,7 +209,7 @@ function Consent() {
 }
 
 /**
- * The client's tile, a connector, WorkState's mark. The image is in the page from the start, hidden, so it
+ * The client's tile, a connector, Workman's mark. The image is in the page from the start, hidden, so it
  * loads alongside app-info; the tile stays a placeholder until both have answered.
  */
 function Peers(props: { client: string | null }) {
@@ -240,7 +241,7 @@ function Peers(props: { client: string | null }) {
         <i />
       </span>
       <span class="peer peer-self">
-        <CheckIcon size={24} weight={2.6} />
+        <BrandIcon />
       </span>
     </div>
   )
@@ -249,10 +250,7 @@ function Peers(props: { client: string | null }) {
 function Brand() {
   return (
     <div class="brand">
-      <span class="brand-mark">
-        <CheckIcon size={16} weight={2.6} />
-      </span>
-      <span class="brand-name">WorkState</span>
+      <WorkmanBrand ground="theme" />
     </div>
   )
 }

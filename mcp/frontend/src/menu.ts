@@ -30,7 +30,7 @@ export function pageName(pathname: string, projects: ProjectOverview[] | undefin
   }
 
   if (section === 'items' && id) return 'Item'
-  return 'WorkState'
+  return 'Workman'
 }
 
 /** The menu closes on any move to another page, a query change included; a re-render on the same URL keeps it. */
