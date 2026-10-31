@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Text.Json.Serialization;
 using Dapper;
 using Npgsql;
@@ -15,7 +16,10 @@ namespace WorkState.Core.Writing;
 public sealed record NewItemArg(
     [property: JsonPropertyName("kind")] string Kind,
     [property: JsonPropertyName("title")] string Title,
-    [property: JsonPropertyName("ref")] string? Ref = null,
+    [property: JsonPropertyName("ref")]
+    [property: Description("Required under a project or its backlog: a short kebab name, e.g. voice-buffer-cap. "
+                           + "Inside any other run, omit it for a number.")]
+    string? Ref = null,
     [property: JsonPropertyName("parent")] string? Parent = null,
     [property: JsonPropertyName("intent")] string? Intent = null,
     [property: JsonPropertyName("verify_cmd")] string? VerifyCmd = null,
@@ -90,6 +94,8 @@ public sealed partial class WorkWriter
         var ladder = await LadderAsync(connection, transaction, cancellationToken);
         var written = new List<string>();
         var created = new List<(int Line, Guid Id, string Ref, string Tail)>();
+        var unnamed = new List<Unmet>();
+        var suggested = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var wanted in items)
         {
@@ -145,6 +151,7 @@ public sealed partial class WorkWriter
 
             Guid? parentId = null;
             ScopeRefLite? parent = null;
+            var named = false;
 
             if (!Blank(wanted.Parent))
             {
@@ -157,6 +164,7 @@ public sealed partial class WorkWriter
                 parentId = found.Id;
                 var row = await LoadAsync(connection, transaction, found.Id, cancellationToken);
                 parent = new ScopeRefLite(row.Id, row.Ref, row.RefScopeId);
+                named = await NamesItsChildrenAsync(connection, transaction, row, cancellationToken);
             }
 
             var misplaced = await ParentKindRefusalAsync(
@@ -181,6 +189,18 @@ public sealed partial class WorkWriter
             var refScope = parent is null
                 ? null
                 : parent.RefScopeId == parent.Id ? parent.Id : parent.RefScopeId;
+
+            if (named && Blank(wanted.Ref))
+            {
+                var slug = await FreeSlugAsync(
+                    connection, transaction, workspaceId, parent, refScope, rules.ScopesRefs,
+                    RefSlug.From(wanted.Title, kind), suggested, cancellationToken);
+                suggested.Add(slug);
+                unnamed.Add(new Unmet(
+                    $"{kind} \"{Glyph.Row(wanted.Title, 60)}\" has no ref: under {parent!.Ref} the ref is the name a "
+                    + "human reads, and a number says nothing",
+                    $"work_create(items:[{{kind:\"{kind}\", parent:\"{wanted.Parent!.Trim()}\", ref:\"{slug}\", title:\"…\", …}}])"));
+            }
 
             var reference = Blank(wanted.Ref)
                 ? await DerivedRefAsync(
@@ -273,6 +293,14 @@ public sealed partial class WorkWriter
             }
 
             written.AddRange(restored.Select(r => $"          project {r} unarchived — new work arrived"));
+        }
+
+        if (unnamed.Count > 0)
+        {
+            return WriteResult.No(Refusal.Blocked(
+                $"work_create(items:[…]): {unnamed.Count} item(s) under a project or its backlog without a ref. "
+                + "Nothing was written.",
+                unnamed));
         }
 
         await transaction.CommitAsync(cancellationToken);
@@ -836,6 +864,53 @@ public sealed partial class WorkWriter
             ? await FreeSiblingRefAsync(
                 connection, transaction, workspaceId, parent?.Id, refScopeId, shape, cancellationToken)
             : await FreeRefAsync(connection, transaction, workspaceId, refScopeId, shape, cancellationToken);
+    }
+
+    /// <summary>
+    /// A project and its backlog run hold work a human picks from by name; every other run numbers its
+    /// children, because there the number is the plan's order.
+    /// </summary>
+    private static async Task<bool> NamesItsChildrenAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        ItemRow parent,
+        CancellationToken cancellationToken)
+    {
+        if (parent.Kind == "project")
+        {
+            return true;
+        }
+
+        if (parent.Kind != "run" || parent.ParentId is not { } holder
+            || (await LoadAsync(connection, transaction, holder, cancellationToken)).Kind != "project")
+        {
+            return false;
+        }
+
+        var backlog = await ExistingBacklogRunAsync(connection, transaction, holder, Guid.Empty, cancellationToken);
+        return backlog?.Id == parent.Id;
+    }
+
+    /// <summary><paramref name="slug"/>, or its first free variant, skipping refs this batch has already suggested.</summary>
+    private static Task<string> FreeSlugAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        Guid workspaceId,
+        ScopeRefLite? parent,
+        Guid? refScopeId,
+        bool scopesRefs,
+        string slug,
+        IReadOnlySet<string> suggested,
+        CancellationToken cancellationToken)
+    {
+        Func<int, string> shape = n => Enumerable.Range(1, int.MaxValue - 1)
+            .Select(i => RefSlug.Variant(slug, i))
+            .Where(r => !suggested.Contains(r))
+            .ElementAt(n - 1);
+
+        return scopesRefs
+            ? FreeSiblingRefAsync(connection, transaction, workspaceId, parent?.Id, refScopeId, shape, cancellationToken)
+            : FreeRefAsync(connection, transaction, workspaceId, refScopeId, shape, cancellationToken);
     }
 
     private static async Task CriteriaAsync(

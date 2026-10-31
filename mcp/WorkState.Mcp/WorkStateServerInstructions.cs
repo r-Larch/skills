@@ -37,8 +37,11 @@ public static class WorkStateServerInstructions
         addressed to an item you are about to brief. Acting on it costs one call; ignoring it is how
         a run ends with 84% of its checkboxes still open.
 
-        REFS are short and scoped to your run — `2.3`, `3.R1`, `F-07`. From another run, qualify it:
-        `entity-store/2.3`. Never invent a ref; get it from work_next, work_tree or work_search.
+        REFS inside a run are numbers — `2.3`, `F-07`; from another run, qualify: `entity-store/2.3`.
+        Items under a project or its backlog have names: give work_create a short kebab ref.
+        Never invent a ref; get it from work_next, work_tree or work_search. To a human, name an item
+        by its short ref as a markdown link, `[short-ref](<base>/r/<full ref>)`, <base> being what
+        the `web` lines print. In notes, intents, criteria and reports write bare refs, never URLs.
 
         YOUR ROLE limits which tools you can see, so a tool you cannot find is usually one your role
         does not have rather than one that does not exist. Workers report and verify; orchestrators

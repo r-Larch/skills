@@ -99,7 +99,7 @@ public sealed class TenantRefTests(PostgresFixture fixture)
                 new StatusArgs(Reason: "f's problem", Target: "f"), Ct);
             Assert.False(moved.Refused, moved.Text);
 
-            var carried = await world.ItemAsync("1.1-d");
+            var carried = await world.ItemAsync("task-under-test");
             Assert.Equal(projects[world.WorkspaceId], carried.ParentId);
         }
 
