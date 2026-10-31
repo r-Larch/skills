@@ -23,16 +23,19 @@ public sealed class ScopeRefTests(PostgresFixture fixture)
 {
     private const string BeforeScopeRefUnique = "20261028204446_TenantRls";
 
+    /// <summary>Through work_import: work_create refuses a ref-less item under a project (m66), and import still numbers it.</summary>
     [Fact]
     public async Task ScopeRef_ref_less_runs_number_among_their_project_siblings()
     {
         var world = await WriteSeed.CreateAsync(fixture);
         var seeded = await SeededProjectAsync(world);
         var other = await ProjectAsync(world, "other");
+        await BindAsync(world, seeded);
+        await BindAsync(world, "other");
 
-        Assert.Equal(["1"], await CreatedRefsAsync(world, Run(seeded, "first")));
-        Assert.Equal(["2", "3"], await CreatedRefsAsync(world, Run(seeded, "second"), Run(seeded, "third")));
-        Assert.Equal(["1"], await CreatedRefsAsync(world, Run("other", "elsewhere")));
+        Assert.Equal(["1"], await ImportedRefsAsync(world, seeded, "first"));
+        Assert.Equal(["2", "3"], await ImportedRefsAsync(world, seeded, "second", "third"));
+        Assert.Equal(["1"], await ImportedRefsAsync(world, "other", "elsewhere"));
 
         await using var db = fixture.NewContext();
         Assert.Equal(
@@ -190,6 +193,28 @@ public sealed class ScopeRefTests(PostgresFixture fixture)
 
         await using var db = fixture.NewContext();
         return (await db.Items.SingleAsync(i => i.WorkspaceId == world.WorkspaceId && i.Kind == "project" && i.Ref == reference, Ct)).Id;
+    }
+
+    private static async Task BindAsync(WriteWorld world, string project)
+    {
+        var bound = await world.Writer.UpdateAsync(world.WorkspaceId, WriteSeed.Orchestrator, project,
+            new UpdateArgs(Repo: new RepoArg($"git@github.com:r-larch/scope-ref-{project}-{world.WorkspaceId:n}.git")), Ct);
+        Assert.False(bound.Refused, bound.Text);
+    }
+
+    private async Task<string[]> ImportedRefsAsync(WriteWorld world, string project, params string[] titles)
+    {
+        var items = titles
+            .Select(t => new ImportItemArg(new ImportSourceArg("docs/plan.md", $"## {t}"), "run", "still open", Title: t))
+            .ToArray();
+        var imported = await world.Writer.ImportAsync(world.WorkspaceId, WriteSeed.Orchestrator, project, items, false, Ct);
+        Assert.False(imported.Refused, imported.Text);
+
+        await using var db = fixture.NewContext();
+        var rows = await db.Items
+            .Where(i => i.WorkspaceId == world.WorkspaceId && titles.Contains(i.Title))
+            .ToListAsync(Ct);
+        return [.. titles.Select(t => rows.Single(r => r.Title == t).Ref)];
     }
 
     private async Task<string[]> CreatedRefsAsync(WriteWorld world, params NewItemArg[] items)

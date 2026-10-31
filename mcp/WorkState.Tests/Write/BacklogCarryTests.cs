@@ -23,7 +23,7 @@ public sealed class BacklogCarryTests(PostgresFixture fixture)
         var deferred = await Defer(world, "1.1");
         Assert.False(deferred.Refused, deferred.Text);
 
-        var carried = await world.ItemAsync("1.1-d");
+        var carried = await world.ItemAsync("task-under-test");
         Assert.Equal(ItemStatus.Open, carried.Status);
 
         await using var db = fixture.NewContext();
@@ -40,7 +40,7 @@ public sealed class BacklogCarryTests(PostgresFixture fixture)
 
         Assert.False(closed.Refused, closed.Text);
         Assert.Equal(ItemStatus.Done, await world.StatusAsync("run-a"));
-        Assert.Equal(ItemStatus.Open, (await world.ItemAsync("1.1-d")).Status);
+        Assert.Equal(ItemStatus.Open, (await world.ItemAsync("task-under-test")).Status);
     }
 
     [Fact]
@@ -107,7 +107,7 @@ public sealed class BacklogCarryTests(PostgresFixture fixture)
         Assert.False(deferred.Refused, deferred.Text);
 
         await using var db = fixture.NewContext();
-        var carried = await db.Items.SingleAsync(i => i.WorkspaceId == world.WorkspaceId && i.Ref == "1.1-d", Ct);
+        var carried = await db.Items.SingleAsync(i => i.WorkspaceId == world.WorkspaceId && i.Ref == "task-under-test", Ct);
 
         Assert.Equal(existing.Id, carried.ParentId);
         Assert.Equal(2, await db.Items.CountAsync(i => i.ParentId == world.ProjectId && i.Kind == "run", Ct));
@@ -130,7 +130,7 @@ public sealed class BacklogCarryTests(PostgresFixture fixture)
         Assert.Equal(ItemStatus.Done, await world.StatusAsync("1.1"));
 
         await using var db = fixture.NewContext();
-        var carried = await db.Items.SingleAsync(i => i.WorkspaceId == world.WorkspaceId && i.Ref == "1.1-d", Ct);
+        var carried = await db.Items.SingleAsync(i => i.WorkspaceId == world.WorkspaceId && i.Ref == "task-under-test", Ct);
         var holder = await db.Items.SingleAsync(i => i.Id == carried.ParentId, Ct);
 
         Assert.Equal("run", holder.Kind);

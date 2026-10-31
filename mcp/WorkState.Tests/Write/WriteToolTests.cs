@@ -182,7 +182,7 @@ public sealed class WriteToolTests(PostgresFixture fixture)
         var frontier = await ReadServer.CallAsync(
             client, "work_next", new Dictionary<string, object?> { ["scope"] = named.Groups[1].Value }, Ct);
 
-        Assert.Contains("1.1-d", frontier, StringComparison.Ordinal);
+        Assert.Contains("task-under-test", frontier, StringComparison.Ordinal);
     }
 
     [Fact]

@@ -19,6 +19,7 @@ default and U4 must not re-implement them in C#.
 | duplicate `ref` in a run · `blocks` cycle · resolution without `done` · `closed_at` consistency · two live write-claims on one tree · an edited `event` | **Postgres** (U1) | Cannot be bypassed, not even by a bug in the tool layer. Catch `PostgresException`, surface its message. |
 | the `done` **pre-conditions** (criteria, verification, children, findings, commit) | **the tool layer** (U4) | They are a *policy* with an override, and they need to produce a multi-line remedial message. A constraint can only say no. |
 | an item's parent is a kind its `item_kind.allowed_parent_kinds` names, and an empty list — only `project`'s — is a root (`work_create`, `work_move` m62, `work_import`; one shared check since m63) | **the tool layer** | The refusal names the calling tool, the kinds the item may sit under and the call that works: a parentless non-project gets `parent:"<a … ref>"`, a project with a parent "a project is a root; omit parent". A root is where project access keys: a project moved under another project's run would take that project's membership, and a non-project root would sit outside every project with no members. |
+| an item created under a **project or its backlog run** names its `ref` (`work_create`, m66). Inside any other run the server still numbers it | **the tool layer** | There a human picks work by name, and `1`, `2` say nothing. Every unnamed item of the batch is listed in **one** refusal, nothing is written, and each names a `ref:` that is free in its scope: the title as a lowercase ASCII kebab slug, at most 4 words and 32 chars, stop-words dropped, `-2`, `-3` when taken. Which run is the backlog is the resolution `target:"backlog"` uses (§4). |
 | claim **expiry** | **both** — the unique index in Postgres, the TTL sweep in the tool layer | The index makes overlap impossible; the sweep makes expiry *visible*. |
 
 **The test of where a rule belongs:** if violating it should be impossible, it is a constraint. If
@@ -171,8 +172,10 @@ work_status(ref: "4.7", to: "deferred", target: <item ref | "backlog">, reason: 
 In one transaction:
 
 1. creates a **new open item** (`kind: followup`) under `target`, titled from the deferred item,
-   carrying its `intent` and criteria, and numbered `<ref>-d`, `<ref>-d2`, … in the **target's** run
-   (a target in another run numbers it there);
+   carrying its `intent` and criteria, and named in the **target's** ref scope (m66): the deferred
+   item's own ref when that is a name (not `3`, `2.3`, `F-07` or a legacy `3-d`) and free there; else
+   the slug of its title (`RefSlug`, the one the `work_create` ref refusal suggests); else `-2`, `-3`, …
+   of the first. No `-d` suffix: `3-d` told a human reading the backlog nothing;
 2. links `new --derived_from--> 4.7`;
 3. closes `4.7` as `done` with `resolution = 'obsolete'`, **bypassing the §3 conditions** — which is
    sound, because the work did not vanish, it moved;

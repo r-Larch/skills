@@ -76,7 +76,7 @@ public sealed partial class WorkWriter
                 transaction,
                 item.WorkspaceId,
                 await ScopeUnderAsync(connection, transaction, parent.Id, "followup", cancellationToken),
-                n => n == 1 ? $"{item.Ref}-d" : $"{item.Ref}-d{n}",
+                CarriedRef(item),
                 cancellationToken),
             await NextSeqAsync(connection, transaction, parent.Id, cancellationToken),
             item.Title,
@@ -115,6 +115,20 @@ public sealed partial class WorkWriter
             $"    reason    {Glyph.Row(args.Reason, 84)}",
             string.Empty,
             $"Next: work_next(scope:\"{scope}\") — {carried.Ref} is open and on the frontier there."));
+    }
+
+    /// <summary>
+    /// The deferred item's own ref when it is a name, then the slug of its title, then <c>-2</c>, <c>-3</c> of
+    /// the first: a follow-up named <c>3-d</c> tells the human reading the backlog nothing.
+    /// </summary>
+    private static Func<int, string> CarriedRef(ItemRow item)
+    {
+        var slug = RefSlug.From(item.Title, "followup");
+        string[] names = RefSlug.IsNumbered(item.Ref) || item.Ref.Equals(slug, StringComparison.OrdinalIgnoreCase)
+            ? [slug]
+            : [item.Ref, slug];
+
+        return n => n <= names.Length ? names[n - 1] : RefSlug.Variant(names[0], n - names.Length + 1);
     }
 
     /// <summary>

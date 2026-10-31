@@ -142,24 +142,7 @@ public sealed partial class WorkWriter
         var project = await connection.QuerySingleAsync<Carried>(new CommandDefinition(
             projectSql, new { from }, transaction, cancellationToken: cancellationToken));
 
-        const string existingSql =
-            """
-            SELECT id AS "Id", ref AS "Ref"
-            FROM   item
-            WHERE  parent_id = @project
-              AND  kind = 'run'
-              AND  id <> @from
-              AND  status NOT IN ('done','cancelled','superseded')
-              AND  (lower(ref) = 'backlog' OR title = @title)
-            ORDER  BY (lower(ref) = 'backlog') DESC, seq
-            LIMIT  1;
-            """;
-
-        var existing = await connection.QueryFirstOrDefaultAsync<Carried>(new CommandDefinition(
-            existingSql,
-            new { project = project.Id, from, title = BacklogRunTitle },
-            transaction,
-            cancellationToken: cancellationToken));
+        var existing = await ExistingBacklogRunAsync(connection, transaction, project.Id, from, cancellationToken);
 
         if (existing is not null)
         {
@@ -215,5 +198,36 @@ public sealed partial class WorkWriter
             cancellationToken: cancellationToken));
 
         return new Carried(created.Id, created.Ref);
+    }
+
+    /// <summary>
+    /// The open run under <paramref name="projectId"/> that <c>target:"backlog"</c> lands in, if it exists yet:
+    /// the one named "backlog", else the one this server made.
+    /// </summary>
+    private static Task<Carried?> ExistingBacklogRunAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        Guid projectId,
+        Guid excluding,
+        CancellationToken cancellationToken)
+    {
+        const string sql =
+            """
+            SELECT id AS "Id", ref AS "Ref"
+            FROM   item
+            WHERE  parent_id = @project
+              AND  kind = 'run'
+              AND  id <> @excluding
+              AND  status NOT IN ('done','cancelled','superseded')
+              AND  (lower(ref) = 'backlog' OR title = @title)
+            ORDER  BY (lower(ref) = 'backlog') DESC, seq
+            LIMIT  1;
+            """;
+
+        return connection.QueryFirstOrDefaultAsync<Carried>(new CommandDefinition(
+            sql,
+            new { project = projectId, excluding, title = BacklogRunTitle },
+            transaction,
+            cancellationToken: cancellationToken));
     }
 }

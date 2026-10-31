@@ -48,8 +48,11 @@ you are NOT currently doing: expired claims, assumptions past their revisit poin
 addressed to an item you are about to brief. Acting on it costs one call; ignoring it is how
 a run ends with 84% of its checkboxes still open.
 
-REFS are short and scoped to your run — `2.3`, `3.R1`, `F-07`. From another run, qualify it:
-`entity-store/2.3`. Never invent a ref; get it from work_next, work_tree or work_search.
+REFS inside a run are numbers — `2.3`, `F-07`; from another run, qualify: `entity-store/2.3`.
+Items under a project or its backlog have names: give work_create a short kebab ref.
+Never invent a ref; get it from work_next, work_tree or work_search. To a human, name an item
+by its short ref as a markdown link, `[short-ref](<base>/r/<full ref>)`, <base> being what
+the `web` lines print. In notes, intents, criteria and reports write bare refs, never URLs.
 
 YOUR ROLE limits which tools you can see, so a tool you cannot find is usually one your role
 does not have rather than one that does not exist. Workers report and verify; orchestrators
@@ -60,7 +63,7 @@ you did not verify yourself; re-read a document work_brief already gave you; or 
 diffs into a note — store the commit sha and the file path instead.
 ```
 
-**Measured: 35 lines, 28 non-blank, ~580 tokens, widest line 94 chars.** Inside the 40-line
+**Measured: 38 lines, 31 non-blank, ~650 tokens, widest line 94 chars.** Inside the 40-line
 budget with room to grow — and re-measured on every change, because a budget nobody measures is a
 wish.
 
@@ -74,7 +77,7 @@ wish.
 | The closure guard | The forced-closure contract, stated **before** the agent hits it, plus the promise that the refusal is actionable — so a refusal reads as guidance rather than as a wall. |
 | Deferral is a move | The one rule an agent would otherwise route around by inventing a "deferred" status. |
 | The attention block | It is the nag channel; if it is not read, it does not exist. Cites the measured 84% figure because a number persuades where an adjective does not. |
-| Refs | Prevents invented refs, which is the most likely wrong call in a cold start. |
+| Refs | Prevents invented refs, which is the most likely wrong call in a cold start, and names how a ref reaches a human: a readable name, linked through the `web` base, never a bare number. |
 | Role | Forced by the probe: hidden tools produce no error, so only this text can explain the silence. |
 | DO NOT | Four failure modes the corpus shows repeatedly, each phrased as a rule with a route. |
 
