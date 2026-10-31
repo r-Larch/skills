@@ -2,6 +2,10 @@
 
 Four questions from the owner, answered against what is verified rather than assumed.
 
+> The product's display name is **Workman** (dashboard, consent pages, MCP `serverInfo.title`). The MCP
+> server name `workstate`, its `mcp__workstate__` tools, the `X-WorkState-*` headers, the host and the
+> OAuth issuer stay `workstate` for compatibility with installed plugins and live tokens.
+
 ---
 
 ## 1. Lifecycle — answer this first, the rest follows from it

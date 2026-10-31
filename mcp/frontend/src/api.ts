@@ -600,9 +600,9 @@ export async function switchTenant(id: string): Promise<string | null> {
     })
     if (response.status === 204) return null
     const body = (await response.json().catch(() => null)) as { error?: string } | null
-    return body?.error ?? `WorkState could not switch the workspace (${response.status}). Reload the page to try again.`
+    return body?.error ?? `Workman could not switch the workspace (${response.status}). Reload the page to try again.`
   } catch {
-    return 'WorkState did not answer. Check that it is running, then reload this page.'
+    return 'Workman did not answer. Check that it is running, then reload this page.'
   }
 }
 
