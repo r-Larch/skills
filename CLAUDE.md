@@ -5,8 +5,8 @@ Cursor and anything else that reads a repo contract all get the same rules. **Re
 a change.**
 
 This repo is the `rlarch` plugin marketplace: four skills (`dotnet-reflect`, `dotnet-source`,
-`ts-source`, `code-comments`). The planning and agent skills and the WorkState server moved to
-`github.com/getsupraman/workman` in 3.0.0; `mcp/` and `docs/workstate/` here are frozen.
+`ts-source`, `code-comments`). The planning and agent skills and the Workman server moved to
+`github.com/getsupraman/workman` in 3.0.0; nothing of them is left here.
 
 The one rule most easily missed, repeated here because skipping it silently ships nothing:
 

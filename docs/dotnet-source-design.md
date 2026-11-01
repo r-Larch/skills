@@ -28,7 +28,7 @@ The two skills are **complementary and stay separate plugins**:
 | **`dotnet-source`** | **source `.cs` via Roslyn** | navigate the solution I'm editing; every reference incl. private/local/decl | source tree (Tier 1: nothing; Tier 2: a restore) |
 | `graphify` | any input → graph | architectural map, communities, relationships | — |
 
-**Cross-validated, not assumed:** on Nomos both tools independently find the **same 62 call-sites**
+**Cross-validated, not assumed:** on a 21-project production solution both tools independently find the **same 62 call-sites**
 for `WhereTenantRead`; dotnet-source additionally reports the declaration. Two unrelated
 implementations agreeing exactly is the strongest evidence available that either is right.
 
@@ -66,9 +66,9 @@ half-finished publish leaves a directory that looks built, and we'd exec a broke
 - **Tier 1: an on-disk parse index** keyed by `path + mtime + size` → declaration records (never
   SyntaxTrees — not serializable, and Tier 1 doesn't need them). Keyed *also* by the exclusion
   profile and by the **tool's MVID**, so a rebuilt tool can't serve an index built by older
-  extraction logic. Warm `search` on Nomos: ~250 ms.
+  extraction logic. Warm `search` on the reference solution: ~250 ms.
 - **Tier 2: the `serve` daemon.** No on-disk cache can hold a `Compilation`; assembling one costs
-  ~15 s on Nomos. The daemon holds the `Solution` resident.
+  ~15 s on the reference solution. The daemon holds the `Solution` resident.
   **`find-usages`: 15,200 ms → 170 ms (~90×).**
   Opt-in: commands probe and fall back to stateless, and never auto-spawn (that turns a burst of
   parallel agent commands into a herd of Solution builds). Keyed by root **and tool MVID**.
@@ -87,7 +87,7 @@ the answer: 15 s per semantic query is too slow to leave alone, and the index pr
 
 Each of these silently produces *wrong* answers. All were found by spiking before writing commands.
 
-1. **The solution file is authoritative.** Nomos has **95 `.csproj` on disk but 21 in `Nomos.slnx`** —
+1. **The solution file is authoritative.** the reference solution has **95 `.csproj` on disk but 21 in `App.slnx`** —
    73 are full solution copies under `.claude/worktrees/`. The proposal's "fallback = glob all
    `*.csproj`" would have ingested the codebase **4.5×**: duplicate FQNs, garbage metrics, duplicated
    usages, 4.5× the parse cost. Glob is last-resort only, and always with hard directory exclusions.
@@ -95,14 +95,14 @@ Each of these silently produces *wrong* answers. All were found by spiking befor
    as source *and* `P/bin/P.dll` is a MetadataReference, every type in P is declared twice → ambiguous
    symbols. assets.json lists only *package* paths and needs only a **restore**, never a compile.
 3. **Implicit usings must be supplied.** `AdhocWorkspace` has none. Without them `Task<>`, `List<>`,
-   `CancellationToken` don't bind: **10,392 CS0246** on Nomos, which would have made find-usages
+   `CancellationToken` don't bind: **10,392 CS0246** on the reference solution, which would have made find-usages
    silently miss references. Prefer the real generated `obj/**/*.GlobalUsings.g.cs` — it captures
    *package-contributed* usings (`Xunit`, `Sentry`) that a csproj-only synthesis cannot know — and
    fall back to synthesising the SDK set for a never-built project.
 4. **ProjectReferences must be transitive.** MSBuild flows them to the compiler; Roslyn's
-   `ProjectReference` does not. `Nomos.Web` → `Nomos.Core` → `LarchSys.Ai`, and Web uses
-   `LarchSys.Ai.Citation` without referencing it directly. Direct-refs-only left **317 CS0246**, all
-   of them Nomos's own types.
+   `ProjectReference` does not. `App.Web` → `App.Core` → `Shared.Ai`, and Web uses
+   `Shared.Ai.Citation` without referencing it directly. Direct-refs-only left **317 CS0246**, all
+   of them the app's own types.
 5. **Preprocessor symbols matter.** Without `DEBUG;TRACE` + `<DefineConstants>` in `ParseOptions`,
    every reference inside `#if DEBUG` is invisible. *(Regression-tested.)*
 6. **`GetDeclaredSymbol` returns null for `FieldDeclarationSyntax`** (`int a, b;` is one node, two
@@ -110,7 +110,7 @@ Each of these silently produces *wrong* answers. All were found by spiking befor
    silently never reports fields.
 
 **Residual, accepted:** `.razor` components. Razor's source generator runs in-memory and emits no
-`.cs`, so Blazor component *types* don't resolve. On Nomos that's 18 CS0246 from 4 components, with
+`.cs`, so Blazor component *types* don't resolve. On the reference solution that's 18 CS0246 from 4 components, with
 20 of 21 projects fully clean. `discover --semantic` reports it explicitly rather than leaving a
 mystery. Fixing it means hosting the Razor generator — a large, fragile detour for a bounded loss.
 

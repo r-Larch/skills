@@ -4,8 +4,10 @@
 bin/
 obj/
 
-# Orchestrator run artifacts (plans, ledgers, briefs for a single run) — not a team artifact.
+# Local Claude Code state: per-run artifacts and briefs, not team artifacts.
 .claude/orchestration/
+.claude/briefs/
+.claude/settings.local.json
 
 # Rider / VS / VS Code
 .vs/
@@ -14,32 +16,5 @@ obj/
 *.suo
 *.DotSettings.user
 
-# Nested-agent briefs (per-run, not a team artifact)
-.claude/briefs/
-
-# Filled-in secrets for mcp/compose.yml. mcp/.env.example is the committed template.
-.env
-
-# The setup script's copy of workstate-setup/assets/session-header.mjs in a clone install.
-mcp/session-header.mjs
-
-# Frontend. The SPA is built by an opt-in MSBuild target and by the Dockerfile's Node stage,
-# so no build output belongs in the repo. wwwroot is entirely generated: the API serves a
-# built-in placeholder when index.html is absent, so a clone without Node still runs.
-mcp/frontend/node_modules/
-mcp/frontend/dist/
-mcp/WorkState.Api/wwwroot/
-
-# Python bytecode. The nested-claude watchdog is a .py script the plugin ships; running it
-# leaves a __pycache__ beside it, and a committed .pyc is both junk and interpreter-specific.
-__pycache__/
-*.pyc
-
-# Scratch written by /rlarch:workstate-setup when it asks the server what tools a token grants.
-# It runs from this repo root, so the file lands here; it is evidence for one command, not an artifact.
-tools.json
-
-# The commit-message path every brief in this repo mandates: `git commit -F mcp/.commit-msg.txt`.
-# It is scratch for one commit, and it sat untracked-but-not-ignored, so every agent that used it
-# left a file one `git add -A` away from being committed.
-mcp/.commit-msg.txt
+# Node (ts-source's dev-only typecheck)
+node_modules/

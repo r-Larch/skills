@@ -7,20 +7,18 @@ ship as source. **A change here needs a version bump** (next section) or it reac
 
 The planning and agent skills (`workstate`, `workstate-setup`, `workstate-import`, `controller`,
 `orchestrate`, `nested-claude`) and the `agents` MCP server left in 3.0.0 for the `workman` plugin,
-and the WorkState server is developed at `github.com/getsupraman/workman`. **`mcp/`,
-`docs/workstate/` and `.github/workflows/workstate-image.yml` are frozen** at server 1.1.4: do not
-change them here; a WorkState change belongs in the workman repo.
+together with the Workman server, which is developed at `github.com/getsupraman/workman`. A
+change to any of those belongs in the workman repo, not here.
 
 ```
 .claude-plugin/marketplace.json     # the marketplace — ONE plugin entry
-.claude/commands/apply-retro.md     # repo-local maintainer command (committed)
-.claude/orchestration/              # per-run artifacts (GITIGNORED — never write guidance here)
+.claude/orchestration/, briefs/      # per-run artifacts (GITIGNORED — never write guidance here)
+.github/assets/                     # README images (Workman marks are copied from the Supraman brand kit, never redrawn)
 plugins/rlarch/
   .claude-plugin/plugin.json        # the single plugin — carries `version` (see below)
   skills/<name>/                    # one directory per skill: SKILL.md + its own scripts/, tool/, references/
 tests/dotnet-source/                # tests for the dotnet-source tool
 docs/dotnet-source-design.md        # design notes for the dotnet-source tool
-mcp/, docs/workstate/               # FROZEN — WorkState as of 1.1.4, now at github.com/getsupraman/workman
 README.md, CHANGELOG.md, upgrade_guide.md
 ```
 
@@ -43,7 +41,7 @@ clone fetched it, and the plugin stayed three commits behind with three skills i
 | New skill, new command, new capability | **minor** — `1.0.0` → `1.1.0` |
 | Fix, wording, doc correction inside a skill | **patch** — `1.1.0` → `1.1.1` |
 | Removing a skill, renaming one, breaking a documented flag | **major** |
-| **Anything under `docs/`** | **none** — it does not ship through the plugin |
+| `README.md`, `docs/`, `tests/`, `.github/` | **none** — they do not ship through the plugin |
 
 Release checklist:
 
@@ -74,6 +72,8 @@ claude plugin marketplace update rlarch && claude plugin details rlarch   # skil
   `claude <cmd> --help` or the installed binary, or omit the claim.
 - `bin/`, `obj/` and `.claude/orchestration/` are gitignored. Never stage them, and never put durable
   guidance in `.claude/orchestration/` — it is per-run and invisible to the next agent.
+- **Public repo.** Examples use neutral names (`MyApp`, `App.slnx`); never name a client, a
+  company's internal project or a private host in a skill, a doc or a commit message.
 - Nothing in the shipped tools executes user code: Roslyn and the TypeScript compiler API only ever
   parse and bind it. Keep it that way.
 
