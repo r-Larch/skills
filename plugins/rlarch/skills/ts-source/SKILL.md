@@ -210,8 +210,8 @@ on a 644-file SolidJS app:   find-usages   stateless 4,612 ms  ->  with serve 39
 `&`, `Start-Job`, or `nohup`, and you should not use them. It prints the pid and then exits:
 
 ```bash
-tss serve --project P:/…/nomos/tsconfig.json
-# daemon running (pid 211164) — 644 files, project …/nomos/tsconfig.json
+tss serve --project path/to/web/tsconfig.json
+# daemon running (pid 211164) — 644 files, project …/web/tsconfig.json
 ```
 
 `serve` is **opt-in**: Tier-2 commands use a daemon if one is running and fall back to stateless if

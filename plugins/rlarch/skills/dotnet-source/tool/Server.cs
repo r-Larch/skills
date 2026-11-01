@@ -2,7 +2,7 @@
 //
 // The parse index (Index.cs) keeps Tier 1 fast, but it can only hold extracted declaration
 // records. Tier 2 needs live SyntaxTrees and a Roslyn Compilation, which nothing on disk can
-// hold — on Nomos, assembling them costs ~15s per find-usages. The daemon builds the Solution
+// hold — on the reference solution, assembling them costs ~15s per find-usages. The daemon builds the Solution
 // ONCE and keeps it resident, so repeat semantic queries skip that entirely.
 //
 // Deliberate design choices:

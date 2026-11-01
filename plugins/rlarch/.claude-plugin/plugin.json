@@ -1,7 +1,7 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
   "name": "rlarch",
-  "version": "3.0.0",
+  "version": "3.0.1",
   "description": "Four skills for working in large codebases. dotnet-reflect — inspect any NuGet package or assembly's API surface straight from the DLL on disk: exact signatures merged with XML docs, decompiled method bodies, reverse find-usages read from IL, and version diffs. dotnet-source — ReSharper-style navigation of the .NET solution you're editing, read from .cs with Roslyn, so it sees private members and still works on code that doesn't compile. ts-source — the same shape for the TypeScript/JavaScript project you're editing, read with the TypeScript compiler API: search, outline, JSX-aware find-usages, the module import graph, and dead-code detection that separates what you can delete from what is merely over-exported. code-comments — strip comments down to the few that earn their place: a subtractive pass whose default verdict is DELETE, keeping only a present-tense constraint the code cannot state itself, with mechanics for C#/.NET and TypeScript/JavaScript. The planning and agent skills moved to the workman plugin (github.com/getsupraman/workman).",
   "author": {
     "name": "René Larch",

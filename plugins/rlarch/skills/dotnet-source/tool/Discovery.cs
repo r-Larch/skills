@@ -2,8 +2,8 @@
 //
 // THE SOLUTION FILE IS AUTHORITATIVE when one is present. This is not a stylistic choice:
 // a bare `**/*.csproj` glob walks into nested git worktrees and vendored solution copies and
-// ingests the whole codebase several times over. Measured on the Nomos solution:
-//     95 .csproj on disk   vs   21 .csproj listed in Nomos.slnx   (73 of them under .claude/worktrees/)
+// ingests the whole codebase several times over. Measured on a 21-project production solution:
+//     95 .csproj on disk   vs   21 .csproj listed in App.slnx   (73 of them under .claude/worktrees/)
 // A 4.5x duplication would mean duplicate FQNs, garbage metrics, duplicated find-usages hits,
 // and 4.5x the parse cost — all silently. So: solution file first, glob only as a last resort,
 // and even then with hard directory exclusions.

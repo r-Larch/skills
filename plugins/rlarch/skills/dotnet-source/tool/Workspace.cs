@@ -107,7 +107,7 @@ static class WorkspaceBuilder
             // Implicit usings. Tier 1 rightly hides generated code, but Tier 2 needs it: without
             // the global usings, `Task<>`, `List<>`, `CancellationToken` and friends don't bind and
             // the compilation drowns in CS0246 — which would make find-usages silently miss
-            // references. Measured on Nomos: omitting this produced 10,392 CS0246.
+            // references. Measured on the reference solution: omitting this produced 10,392 CS0246.
             var (globalUsings, guNote) = GlobalUsings(p);
             if (guNote is not null) notes.Add(guNote);
             if (globalUsings is not null)
@@ -120,10 +120,10 @@ static class WorkspaceBuilder
                     isGenerated: true));
 
             // TRANSITIVE closure, not just the direct refs. MSBuild flows ProjectReference
-            // transitively to the compiler; Roslyn's ProjectReference does not. Nomos.Web
-            // references Nomos.Core, which references LarchSys.Ai — and Nomos.Web uses
-            // LarchSys.Ai's `Citation` without referencing it directly. Wiring only direct refs
-            // left 317 CS0246 (all of them Nomos's own types) and would have made find-usages
+            // transitively to the compiler; Roslyn's ProjectReference does not. App.Web
+            // references App.Core, which references Shared.Ai — and App.Web uses
+            // Shared.Ai's `Citation` without referencing it directly. Wiring only direct refs
+            // left 317 CS0246 (all of them the app's own types) and would have made find-usages
             // silently miss every cross-project reference through an intermediate project.
             var closure = TransitiveRefs(p, byPath);
 

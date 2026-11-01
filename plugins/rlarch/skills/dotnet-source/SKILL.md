@@ -131,7 +131,7 @@ inside the tree finds the same solution, and therefore the same daemon.
 `find-usages IsDevelopment` returns nothing here **by design**: `IsDevelopment` is declared in
 ASP.NET, not in your source. This tool finds what's declared in *your* solution. For a symbol you
 don't own, use `dotnet-reflect`, which scans compiled IL. (The two agree exactly where they
-overlap — validated on Nomos: both find the same 62 call-sites for `WhereTenantRead`; this tool
+overlap — validated on a 21-project production solution: both find the same 62 call-sites for `WhereTenantRead`; this tool
 additionally shows the declaration, which IL structurally cannot.)
 
 ## Keeping the compilation alive
@@ -143,21 +143,21 @@ Two layers, because the two tiers have different costs:
   covers the tool sources, the pinned Roslyn versions, and the installed runtime — so an SDK bump
   or a plugin update rebuilds, and nothing else does.
 - **Tier 1** keeps an on-disk **parse index** (`path + mtime + size` → declaration records). Only
-  changed files are re-parsed: on Nomos (1086 files) a warm `search` is ~250 ms.
+  changed files are re-parsed: on a 1086-file solution a warm `search` is ~250 ms.
 - **Tier 2** cannot use that index — `find-usages` needs live syntax trees and a Roslyn
-  `Compilation`, which no on-disk cache can hold. Assembling them costs ~15 s on Nomos. If you're
+  `Compilation`, which no on-disk cache can hold. Assembling them costs ~15 s on the reference solution. If you're
   doing repeated semantic queries, run **`ds serve`** once: it holds the Solution in memory and a
   file watcher applies your edits incrementally.
 
 ```
-find-usages on Nomos:   stateless 15,200 ms   ->   with `ds serve` 170 ms
+find-usages, 1086 files: stateless 15,200 ms   ->   with `ds serve` 170 ms
 ```
 
 **`ds serve` starts in the background and returns** once the daemon is warm — you do **not** need
 `&`, `Start-Job`, or `nohup`, and you should not use them. It prints the pid and then exits:
 
 ```bash
-ds serve --sln P:/…/Nomos.slnx
+ds serve --sln path/to/App.slnx
 # daemon started (pid 15304) — warm in 3198 ms
 #           21 projects, 1086 files, 0 edit(s) applied since start
 ```
@@ -196,10 +196,10 @@ daemon (the solution is found by walking up). Pass `--sln` when you want to be s
   never restored, the tool restores it for you.
 - **`.razor` components are invisible.** Razor's source generator runs in-memory and emits no `.cs`,
   so references to *Blazor component types* don't resolve. Everything else does. `discover --semantic`
-  reports this explicitly (on Nomos: 18 unresolved names, all 4 Razor components; 20 of 21 projects
+  reports this explicitly (on the reference solution: 18 unresolved names, all 4 Razor components; 20 of 21 projects
   fully clean).
 - **The solution file is authoritative.** Projects on disk but absent from the `.slnx`/`.sln` are
-  **not** scanned — `discover` says so, and `--root` scans them anyway. This matters: Nomos has 95
+  **not** scanned — `discover` says so, and `--root` scans them anyway. This matters: the reference solution has 95
   `.csproj` on disk but only 21 in its `.slnx`; the other 73 are full copies under
   `.claude/worktrees/`. A naive glob would ingest the codebase 4.5× and quietly corrupt every count.
 - **`unused` answers "nothing in this solution references it"**, which is not the same as "it is

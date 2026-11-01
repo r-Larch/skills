@@ -43,7 +43,7 @@ dotnet run find-usages.cs --bin <binDir> <symbol> [--only a,b]
 #   scans every method's IL across the assemblies for references to <symbol>; with a portable PDB it
 #   prints file:line + the source line, else the containing method. Semantic — catches env.IsDevelopment()
 #   extension-call syntax, overloads, generics. Primary form is --bin (point at your BUILT solution output).
-#   e.g. find-usages.cs --bin Nomos.Web/bin/Debug/net10.0 --only Nomos IsDevelopment
+#   e.g. find-usages.cs --bin MyApp.Web/bin/Debug/net10.0 --only MyApp IsDevelopment
 #   also: find-usages.cs <pkgId> <version> <symbol>   -> usages WITHIN that package's own assemblies.
 #   <symbol> = Member | Type.Member | Namespace.Type (matched at dotted-segment boundaries).
 
@@ -116,8 +116,8 @@ One member per line, C#-ish signatures, XML `<summary>` appended as `// …`. So
 Reverse lookup: given a **symbol**, find every method that references it, read from **compiled IL** — so
 it's semantic, not textual. It sees `env.IsDevelopment()` extension-call syntax, the right overload, and
 generic instantiations that a `grep` would miss or over-match. Point `--bin` at your **built** solution
-output (e.g. `Nomos.Web/bin/Debug/net10.0`) — that folder holds every project's compiled assembly, so one
-scan covers the whole solution, ReSharper-style. `--only Nomos` keeps a big bin fast and focused; scanning
+output (e.g. `MyApp.Web/bin/Debug/net10.0`) — that folder holds every project's compiled assembly, so one
+scan covers the whole solution, ReSharper-style. `--only MyApp` keeps a big bin fast and focused; scanning
 all ~200 assemblies of a web app's bin still takes ~2s.
 
 - **Output**: grouped by assembly → containing method, one usage per line. With a **portable PDB** present
@@ -174,11 +174,11 @@ set the env vars globally once, then either run the scripts from inside that rep
 
 ```powershell
 # Windows (PowerShell) — one-time, so private packages resolve wherever you run the scripts:
-setx NUGET_API_CONFIG "P:\Projects\Magic\Nomos\Nomos\nuget.config"
+setx NUGET_API_CONFIG "C:\src\MyApp\nuget.config"
 ```
 ```bash
 # macOS / Linux — add to ~/.zshrc or ~/.bashrc:
-export NUGET_API_CONFIG="$HOME/projects/Nomos/nuget.config"
+export NUGET_API_CONFIG="$HOME/src/MyApp/nuget.config"
 ```
 
 `bindir.cs` prints which config it used. If a private package fails to restore with
