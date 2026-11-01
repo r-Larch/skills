@@ -95,8 +95,8 @@ export type ConsentEvent =
 export function failure(status: number): string {
   if (status === 400) return 'This page was opened without a client. Start the connection again from your MCP client.'
   if (status === 404) return 'No client by that id is registered here. Start the connection again from your MCP client.'
-  if (status === 0) return 'WorkState did not answer. Check that it is running, then reload this page.'
-  return `WorkState could not describe this client (${status}). Reload the page to try again.`
+  if (status === 0) return 'Workman did not answer. Check that it is running, then reload this page.'
+  return `Workman could not describe this client (${status}). Reload the page to try again.`
 }
 
 export function consentStep(state: ConsentState, event: ConsentEvent): ConsentState {
@@ -122,7 +122,7 @@ export type ScopeLine = { scope: string; label: string; detail: string }
 
 const SCOPES: Record<string, Omit<ScopeLine, 'scope'> | null> = {
   mcp: {
-    label: 'Full access to your WorkState as controller',
+    label: 'Full access to your Workman as controller',
     detail: 'Everything a controller token can do: every project, run and task, to read and to write.',
   },
   'workstate.read': {

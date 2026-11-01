@@ -228,8 +228,27 @@ that throws.
 | `--stop` | `#c2362b` | `#f14c4c` |
 | `--idle` / `--gone` | `#cfc9be` / `#bdb7ad` | `#474747` / `#555555` |
 
-Fonts: Inter (UI), JetBrains Mono (refs, commits, commands), Libre Baskerville (page titles, brand,
+Fonts: Inter (UI), JetBrains Mono (refs, commits, commands), Libre Baskerville (page titles,
 project headers), from Google Fonts. Icons are inline SVG.
+
+## Brand
+
+The product's display name is **Workman**. Its marks come from the Supraman brand kit
+(`getsupraman/brand`, outside this repo), copied byte for byte into `public/brand/` and never redrawn
+or recoloured here; `src/brand.tsx` is the only place that names them.
+
+| place | ground | files |
+|---|---|---|
+| sidebar brand block (`Shell.tsx`) | `--side`, dark in both themes | `workman.svg` + `workman-wordmark-on-dark.svg` |
+| sign-in, consent, join, reset (`Gate.tsx`, `Connect.tsx`, `Join.tsx`, `Reset.tsx`) | `--panel`, follows the theme | `workman.svg` + `-on-light` in light, `-on-dark` in dark |
+| phone topbar (`Shell.tsx`) | `--side` | `workman.svg` alone: the bar has no room for the text mark at its minimum size |
+| consent page, this server's tile (`Connect.tsx` `Peers`) | `--panel` | `workman.svg` |
+| favicon (`index.html`) | the browser's tab | `workman-16.svg` (16 to 24 px), `workman.svg` declared for 32 px and up |
+
+The icon is 32 px (the kit's full icon starts there); the text mark is 17 px tall, its 16 px
+minimum cap height. The brand amber lives in the mark files only: `--accent`, `--doing` and the status
+tokens are unchanged, since an amber accent would read as `--claimed`. The client's tile on the
+consent page is still `/connect/app-icon`, the client's own icon.
 
 ## Live updates
 

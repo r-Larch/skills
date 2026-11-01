@@ -137,8 +137,8 @@ public static class ApiHost
                 options.ServerInfo = new Implementation
                 {
                     Name = "workstate",
-                    Title = "WorkState",
-                    Version = "1.1.3",
+                    Title = "Workman",
+                    Version = "1.1.4",
                 };
                 options.ServerInstructions = WorkStateServerInstructions.Text;
             })

@@ -2,6 +2,10 @@
 
 Four questions from the owner, answered against what is verified rather than assumed.
 
+> The product's display name is **Workman** (dashboard, consent pages, MCP `serverInfo.title`). The MCP
+> server name `workstate`, its `mcp__workstate__` tools, the `X-WorkState-*` headers, the host and the
+> OAuth issuer stay `workstate` for compatibility with installed plugins and live tokens.
+
 ---
 
 ## 1. Lifecycle — answer this first, the rest follows from it
@@ -183,6 +187,10 @@ question's answer when it closes, and gives the dashboard a phone layout.
 `1.1.3` (no plugin change, no migration) adds Connected apps to the Account page: a user lists
 the OAuth authorizations they hold in the workspace and revokes one, which also revokes the agent
 sessions minted under it.
+
+`1.1.4` (with rlarch 2.8.2, no migration) names items under a project or its backlog with a
+required kebab `ref`, which the skills link for the human. It shows the product as Workman to a
+person; every machine-facing name stays `workstate`.
 
 ---
 

@@ -175,7 +175,7 @@ internal static class RefLinks
             <head>
             <meta charset="utf-8">
             <meta name="viewport" content="width=device-width, initial-scale=1">
-            <title>WorkState</title>
+            <title>Workman</title>
             </head>
             <body>
             {body}
@@ -205,7 +205,7 @@ internal static class RefLinks
     private static readonly string SignIn = Shell(
         """
         <form id="sign-in">
-        <p>Sign in to the WorkState dashboard to open this link.</p>
+        <p>Sign in to the Workman dashboard to open this link.</p>
         <p><label>Username <input name="username" autocomplete="username"></label></p>
         <p><label>Password <input name="password" type="password" autocomplete="current-password"></label></p>
         <p><button type="submit">Sign in</button> <span id="rejected" hidden>Rejected.</span></p>

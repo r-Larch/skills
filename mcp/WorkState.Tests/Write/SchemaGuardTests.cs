@@ -120,14 +120,14 @@ public sealed class SchemaGuardTests(PostgresFixture fixture)
         var world = await WriteSeed.CreateAsync(fixture);
         await WriteSeed.SecondRunAsync(world);
         var runB = (await world.ItemAsync("run-b")).Id;
-        await WriteSeed.ChildAsync(world, runB, "1.1-d", kind: "followup");
+        await WriteSeed.ChildAsync(world, runB, "task-under-test", kind: "followup");
 
         var moved = await world.Writer.StatusAsync(
             world.WorkspaceId, "1.1", "deferred", WriteSeed.Orchestrator,
             new StatusArgs(Reason: "belongs to the other run", Target: "run-b"), Ct);
 
         Assert.False(moved.Refused, moved.Text);
-        Assert.Contains("1.1-d2", moved.Text, StringComparison.Ordinal);
+        Assert.Contains("task-under-test-2", moved.Text, StringComparison.Ordinal);
         Assert.Equal(ItemStatus.Done, await world.StatusAsync("1.1"));
     }
 

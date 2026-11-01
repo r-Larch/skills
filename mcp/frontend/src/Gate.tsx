@@ -1,7 +1,7 @@
 import { Show, createSignal } from 'solid-js'
 import type { JSX } from 'solid-js'
 import { type SignInResult, signIn } from './api.ts'
-import { CheckIcon } from './icons.tsx'
+import { Brand } from './brand.tsx'
 
 /**
  * Not a view — a gate. `/api/*` is cookie-guarded and the cookie is httponly, so the only way the
@@ -28,10 +28,7 @@ export default function Gate(props: { intro?: JSX.Element; onSignedIn?: () => vo
     <div class="gate-wrap">
       <form class="panel gate" onSubmit={(event) => void submit(event)}>
         <div class="brand">
-          <span class="brand-mark">
-            <CheckIcon size={16} weight={2.6} />
-          </span>
-          <span class="brand-name">WorkState</span>
+          <Brand ground="theme" />
         </div>
 
         <Show when={props.intro}>

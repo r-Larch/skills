@@ -70,7 +70,7 @@ each gate.
    - the **project**, only when the repo is unbound: `kind: "project"` with `repo: {remote, root}`.
      When it belongs to a project that already exists, `work_update(ref, repo:)` binds it instead.
      Never create a second project for one repo.
-   - the **run**: `parent:` the project, `ref:` a short slug, `intent:` the goal paragraph plus
+   - the **run**: `parent:` the project, `ref:` a short kebab slug (required under a project), `intent:` the goal paragraph plus
      *"planned by /rlarch:workstate, awaiting approval; executor: controller|orchestrate"*.
    - its **tasks** (and phases): each with `criteria` that state outcomes, not activities, and a
      `verify_cmd` that would fail if the work were wrong. `work_create` refuses a task without both.
@@ -111,7 +111,8 @@ Read, in this order, and stop reading once the ranking would not change:
 
 Then propose **3 to 5 candidates**, ranked. For each, give:
 
-- **what** it is, and its ref if it is already in the store,
+- **what** it is, and its ref if it is already in the store, as a link:
+  `[voice-buffer-cap](<base>/r/<full ref>)`, `<base>` being what the `web` lines print,
 - **why now**: what it unblocks, what it costs to leave it, or who asked for it,
 - **size** (one task / a few units / a run) and the executor it would need,
 - **risk or open decision**, if any.
@@ -133,6 +134,7 @@ Sweep the project for items that no longer tell the truth:
 | done in the code, still open in the store | close with evidence: an executor's job, so name the verify command |
 | no longer wanted | `work_status(ref, "cancelled", reason:)` |
 | wanted, not now | `work_status(ref, "deferred", target:, reason:)`. Deferring moves the item somewhere real |
+| new work for later | `work_create(items:[{kind:"followup", parent:"<project>/backlog", ref:"<short-kebab-name>", title:…}])`: under a project or its backlog the server refuses an item with no `ref` |
 | two items, one piece of work | a `duplicates` or `supersedes` link |
 | blocked on a question nobody owns | name the decision and whose it is |
 | assumption past its revisit point | check it or re-date it |

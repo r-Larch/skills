@@ -20,10 +20,10 @@ internal static class SpaFallback
         <head>
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1">
-        <title>WorkState</title>
+        <title>Workman</title>
         </head>
         <body>
-        <p>The WorkState dashboard is not built yet; the read API it uses is live at
+        <p>The Workman dashboard is not built yet; the read API it uses is live at
         <code>/api/v1</code> (sign in with <code>POST /api/session</code>, then
         <code>/api/v1/overview</code>, <code>/api/v1/runs/{id}/board</code>,
         <code>/api/v1/items/{id}</code>, <code>/api/v1/inbox</code>, <code>/api/v1/journal</code> and

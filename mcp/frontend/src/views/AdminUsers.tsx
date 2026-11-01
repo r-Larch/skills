@@ -25,7 +25,7 @@ export default function AdminUsers() {
           </div>
           <h1>Users</h1>
           <div class="sub">
-            Everyone who can sign in to this WorkState, and the workspaces each is a member of. Disabling signs a user out
+            Everyone who can sign in to this Workman, and the workspaces each is a member of. Disabling signs a user out
             everywhere at their next request and stops their OAuth connections and agent sessions; nothing is deleted.
           </div>
         </div>

@@ -2,7 +2,7 @@ import { Match, Show, Switch, createSignal, onMount } from 'solid-js'
 import { resetInfo, useReset } from './api.ts'
 import { type ResetEvent, type ResetState, PASSWORD_MIN, passwordProblem, resetStep, resetToken } from './admin.ts'
 import { clock, day } from './format.ts'
-import { CheckIcon } from './icons.tsx'
+import { Brand } from './brand.tsx'
 
 /**
  * `/reset/{token}`, the page a reset link opens: outside the dashboard like the invite page, and in front of no
@@ -55,10 +55,7 @@ export default function Reset() {
     <div class="gate-wrap">
       <div class="panel gate consent">
         <div class="brand">
-          <span class="brand-mark">
-            <CheckIcon size={16} weight={2.6} />
-          </span>
-          <span class="brand-name">WorkState</span>
+          <Brand ground="theme" />
         </div>
         <Switch>
           <Match when={state().k === 'loading'}>
@@ -69,7 +66,7 @@ export default function Reset() {
               <>
                 <p class="consent-title">{text()}</p>
                 <p class="consent-note">
-                  <a href="/">Open WorkState</a>
+                  <a href="/">Open Workman</a>
                 </p>
               </>
             )}

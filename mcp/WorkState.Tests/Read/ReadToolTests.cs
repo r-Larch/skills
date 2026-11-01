@@ -81,6 +81,17 @@ public sealed class ReadToolTests(PostgresFixture fixture)
         Assert.True(lines <= WorkStateServerInstructions.LineBudget, $"ServerInstructions is {lines} lines");
     }
 
+    /// <summary>The title is what a person reads; the name is what installed plugins address (C96).</summary>
+    [Fact]
+    public async Task ServerInfo_shows_Workman_to_a_person_and_keeps_the_workstate_name()
+    {
+        await using var server = await StartAsync();
+        await using var client = await server.ConnectAsync(ReadServer.WorkerToken, Ct);
+
+        Assert.Equal("Workman", client.ServerInfo.Title);
+        Assert.Equal("workstate", client.ServerInfo.Name);
+    }
+
     [Fact]
     public async Task work_brief_renders_the_doc_06_shape_with_a_callable_NEXT()
     {

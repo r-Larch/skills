@@ -56,7 +56,8 @@ the `work_create` that made them. Never invent one, in a call or in a brief.
 level, reading back the refs each call prints: the project only when `work_brief(repo: …)` says the
 repo is unbound — passing that same `repo:` (or `work_update(ref, repo:)` to bind it to a project that
 exists; never a second project for one repo) — the queue as a `run`
-(`parent:` the project ref), then each unit as a `task` (`parent:` the queue ref) — its outcome as `criteria`, the gate you will run yourself as `verify_cmd`, and
+(`parent:` the project ref, `ref:` a short kebab name — under a project the server refuses an unnamed
+item), then each unit as a `task` (`parent:` the queue ref) — its outcome as `criteria`, the gate you will run yourself as `verify_cmd`, and
 where it is specified in `intent`. A unit's nested session may run `/rlarch:orchestrate` and keep its
 own run for the inside of the unit; the unit item is yours, and only you close it.
 
@@ -371,7 +372,9 @@ done, `work_threads(scope: "<queue ref>")` — every open assumption, finding an
 the call that closes it — and decide each one.
 
 **Report to the human in outcomes, not activity.** What landed, what is parked and why, what needs
-them, and the one number they actually want — is the thing deployable, and is it pushed.
+them, and the one number they actually want — is the thing deployable, and is it pushed. Name an item
+by its short ref, linked: `[voice-buffer-cap](<base>/r/<full ref>)`, `<base>` being what the `web`
+lines print. Never a bare `1/2`; and in notes and reports to the store, bare refs, never URLs.
 
 ---
 

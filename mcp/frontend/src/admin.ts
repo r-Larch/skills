@@ -110,8 +110,8 @@ export type JoinEvent =
 export function joinFailure(status: number, error: string | null): string {
   if (status === 404) return error ?? 'This invite link cannot be used. Ask an admin of the workspace for a new one.'
   if (status === 429) return 'Too many attempts from here. Wait a minute, then reload this page.'
-  if (status === 0) return 'WorkState did not answer. Check that it is running, then reload this page.'
-  return error ?? `WorkState could not read this invite (${status}). Reload the page to try again.`
+  if (status === 0) return 'Workman did not answer. Check that it is running, then reload this page.'
+  return error ?? `Workman could not read this invite (${status}). Reload the page to try again.`
 }
 
 export function joinStep(state: JoinState, event: JoinEvent): JoinState {

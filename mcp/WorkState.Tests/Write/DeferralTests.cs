@@ -43,13 +43,13 @@ public sealed class DeferralTests(PostgresFixture fixture)
             new StatusArgs(Reason: "belongs in the next run", Target: "backlog"), Ct);
 
         Assert.False(moved.Refused, moved.Text);
-        Assert.Contains("1.1-d", moved.Text, StringComparison.Ordinal);
+        Assert.Contains("task-under-test", moved.Text, StringComparison.Ordinal);
 
         var original = await world.ItemAsync("1.1");
         Assert.Equal(ItemStatus.Done, original.Status);
         Assert.Equal(ItemResolution.Obsolete, original.Resolution);
 
-        var carried = await world.ItemAsync("1.1-d");
+        var carried = await world.ItemAsync("task-under-test");
         Assert.Equal(ItemStatus.Open, carried.Status);
         Assert.Equal("followup", carried.Kind);
 
@@ -66,7 +66,7 @@ public sealed class DeferralTests(PostgresFixture fixture)
         Assert.True(named.Success, moved.Text);
 
         var frontier = await world.Reader.NextAsync(await world.ScopeAsync(named.Groups[1].Value), 20, null, Ct);
-        Assert.Contains("1.1-d", frontier, StringComparison.Ordinal);
+        Assert.Contains("task-under-test", frontier, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -80,7 +80,7 @@ public sealed class DeferralTests(PostgresFixture fixture)
 
         Assert.False(moved.Refused, moved.Text);
 
-        var carried = await world.ItemAsync("1.1-d");
+        var carried = await world.ItemAsync("task-under-test");
         var phase = await world.ItemAsync("2");
 
         Assert.Equal(phase.Id, carried.ParentId);
