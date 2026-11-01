@@ -8,18 +8,105 @@
 <p align="center">
   <a href="#install"><b>Install</b></a> ·
   <a href="#what-you-get"><b>What you get</b></a> ·
+  <a href="#why-not-just-let-claude-grep"><b>Why</b></a> ·
   <a href="#looking-for-orchestrate-controller-or-nested-claude"><b>Looking for orchestrate?</b></a> ·
   <a href="CHANGELOG.md"><b>Changelog</b></a>
 </p>
 
-Claude Code is great at reading code it can see, and weak at finding the rest of it. Ask it who calls a
+**rlarch** is a [Claude Code](https://code.claude.com) plugin that answers the questions an IDE
+answers: *who uses this, what's inside this class, what can I delete, what's the exact signature in
+the version I actually have.* It answers them in milliseconds, from the terminal, even on code that
+doesn't compile.
+
+## Install
+
+```
+/plugin marketplace add r-Larch/skills
+/plugin install rlarch@rlarch
+```
+
+Restart Claude Code and you're done. **There are no commands to learn:** each skill loads itself when
+what you ask matches it. Works on Windows, macOS and Linux.
+
+## What you get
+
+<table>
+<tr>
+<td width="50%" valign="top">
+
+🔎 **[`dotnet-source`](#dotnet-source)**
+
+**Navigate the .NET code you're editing.** Find-usages, outlines, call trees and dead code, with
+private members included. It works mid-refactor, when the solution doesn't build.
+
+💬 *"Who calls `WhereTenantRead`?"*<br>
+💬 *"Outline this god-class."*
+
+⚙️ Needs the .NET 10 SDK
+
+</td>
+<td width="50%" valign="top">
+
+🧭 **[`ts-source`](#ts-source)**
+
+**The same for TypeScript and JavaScript.** JSX-aware find-usages, the import graph, and dead code
+that tells *delete this* apart from *just drop the `export`*.
+
+💬 *"What can I delete in this frontend?"*<br>
+💬 *"Where is `<Badge/>` used?"*
+
+⚙️ Needs Node 18+
+
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+
+📦 **[`dotnet-reflect`](#dotnet-reflect)**
+
+**Know the real API of a NuGet package you don't own.** Exact signatures with XML docs, decompiled
+method bodies and version diffs, read from the DLL you actually restored.
+
+💬 *"What's the signature of `ChatClient.CompleteChatAsync`?"*<br>
+💬 *"What changed between 2.11 and 2.12?"*
+
+⚙️ Needs the .NET 10 SDK
+
+</td>
+<td width="50%" valign="top">
+
+✂️ **[`code-comments`](#code-comments)**
+
+**Cut comment noise down to what matters.** Deletes narration, stale notes and docs that only restate
+a signature, and keeps the few comments the code can't say for itself.
+
+💬 *"Clean up the comments in this folder."*
+
+⚙️ Needs nothing else
+
+</td>
+</tr>
+</table>
+
+<details>
+<summary>Install from your terminal instead</summary>
+
+```bash
+claude plugin marketplace add r-Larch/skills
+claude plugin install rlarch@rlarch
+claude plugin details rlarch     # should list four skills
+```
+
+On Windows the launchers want PowerShell 7+ (`ts-source` also runs on Windows PowerShell); on
+macOS/Linux they're plain `bash`.
+
+</details>
+
+## Why not just let Claude grep?
+
+Claude Code is great at reading code it can see, and weak at finding the rest. Ask it who calls a
 method in a 1,000-file solution and it greps, misses the overrides, and burns context on false hits.
 Ask it how a NuGet API works and it guesses from whatever version it was trained on.
-
-**rlarch** is a [Claude Code](https://code.claude.com) plugin that closes that gap. It gives Claude
-the questions an IDE answers: *who uses this, what's inside this class, what can I delete, what is the
-exact signature in the version I actually have.* It answers them in milliseconds, from the terminal,
-on code that doesn't even compile.
 
 <p align="center">
   <picture>
@@ -27,45 +114,6 @@ on code that doesn't even compile.
     <img src=".github/assets/stats-light.svg" alt="89x faster find-usages with the warm daemon · 0 builds needed for search, outline, metrics and dead files · 3 levels of dead code · 1:1 with your installed package version" width="100%">
   </picture>
 </p>
-
-## Install
-
-In Claude Code:
-
-```
-/plugin marketplace add r-Larch/skills
-/plugin install rlarch@rlarch
-```
-
-Or from your terminal:
-
-```bash
-claude plugin marketplace add r-Larch/skills
-claude plugin install rlarch@rlarch
-```
-
-Restart Claude Code. That's it: **you don't need to learn any commands.** Each skill loads itself
-when its description matches what you're doing. `claude plugin details rlarch` should list four skills.
-
-| You need | for |
-|---|---|
-| **.NET 10 SDK** | `dotnet-reflect`, `dotnet-source` |
-| **Node 18+** | `ts-source` |
-| nothing | `code-comments` |
-
-Windows, macOS and Linux all work. On Windows the launchers want PowerShell 7+ (`ts-source` also runs
-on Windows PowerShell); on macOS/Linux they're plain `bash`.
-
-## What you get
-
-| Skill | The benefit | Just ask Claude… |
-|---|---|---|
-| 🔎 [**`dotnet-source`**](#dotnet-source) | IDE navigation over **the .NET code you're editing**: private members included, works mid-refactor when the solution doesn't build | *"Who calls `WhereTenantRead`?"* · *"Outline this god-class"* · *"Is this dead code?"* |
-| 🧭 [**`ts-source`**](#ts-source) | The same for **TypeScript / JavaScript**: JSX-aware find-usages, the import graph, and dead code that separates *delete* from *just un-export* | *"What can I delete in this frontend?"* · *"Where is `<Badge/>` used?"* |
-| 📦 [**`dotnet-reflect`**](#dotnet-reflect) | The real API of **a NuGet package you don't own**: exact signatures, XML docs, decompiled bodies, version diffs | *"What's the exact signature of `ChatClient.CompleteChatAsync`?"* · *"What changed in 2.12?"* |
-| ✂️ [**`code-comments`**](#code-comments) | A **subtractive comment pass**. Deletes narration, stale notes and docs that restate a signature, and keeps only what the code can't say | *"Clean up the comments in this folder"* |
-
-Why it beats letting Claude grep:
 
 - **Semantic, not textual.** Roslyn and the TypeScript compiler bind every reference, so overrides,
   declarations and `<Component/>` usages count and same-named strangers don't.
