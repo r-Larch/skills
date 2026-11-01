@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1238 200" width="1238" height="200" role="img" aria-label="89x faster warm find-usages; zero builds for tier 1; three levels of dead code; exact for your installed version">
+<rect x="18" y="18" width="287" height="164" rx="14" fill="#161b22" stroke="#30363d"/>
+<text x="42" y="82" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-weight="800" font-size="46" fill="#7c9cff">89×</text>
+<text x="42" y="114" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-weight="600" font-size="17" fill="#e6edf3">faster find-usages</text>
+<text font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="14" fill="#8b949e"><tspan x="42" y="142">15.2 s → 170 ms with the</tspan><tspan x="42" y="162">warm serve daemon</tspan></text><rect x="323" y="18" width="287" height="164" rx="14" fill="#161b22" stroke="#30363d"/>
+<text x="347" y="82" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-weight="800" font-size="46" fill="#7c9cff">0</text>
+<text x="347" y="114" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-weight="600" font-size="17" fill="#e6edf3">builds needed</text>
+<text font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="14" fill="#8b949e"><tspan x="347" y="142">search, outline, metrics and</tspan><tspan x="347" y="162">dead files work on broken code</tspan></text><rect x="628" y="18" width="287" height="164" rx="14" fill="#161b22" stroke="#30363d"/>
+<text x="652" y="82" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-weight="800" font-size="46" fill="#7c9cff">3</text>
+<text x="652" y="114" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-weight="600" font-size="17" fill="#e6edf3">levels of dead code</text>
+<text font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="14" fill="#8b949e"><tspan x="652" y="142">unreachable files, unused exports,</tspan><tspan x="652" y="162">unused locals, kept apart</tspan></text><rect x="933" y="18" width="287" height="164" rx="14" fill="#161b22" stroke="#30363d"/>
+<text x="957" y="82" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-weight="800" font-size="46" fill="#7c9cff">1:1</text>
+<text x="957" y="114" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-weight="600" font-size="17" fill="#e6edf3">with your installed version</text>
+<text font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="14" fill="#8b949e"><tspan x="957" y="142">reads the DLL you restored,</tspan><tspan x="957" y="162">not whatever the web docs show</tspan></text>
+</svg>

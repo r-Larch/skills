@@ -1,87 +1,134 @@
-# r-Larch/skills — Claude Code plugin marketplace (`rlarch`)
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset=".github/assets/hero-dark.svg">
+    <img src=".github/assets/hero-light.svg" alt="rlarch: give Claude an IDE's view of your code. Find-usages, outlines, dead code and decompiled APIs for .NET and TypeScript." width="100%">
+  </picture>
+</p>
 
-A personal [Claude Code](https://code.claude.com) marketplace with **one plugin, `rlarch`**, carrying
-four skills: three for code navigation (.NET and TypeScript) and one for cleaning up comments.
+<p align="center">
+  <a href="#install"><b>Install</b></a> ·
+  <a href="#what-you-get"><b>What you get</b></a> ·
+  <a href="#looking-for-orchestrate-controller-or-nested-claude"><b>Looking for orchestrate?</b></a> ·
+  <a href="CHANGELOG.md"><b>Changelog</b></a>
+</p>
+
+Claude Code is great at reading code it can see, and weak at finding the rest of it. Ask it who calls a
+method in a 1,000-file solution and it greps, misses the overrides, and burns context on false hits.
+Ask it how a NuGet API works and it guesses from whatever version it was trained on.
+
+**rlarch** is a [Claude Code](https://code.claude.com) plugin that closes that gap. It gives Claude
+the questions an IDE answers: *who uses this, what's inside this class, what can I delete, what is the
+exact signature in the version I actually have.* It answers them in milliseconds, from the terminal,
+on code that doesn't even compile.
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset=".github/assets/stats-dark.svg">
+    <img src=".github/assets/stats-light.svg" alt="89x faster find-usages with the warm daemon · 0 builds needed for search, outline, metrics and dead files · 3 levels of dead code · 1:1 with your installed package version" width="100%">
+  </picture>
+</p>
 
 ## Install
+
+In Claude Code:
 
 ```
 /plugin marketplace add r-Larch/skills
 /plugin install rlarch@rlarch
 ```
 
-Or from the terminal:
+Or from your terminal:
 
 ```bash
 claude plugin marketplace add r-Larch/skills
 claude plugin install rlarch@rlarch
 ```
 
-Restart Claude Code afterwards. Confirm with `claude plugin details rlarch` — it should list four
-skills.
+Restart Claude Code. That's it: **you don't need to learn any commands.** Each skill loads itself
+when its description matches what you're doing. `claude plugin details rlarch` should list four skills.
 
-> **Already have `dotnet-reflect@rlarch` / `dotnet-source@rlarch` installed?** Those were separate
-> plugins and are gone. Follow **[upgrade_guide.md](upgrade_guide.md#upgrading-to-the-single-rlarch-plugin)**
-> — it takes two minutes, and there is one scope trap in it that will bite you if you improvise.
-
-## Where the planning and agent skills went (3.0.0)
-
-Up to 2.8.2 this plugin also carried six skills for planning and running agent work against
-WorkState. As of **3.0.0** they live in the `workman` plugin, under new names:
-
-| rlarch 2.x | workman |
+| You need | for |
 |---|---|
-| `/rlarch:workstate` | `/workman:plan` |
-| `/rlarch:workstate-setup` | `/workman:setup` |
-| `/rlarch:workstate-import` | `/workman:import` |
-| `/rlarch:controller` | `/workman:controller` |
-| `/rlarch:orchestrate` | `/workman:orchestrate` |
-| `/rlarch:nested-claude` | `/workman:agents` (with the `agents` MCP server, now `mcp__plugin_workman_agents__*`) |
+| **.NET 10 SDK** | `dotnet-reflect`, `dotnet-source` |
+| **Node 18+** | `ts-source` |
+| nothing | `code-comments` |
 
-Install it next to this one:
+Windows, macOS and Linux all work. On Windows the launchers want PowerShell 7+ (`ts-source` also runs
+on Windows PowerShell); on macOS/Linux they're plain `bash`.
+
+## What you get
+
+| Skill | The benefit | Just ask Claude… |
+|---|---|---|
+| 🔎 [**`dotnet-source`**](#dotnet-source) | IDE navigation over **the .NET code you're editing**: private members included, works mid-refactor when the solution doesn't build | *"Who calls `WhereTenantRead`?"* · *"Outline this god-class"* · *"Is this dead code?"* |
+| 🧭 [**`ts-source`**](#ts-source) | The same for **TypeScript / JavaScript**: JSX-aware find-usages, the import graph, and dead code that separates *delete* from *just un-export* | *"What can I delete in this frontend?"* · *"Where is `<Badge/>` used?"* |
+| 📦 [**`dotnet-reflect`**](#dotnet-reflect) | The real API of **a NuGet package you don't own**: exact signatures, XML docs, decompiled bodies, version diffs | *"What's the exact signature of `ChatClient.CompleteChatAsync`?"* · *"What changed in 2.12?"* |
+| ✂️ [**`code-comments`**](#code-comments) | A **subtractive comment pass**. Deletes narration, stale notes and docs that restate a signature, and keeps only what the code can't say | *"Clean up the comments in this folder"* |
+
+Why it beats letting Claude grep:
+
+- **Semantic, not textual.** Roslyn and the TypeScript compiler bind every reference, so overrides,
+  declarations and `<Component/>` usages count and same-named strangers don't.
+- **Fast enough to use constantly.** On-disk parse indexes make warm queries ~100–250 ms; an opt-in
+  daemon keeps the full compilation resident for the semantic queries.
+- **Small output, small context.** Each command prints a dense digest, not a file dump, so Claude
+  spends its context on your problem.
+- **Safe.** Nothing executes your code. The compilers only ever parse and bind it, and `dotnet-reflect`
+  loads assemblies metadata-only.
+
+## Looking for `orchestrate`, `controller` or `nested-claude`?
+
+<p>
+  <a href="https://github.com/getsupraman/workman">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset=".github/assets/workman-lockup-on-dark.svg">
+      <img src=".github/assets/workman-lockup-on-light.svg" alt="Workman" height="56">
+    </picture>
+  </a>
+</p>
+
+**The planning and agent skills grew up and moved out.** Since rlarch 3.0 they ship in
+**[Workman](https://github.com/getsupraman/workman)**, part of the [Supraman](https://supraman.ai)
+suite: *run your crew of AI coding agents like a shift. Workman keeps the record of what they did.*
+
+Workman is a self-hosted work tracker for coding agents: an MCP server with a Postgres store and an
+operator dashboard, plus the Claude Code skills that drive it. Agents write plans, tasks, findings and
+the evidence for each one into Workman over MCP instead of into markdown files that go stale.
+`/workman:plan` turns a request into a run with done-criteria and verify commands, and
+`/workman:controller` and `/workman:orchestrate` execute it. A task only closes when its criteria are
+checked and a verification was actually run, and the dashboard shows where every run stands.
 
 ```
 /plugin marketplace add getsupraman/workman
 /plugin install workman@supraman
 ```
 
-The WorkState server's source moved too: it is developed at
-**[github.com/getsupraman/workman](https://github.com/getsupraman/workman)**. Your WorkState
-registration (`workstate`, the `work_*` tools) and its data are unchanged. What changed in each
-version is in **[CHANGELOG.md](CHANGELOG.md)**.
+Then point it at a server, either one:
 
-## The four skills
+| | |
+|---|---|
+| **Self-hosted**, one command | `/workman:setup` starts Workman locally in Docker, registers it as `workman` and opens the dashboard at `http://127.0.0.1:5290`. |
+| **Hosted** at **[work.supraman.ai](https://work.supraman.ai)** | Dashboard and MCP endpoint in one place, access by invitation: `claude mcp add --transport http --scope user workman https://work.supraman.ai/mcp`. Claude Code opens a browser sign-in on first use, so you never paste a token. |
 
-| Skill | Substrate | Use it for |
-|---|---|---|
-| [`dotnet-reflect`](#dotnet-reflect) | compiled DLLs | a **dependency you don't own** — signatures, docs, decompiled bodies, version diffs |
-| [`dotnet-source`](#dotnet-source) | your `.cs` via Roslyn | the **.NET code you're editing** — search, outline (private included), find-usages, dead code |
-| [`ts-source`](#ts-source) | your `.ts`/`.tsx` via the TS compiler API | the **frontend you're editing** — search, outline, JSX-aware find-usages, module graph, dead code |
-| `code-comments` | your code | a **subtractive comment pass** — the default verdict is DELETE; only a constraint the code can't state itself survives |
+<details>
+<summary><b>Where each rlarch 2.x skill went</b></summary>
 
-### Prerequisites and platforms
+| rlarch 2.x | Workman |
+|---|---|
+| `/rlarch:workstate` | `/workman:plan` |
+| `/rlarch:workstate-setup` | `/workman:setup` |
+| `/rlarch:workstate-import` | `/workman:import` |
+| `/rlarch:controller` | `/workman:controller` |
+| `/rlarch:orchestrate` | `/workman:orchestrate` |
+| `/rlarch:nested-claude` | `/workman:agents` (tools `mcp__plugin_workman_agents__*`) |
 
-Every skill runs on Windows, macOS and Linux; what differs is what has to be installed.
+Your Workman server and its data stay exactly where they are; only the skills changed plugins.
+Step-by-step: **[upgrade_guide.md](upgrade_guide.md#upgrading-from-2x-to-30)**.
 
-| Skill | Needs | Platform notes |
-|---|---|---|
-| `dotnet-reflect` | **.NET 10 SDK** | file-based C# scripts, same command everywhere |
-| `dotnet-source` | **.NET 10 SDK** | Windows: `ds.ps1` needs **pwsh 7+**; macOS/Linux: `bash ./ds.sh` |
-| `ts-source` | **Node 18+** | Windows: `tss.ps1` (pwsh 7+ or Windows PowerShell); macOS/Linux: `bash ./tss.sh` |
-| `code-comments` | nothing | — |
+</details>
 
-The two .NET skills are complementary, not competing: reflect reads *metadata* (public surface only,
-needs a built DLL), source reads *your source* (sees private, works unbuilt). `ts-source` is
-`dotnet-source`'s twin on the other side of the stack — same commands, same tiering, same output
-shape, so the two halves of a full-stack repo are navigated the same way.
-
-### On names
-
-Skills that ship in a plugin are namespaced: typed as slash commands they are `/rlarch:dotnet-reflect`,
-`/rlarch:dotnet-source`, `/rlarch:ts-source`, `/rlarch:code-comments`. **You rarely need to
-type them.** Automatic invocation is unaffected by the prefix — describe the task and Claude loads
-the skill from its description. The namespace cannot be turned off; see the upgrade guide if you want
-the trade-offs.
+The two plugins sit side by side: rlarch helps an agent *understand* the code; Workman helps you
+*run* agents and trust what they report.
 
 ---
 
@@ -334,54 +381,62 @@ on a 644-file SolidJS app:   find-usages   stateless 4,612 ms  →  `tss serve` 
 
 ---
 
-## Layout
+## `code-comments`
+
+A subtractive pass over the comments in a file, folder or project. **The default verdict on every
+comment is DELETE.** A comment survives only when it states a present-tense constraint the code can't
+state itself, usually an invariant imposed from another file, and then it points at that file instead
+of paraphrasing it.
+
+What goes: comments that restate the next line, *"used to…"* changelog narration left behind by a
+refactor, JSDoc and XML docs that repeat a signature, and anything stale or wrong. Existing comments are
+treated as untrusted, so a stale one is deleted, not corrected. Survivors are budgeted to one line.
+
+Doctrine is language-agnostic, with worked mechanics for C#/.NET (including the CS1587 trap on record
+positional parameters) and TypeScript/JavaScript. It never changes behaviour and never writes new
+documentation.
+
+---
+
+## On names
+
+Typed as slash commands, plugin skills are namespaced: `/rlarch:dotnet-reflect`,
+`/rlarch:dotnet-source`, `/rlarch:ts-source`, `/rlarch:code-comments`. You rarely need to type them,
+because automatic invocation ignores the prefix. The namespace can't be turned off.
+
+## Upgrading
+
+- **From rlarch 2.x** (you used orchestrate, controller, workstate or nested-claude): see
+  [Looking for orchestrate?](#looking-for-orchestrate-controller-or-nested-claude) and the
+  [upgrade guide](upgrade_guide.md#upgrading-from-2x-to-30).
+- **You still have `dotnet-reflect@rlarch` or `dotnet-source@rlarch`** as separate plugins: follow
+  [the two-minute migration](upgrade_guide.md#upgrading-to-the-single-rlarch-plugin). It has one
+  scope trap worth reading first.
+
+What changed in each version is in **[CHANGELOG.md](CHANGELOG.md)**.
+
+## Repository layout
 
 ```
-.claude-plugin/marketplace.json          # marketplace "rlarch" — one plugin entry
-.claude/commands/apply-retro.md          # maintainer command for orchestrate retros (orchestrate now lives in workman)
-.gitignore
-docs/dotnet-source-design.md             # internal design notes for the dotnet-source tool
-plugins/rlarch/                          # the plugin
-  .claude-plugin/plugin.json
-  skills/dotnet-reflect/
-    SKILL.md                             # instructions Claude follows
-    scripts/{common,reflect}.cs          # shared helpers (#:include'd)
-    scripts/{find,find-usages,surface,decompile,diff,cache,bindir}.cs
-  skills/dotnet-source/
-    SKILL.md
-    ds.ps1 / ds.sh                       # bootstrap launchers (build once, cache, exec)
-    tool/                                # one compiled console app (net10.0 + Roslyn)
-      DotnetSource.csproj
-      Args.cs Common.cs Decls.cs Discovery.cs Index.cs Program.cs
-      Server.cs Symbols.cs Tier1.cs Tier2.cs Workspace.cs
-  skills/ts-source/
-    SKILL.md
-    tss.ps1 / tss.sh                     # launchers (~10 lines: no build, no install)
-    tool/                                # plain ES modules (@ts-check + JSDoc), Node 18+
-      tsconfig.json                      # dev-only: `tsc --noEmit` checks the JSDoc types
-      cli.mjs main.mjs args.mjs common.mjs tsapi.mjs
-      discovery.mjs decls.mjs cache.mjs tier1.mjs
-      graph.mjs dead.mjs program.mjs tier2.mjs discover.mjs server.mjs
-  skills/code-comments/
-    SKILL.md
-tests/dotnet-source/                     # tests for the dotnet-source tool
-mcp/                                     # FROZEN: the WorkState server as of 1.1.4 — developed at github.com/getsupraman/workman
-.github/workflows/workstate-image.yml    # FROZEN with mcp/
-docs/workstate/                          # FROZEN with mcp/: the server's design notes as of 1.1.4
-README.md
-CHANGELOG.md
-upgrade_guide.md
+.claude-plugin/marketplace.json     # marketplace "rlarch": one plugin entry
+plugins/rlarch/
+  .claude-plugin/plugin.json        # the plugin, carries `version`
+  skills/dotnet-reflect/            # SKILL.md + file-based C# scripts
+  skills/dotnet-source/             # SKILL.md + ds.ps1/ds.sh + tool/ (net10.0 + Roslyn)
+  skills/ts-source/                 # SKILL.md + tss.ps1/tss.sh + tool/ (plain ES modules)
+  skills/code-comments/             # SKILL.md
+docs/dotnet-source-design.md        # why dotnet-source is shaped the way it is
+tests/dotnet-source/                # macOS/Linux daemon gate
+.github/assets/                     # the images on this page
 ```
 
-Adding another skill later: drop it in `plugins/rlarch/skills/<name>/`. A plugin auto-discovers its
-`skills/` directory — nothing to declare in `plugin.json`. **You must still bump `version` in
-`plugin.json`**: the updater gates on that field and caches the payload per version, so a pushed
-commit without a bump reaches nobody. See **[AGENTS.md](AGENTS.md)** for the release checklist.
+## Contributing
 
-## Bugs & feature requests
-
-Open an issue: **https://github.com/r-Larch/skills/issues**
+Issues and pull requests are welcome at **[github.com/r-Larch/skills](https://github.com/r-Larch/skills/issues)**.
+Before changing anything, read **[AGENTS.md](AGENTS.md)**. The rule people trip over: a change only
+reaches installed users if `version` in `plugins/rlarch/.claude-plugin/plugin.json` moves with it.
 
 ## License
 
-MIT (adjust to taste).
+[MIT](LICENSE) © René Larch. The Workman marks are part of the Supraman brand kit and are used here to
+point at that project; they are not covered by this repository's license.
