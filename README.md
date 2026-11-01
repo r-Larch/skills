@@ -71,6 +71,9 @@ Why it beats letting Claude grep:
   declarations and `<Component/>` usages count and same-named strangers don't.
 - **Fast enough to use constantly.** On-disk parse indexes make warm queries ~100–250 ms; an opt-in
   daemon keeps the full compilation resident for the semantic queries.
+- **No improvised tooling.** Without these skills, an agent writes one-off scripts to answer such
+  questions, like ~40 lines of reflection code per NuGet lookup, and often needs several tries. A
+  tested command it can call saves those tokens and keeps it on the task.
 - **Small output, small context.** Each command prints a dense digest, not a file dump, so Claude
   spends its context on your problem.
 - **Safe.** Nothing executes your code. The compilers only ever parse and bind it, and `dotnet-reflect`
@@ -141,6 +144,12 @@ show.
 It answers the questions you hit when using an unfamiliar package: *what's this type called, what's
 the real signature, which overload, is this nullable, what changed between versions, who calls this,
 what does this method actually do?*
+
+> **Why it exists.** Without it, every time a coding agent needed to look inside a NuGet package it
+> wrote ~40 lines of throwaway reflection code: find the DLL, resolve its dependencies, load it,
+> dump the members. It usually took several attempts before that code ran. Each lookup cost tokens
+> and pulled the agent's attention off the actual task. A working script it can just call turns that
+> detour into one command, and the agent's focus stays on your problem.
 
 ### What it does
 
