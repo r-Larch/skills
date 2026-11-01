@@ -142,24 +142,33 @@ Ask it how a NuGet API works and it guesses from whatever version it was trained
 **[Workman](https://github.com/getsupraman/workman)**, part of the [Supraman](https://supraman.ai)
 suite: *run your crew of AI coding agents like a shift. Workman keeps the record of what they did.*
 
-Workman is a self-hosted work tracker for coding agents: an MCP server with a Postgres store and an
-operator dashboard, plus the Claude Code skills that drive it. Agents write plans, tasks, findings and
-the evidence for each one into Workman over MCP instead of into markdown files that go stale.
+**One Workman for every machine and every co-worker.** Your Claude Code sessions on the laptop, the
+desktop and a teammate's machine all write to one shared record. Plans, tasks, findings and the
+evidence for each one go there over MCP, instead of into markdown files that go stale. One dashboard
+shows the whole team's runs, and work hands over between people and machines without anything getting
+lost.
+
 `/workman:plan` turns a request into a run with done-criteria and verify commands, and
 `/workman:controller` and `/workman:orchestrate` execute it. A task only closes when its criteria are
-checked and a verification was actually run, and the dashboard shows where every run stands.
+checked and a verification was actually run.
+
+**Get started on [work.supraman.ai](https://work.supraman.ai)**, the hosted Workman: dashboard and
+MCP endpoint in one place. Install the skills, then connect:
 
 ```
 /plugin marketplace add getsupraman/workman
 /plugin install workman@supraman
 ```
 
-Then point it at a server, either one:
+```bash
+claude mcp add --transport http --scope user workman https://work.supraman.ai/mcp
+```
 
-| | |
-|---|---|
-| **Self-hosted**, one command | `/workman:setup` starts Workman locally in Docker, registers it as `workman` and opens the dashboard at `http://127.0.0.1:5290`. |
-| **Hosted** at **[work.supraman.ai](https://work.supraman.ai)** | Dashboard and MCP endpoint in one place, access by invitation: `claude mcp add --transport http --scope user workman https://work.supraman.ai/mcp`. Claude Code opens a browser sign-in on first use, so you never paste a token. |
+Claude Code opens a browser sign-in on first use, so you never paste a token. Access is by
+invitation today. **Coming:** sign up yourself, invite your team, and a free plan alongside paid
+plans.
+
+Prefer to run it yourself? `/workman:setup` starts Workman locally in Docker.
 
 <details>
 <summary><b>Where each rlarch 2.x skill went</b></summary>

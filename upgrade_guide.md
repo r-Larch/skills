@@ -25,9 +25,10 @@
    Confirm with `claude plugin details rlarch`: version `3.x`, four skills.
 
 Your Workman server, its `work_*` tools and your data stay exactly where they are; there is nothing
-to re-run. To start fresh instead, `/workman:setup` self-hosts a server, or connect to the hosted one
-at [work.supraman.ai](https://work.supraman.ai) (by invitation) as described in the
-[README](README.md#looking-for-orchestrate-controller-or-nested-claude).
+to re-run. To start fresh instead, connect to the hosted Workman at
+[work.supraman.ai](https://work.supraman.ai) (by invitation today) as described in the
+[README](README.md#looking-for-orchestrate-controller-or-nested-claude), or run `/workman:setup` to
+host one yourself.
 
 ---
 
