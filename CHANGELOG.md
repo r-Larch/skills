@@ -6,6 +6,31 @@ What changes for someone who has the `rlarch` plugin installed, newest first. Fo
 
 ## [Unreleased]
 
+## [3.0.0] - 2026-11-01
+
+### Removed
+
+- **Six skills moved to the `workman` plugin**, and the `agents` MCP server (`plugins/rlarch/.mcp.json`)
+  moved with them. They are invoked under new names:
+
+  | rlarch 2.x | workman |
+  |---|---|
+  | `/rlarch:workstate` | `/workman:plan` |
+  | `/rlarch:workstate-setup` | `/workman:setup` |
+  | `/rlarch:workstate-import` | `/workman:import` |
+  | `/rlarch:controller` | `/workman:controller` |
+  | `/rlarch:orchestrate` | `/workman:orchestrate` |
+  | `/rlarch:nested-claude` | `/workman:agents` (tools now `mcp__plugin_workman_agents__*`) |
+
+  Install it with `/plugin marketplace add getsupraman/workman` and
+  `/plugin install workman@supraman`. rlarch keeps `dotnet-reflect`, `dotnet-source`, `ts-source`
+  and `code-comments`.
+- **The WorkState server source moved to [github.com/getsupraman/workman](https://github.com/getsupraman/workman).**
+  `mcp/` and `docs/workstate/` here are frozen at server 1.1.4. Your `workstate` registration, the
+  `work_*` tools and your data are unchanged.
+
+## [2.8.2]
+
 ### Changed
 
 - **rlarch 2.8.2: skills name what they create under a project or its backlog, and link it for you.**

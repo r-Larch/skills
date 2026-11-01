@@ -1,10 +1,7 @@
 # r-Larch/skills — Claude Code plugin marketplace (`rlarch`)
 
 A personal [Claude Code](https://code.claude.com) marketplace with **one plugin, `rlarch`**, carrying
-nine skills: three for code navigation (.NET and TypeScript), three for running work too big for a
-single context window, one for cleaning up comments, one that sets up
-[WorkState](#workstate) — the server `orchestrate` and `controller` require and record their work in —
-and one that imports a repo's existing plans into it.
+four skills: three for code navigation (.NET and TypeScript) and one for cleaning up comments.
 
 ## Install
 
@@ -20,31 +17,47 @@ claude plugin marketplace add r-Larch/skills
 claude plugin install rlarch@rlarch
 ```
 
-Restart Claude Code afterwards. Confirm with `claude plugin details rlarch` — it should list nine
+Restart Claude Code afterwards. Confirm with `claude plugin details rlarch` — it should list four
 skills.
 
-> **Upgrading from 1.x?** `orchestrate` and `controller` now require WorkState. Read
-> **[Upgrading from 1.x to 2.x](upgrade_guide.md#upgrading-from-1x-to-2x)**; what changed in each
-> version is in **[CHANGELOG.md](CHANGELOG.md)**.
->
 > **Already have `dotnet-reflect@rlarch` / `dotnet-source@rlarch` installed?** Those were separate
 > plugins and are gone. Follow **[upgrade_guide.md](upgrade_guide.md#upgrading-to-the-single-rlarch-plugin)**
 > — it takes two minutes, and there is one scope trap in it that will bite you if you improvise.
 
-## The nine skills
+## Where the planning and agent skills went (3.0.0)
+
+Up to 2.8.2 this plugin also carried six skills for planning and running agent work against
+WorkState. As of **3.0.0** they live in the `workman` plugin, under new names:
+
+| rlarch 2.x | workman |
+|---|---|
+| `/rlarch:workstate` | `/workman:plan` |
+| `/rlarch:workstate-setup` | `/workman:setup` |
+| `/rlarch:workstate-import` | `/workman:import` |
+| `/rlarch:controller` | `/workman:controller` |
+| `/rlarch:orchestrate` | `/workman:orchestrate` |
+| `/rlarch:nested-claude` | `/workman:agents` (with the `agents` MCP server, now `mcp__plugin_workman_agents__*`) |
+
+Install it next to this one:
+
+```
+/plugin marketplace add getsupraman/workman
+/plugin install workman@supraman
+```
+
+The WorkState server's source moved too: it is developed at
+**[github.com/getsupraman/workman](https://github.com/getsupraman/workman)**. Your WorkState
+registration (`workstate`, the `work_*` tools) and its data are unchanged. What changed in each
+version is in **[CHANGELOG.md](CHANGELOG.md)**.
+
+## The four skills
 
 | Skill | Substrate | Use it for |
 |---|---|---|
 | [`dotnet-reflect`](#dotnet-reflect) | compiled DLLs | a **dependency you don't own** — signatures, docs, decompiled bodies, version diffs |
 | [`dotnet-source`](#dotnet-source) | your `.cs` via Roslyn | the **.NET code you're editing** — search, outline (private included), find-usages, dead code |
 | [`ts-source`](#ts-source) | your `.ts`/`.tsx` via the TS compiler API | the **frontend you're editing** — search, outline, JSX-aware find-usages, module graph, dead code |
-| [`orchestrate`](#orchestrate) | your plan + subagents | an **undertaking that won't fit in one context** — delegate, verify, re-plan, commit |
-| `controller` | a queue + nested Claude sessions | a **backlog** of large, mostly independent undertakings — sequence, brief, steer, verify, land |
-| `nested-claude` | `claude --bg` | running **Claude Code inside Claude Code** — spawn, address, steer and watch background agents |
 | `code-comments` | your code | a **subtractive comment pass** — the default verdict is DELETE; only a constraint the code can't state itself survives |
-| [`workstate-setup`](#workstate) | Docker (no clone) + `claude mcp add` | getting the **WorkState** server running and registered, so the `work_*` tools are callable |
-| `workstate-import` | your repo's plans and docs + `work_import` | bringing a repo's **existing planning material** into WorkState — keeps only what is true of the current code, asks before writing, records source and reason |
-| `workstate` | WorkState | **planning** before anyone builds — plan a feature into a run, propose what to build next, triage the backlog; then hand off with *"approved, execute as /rlarch:controller"* |
 
 ### Prerequisites and platforms
 
@@ -55,26 +68,17 @@ Every skill runs on Windows, macOS and Linux; what differs is what has to be ins
 | `dotnet-reflect` | **.NET 10 SDK** | file-based C# scripts, same command everywhere |
 | `dotnet-source` | **.NET 10 SDK** | Windows: `ds.ps1` needs **pwsh 7+**; macOS/Linux: `bash ./ds.sh` |
 | `ts-source` | **Node 18+** | Windows: `tss.ps1` (pwsh 7+ or Windows PowerShell); macOS/Linux: `bash ./tss.sh` |
-| `nested-claude` | Claude Code CLI; **Node 18+** for the `agents` tool (`agent_launch`/`agent_stop`/`agent_list`); Python 3 for the optional watchdog | the tool on every OS; fallback launchers: PowerShell on Windows, bash on macOS/Linux |
-| `controller` | **WorkState**; **Node 18+** for the `agents` tool (or `nested-claude`'s launchers) | any OS with the tool; fallback: Windows (PowerShell) or macOS/Linux (bash) |
-| `orchestrate` | **WorkState** | — |
-| `workstate` | **WorkState** | — |
 | `code-comments` | nothing | — |
-| `workstate-setup` | **Docker** (multi-arch images — Apple Silicon is fine) | Docker Desktop, or on Linux the Docker engine; macOS also Colima/OrbStack |
 
 The two .NET skills are complementary, not competing: reflect reads *metadata* (public surface only,
 needs a built DLL), source reads *your source* (sees private, works unbuilt). `ts-source` is
 `dotnet-source`'s twin on the other side of the stack — same commands, same tiering, same output
 shape, so the two halves of a full-stack repo are navigated the same way.
 
-`controller`, `orchestrate` and `nested-claude` stack in that order: a controller runs a queue and
-gives each item to a nested session, which usually runs `orchestrate` on it.
-
 ### On names
 
 Skills that ship in a plugin are namespaced: typed as slash commands they are `/rlarch:dotnet-reflect`,
-`/rlarch:dotnet-source`, `/rlarch:ts-source`, `/rlarch:orchestrate`, `/rlarch:controller`,
-`/rlarch:nested-claude`, `/rlarch:code-comments`, `/rlarch:workstate-setup`, `/rlarch:workstate`. **You rarely need to
+`/rlarch:dotnet-source`, `/rlarch:ts-source`, `/rlarch:code-comments`. **You rarely need to
 type them.** Automatic invocation is unaffected by the prefix — describe the task and Claude loads
 the skill from its description. The namespace cannot be turned off; see the upgrade guide if you want
 the trade-offs.
@@ -330,179 +334,15 @@ on a 644-file SolidJS app:   find-usages   stateless 4,612 ms  →  `tss serve` 
 
 ---
 
-## `orchestrate`
-
-For work that will not fit in one context window: executing a written plan, implementing a spec
-end-to-end, a multi-phase refactor or migration. Invoking it promotes the main session to an
-**orchestrator** — it stops writing code and starts delegating, verifying, and deciding.
-
-Trigger it by saying what you want done ("execute this plan", "implement this RFC end to end", "do
-this migration"), or type `/rlarch:orchestrate`.
-
-### What it does
-
-The main context is the only thing in the system that holds the *whole* picture, and it is the thing
-that runs out first. The skill spends it deliberately:
-
-| Rule | Why |
-|---|---|
-| **The orchestrator never writes product code** | work reaches the repo only through worker subagents, so implementation detail never enters the context that must survive |
-| **Writers run strictly one at a time** | two agents editing one repo produce conflicts you pay for in the one resource you can't afford; parallelism is allowed only for read-only recon |
-| **Every verification command is run by the orchestrator, not trusted from a report** | "tests pass" is the claim you'd most regret taking on faith, and checking costs seconds |
-| **The store is the memory, not context** | every decision, assumption, verification and result lands in WorkState the moment it happens, so a fresh session can resume from one `work_brief` call alone |
-| **Red-checks** | any test defending a fix must be confirmed *failing* against the un-fixed code — the cheapest proof in the system, run in a context that's being thrown away anyway |
-| **Reviews are rare and priced** | a review agent costs more than an extra worker task; there's an explicit risk dial for when to spend one, and a phase gate that looks only at the seams between tasks |
-| **The plan is audited, not just executed** | every couple of phases a fresh agent checks the phases you *haven't* run yet — above all whether each task's verification command could actually go red, because a filter that already passes gets an unimplemented task accepted by every control in the system |
-
-It also carries a hard ceiling on deliberation — an evidence budget per open question, a
-reversibility test, and explicit escalation triggers — because rigor that never terminates isn't
-rigor.
-
-### The run lives in WorkState
-
-`orchestrate` **requires** the [WorkState](#workstate) server; its first act is a `work_brief` call,
-and if the `work_*` tools are missing it says so and points at `/rlarch:workstate-setup`. There is no
-markdown fallback. Phase 0 writes the run into the store:
-
-| What | Where |
-|---|---|
-| the goal paragraph, phases, tasks, done-criteria | a `run` item and its children (`work_create`, `work_link`) |
-| the repo's binding facts and safety rules, written **once** | constraints (`work_constrain`), rendered into the BINDING block of every brief |
-| the running record | reports, verifications, findings and notes, plus a journal that writes itself |
-
-You approve the plan once, before the first writing agent runs. After that it runs to completion
-unless an escalation trigger fires.
-
----
-
-## WorkState
-
-> **Only want `dotnet-reflect`, `dotnet-source`, `ts-source` or `code-comments`? Skip this section
-> entirely.** WorkState is a **.NET service plus a Postgres, running in Docker on your own machine**,
-> and nothing installs or starts it for you. It costs a container you have to keep alive, and the
-> four navigation/cleanup skills never touch it. **`orchestrate` and `controller` require it** —
-> since 2.x (first published as 2.2.0) they keep their plan and record nowhere else. `nested-claude` does not need it.
-
-WorkState is an MCP server that holds **what coding agents are doing**: projects, runs, phases,
-tasks, findings, claims, assumptions, the evidence behind each verification, and an append-only
-journal of every change. It replaced the `PLAN.md` / `LEDGER.md` files an orchestrated run used to
-scatter across a repo in 1.x — one store, queryable, with a generated recovery payload
-(`work_brief`) that cannot go stale the way a hand-maintained ledger does.
-
-The same port serves a read-only **operator dashboard**, so a human can watch a run happen instead of
-reading a markdown file afterwards:
-
-- an **overview** of every project and run, each run a bar with one segment per task, coloured by state;
-- a **Needs you** inbox — everything waiting on a person, each row with the call that resolves it;
-- the **run plan**, with item detail beside it: done-criteria, findings, notes, and *what the agent
-  reported* next to *what was verified*;
-- **activity** (the journal, grouped by day) and each project's **backlog** of deferred work;
-- a dark and a light theme, following the system setting until you pick one.
-
-Writes only ever go through the MCP tools. The dashboard is built on a **JSON read API v1**
-(`/api/v1/*`), which other clients can use too — [docs/workstate/10-read-api.md](docs/workstate/10-read-api.md).
-A session that sends an `X-WorkState-Agent` header is recorded **by name** on its claims and events —
-[docs/workstate/11-sessions.md](docs/workstate/11-sessions.md).
-
-Claude Code never manages the process — it only connects. **You need Docker, and no clone of this
-repo:** the server ships as a public, multi-arch (amd64 + arm64) image,
-[`ghcr.io/r-larch/workstate-api`](https://github.com/r-Larch/skills/pkgs/container/workstate-api),
-tagged with the server version and `latest`.
-
-**The way in is [`/rlarch:workstate-setup`](plugins/rlarch/skills/workstate-setup/SKILL.md).** It
-works out which of four states your machine is in — already working, registered but down, up but not
-registered, or nothing at all — and runs one shipped script for the missing part. Run it yourself if
-you prefer:
-
-```bash
-bash "$CLAUDE_PLUGIN_ROOT/skills/workstate-setup/assets/workstate-setup.sh"        # macOS, Linux, WSL, Git Bash
-pwsh "$env:CLAUDE_PLUGIN_ROOT/skills/workstate-setup/assets/workstate-setup.ps1"   # Windows
-```
-
-It keeps everything in `~/.workstate/` — a `compose.yml` that pulls the image, and a `.env` with
-random tokens and passwords that it writes once and never overwrites — starts the stack, runs the one
-`claude mcp add` itself, and proves the server answers the way that registration needs. **By default
-the registration uses OAuth and stores no token:** in your next session run `/mcp`, pick `workstate`,
-choose *Authenticate*, sign in with the dashboard user from `~/.workstate/.env` and approve. A server
-image older than OAuth, `--auth token` or a `--role` registers a role's bearer token instead, and
-proves from `tools/list` how many tools came back; sessions started by `agent_launch` always use
-tokens, since they cannot sign in in a browser. **No token or password passes through the model:**
-the script prints status lines only, and the dashboard password stays in `~/.workstate/.env` for you
-to read. If you develop WorkState, `--clone <path>` uses `<path>/mcp/compose.yml` instead, which
-builds the image from source.
-
-It is then at **http://127.0.0.1:5290** permanently (`restart: unless-stopped`, so it survives a
-reboot wherever Docker starts at logon). Use `127.0.0.1`, not `localhost`: the server binds IPv4
-loopback only, some clients try `::1` first, and an OAuth sign-in is bound to the host it was made
-on.
-
-**Back up the database** — it is the only copy of every plan and verification:
-
-```bash
-bash "$CLAUDE_PLUGIN_ROOT/skills/workstate-setup/assets/workstate-setup.sh" --backup ~/workstate.dump
-bash "$CLAUDE_PLUGIN_ROOT/skills/workstate-setup/assets/workstate-setup.sh" --restore ~/workstate.dump
-```
-
-`--backup` is `pg_dump -Fc` inside the `db` container; `--restore` writes a safety dump of the current
-database to `~/.workstate/backups/` first, then `pg_restore --clean` with the API stopped.
-
-The plugin's `.mcp.json` deliberately holds **no WorkState entry** — only the local `agents` stdio
-server of `nested-claude`, which needs nothing but Node. A shipped WorkState entry is attempted by
-every session in every project, so for everyone who installed `rlarch` to get `dotnet-reflect` it
-would be a failed MCP connection, forever — and it would buy nothing, because MCP servers are
-resolved at session start either way. If you prefer a config file to the `claude mcp add`, the exact
-shape is committed at [`mcp/plugin.mcp.json`](mcp/plugin.mcp.json); copy it where you want it yourself.
-
-The server's own design notes are in [`docs/workstate/`](docs/workstate/).
-
----
-
-## The self-improvement loop
-
-`orchestrate` critiques itself, and the critique is a normal repo workflow rather than a vibe.
-
-1. **Retro.** At close-out, *only if the run earned it* — a rework, a re-plan, a red verification, a
-   gate blocker, or one traceable ≥10k-token waste caused by the skill's own guidance — the skill
-   files a GitHub issue against this repo, labelled `orchestrate-retro`, proposing **one** concrete
-   edit to **one** of its own files. It's built from the store's record of the run, plus at most one
-   read — the file it proposes to edit, so the before/after is verbatim. No recon, no review agent.
-   A clean run teaches nothing and is skipped. It posts unasked **only where you have push access
-   to this repo**; anyone else gets the same retro written to `.claude/retro/<run ref>/RETRO.md`
-   and nothing is posted. Rules and the exact issue schema live in
-   `plugins/rlarch/skills/orchestrate/references/retro.md`.
-2. **Triage and apply.** The repo-local `/apply-retro` command
-   (`.claude/commands/apply-retro.md`) reads the open issues, ranks them by *recurrence* — the only
-   signal here that isn't a model's opinion of its own instructions — enforces an aggregate token
-   budget on the batch, applies what survives, and opens a PR.
-3. **Close the loop.** Applied issues close with a link to the PR; rejected ones close as *not
-   planned* with a stated reason. The retro's duplicate search covers closed issues, so a rejected
-   proposal is read as **do not re-file** and never comes back — while a *closed-as-applied* match
-   that recurs does, because that edit demonstrably didn't hold.
-
-The label is created once per repo:
-
-```bash
-gh label create orchestrate-retro \
-  --repo r-Larch/skills \
-  --description "Self-proposed edit to the orchestrate skill, filed by its own retro" \
-  --color 5319E7
-```
-
-`/apply-retro` is a maintainer command in this repo's `.claude/commands/`. It is not part of the
-plugin and is not installed with it.
-
----
-
 ## Layout
 
 ```
 .claude-plugin/marketplace.json          # marketplace "rlarch" — one plugin entry
-.claude/commands/apply-retro.md          # maintainer command, not shipped with the plugin
+.claude/commands/apply-retro.md          # maintainer command for orchestrate retros (orchestrate now lives in workman)
 .gitignore
 docs/dotnet-source-design.md             # internal design notes for the dotnet-source tool
 plugins/rlarch/                          # the plugin
   .claude-plugin/plugin.json
-  .mcp.json                              # the `agents` stdio server only (no WorkState entry)
   skills/dotnet-reflect/
     SKILL.md                             # instructions Claude follows
     scripts/{common,reflect}.cs          # shared helpers (#:include'd)
@@ -522,34 +362,12 @@ plugins/rlarch/                          # the plugin
       cli.mjs main.mjs args.mjs common.mjs tsapi.mjs
       discovery.mjs decls.mjs cache.mjs tier1.mjs
       graph.mjs dead.mjs program.mjs tier2.mjs discover.mjs server.mjs
-  skills/orchestrate/
-    SKILL.md
-    references/{decompose,briefs,retro}.md
-  skills/controller/
-    SKILL.md
-  skills/nested-claude/
-    SKILL.md
-    assets/{Start,Stop}-NestedAgent.ps1  # Windows launchers
-    assets/{start,stop}-nested-agent.sh  # their macOS/Linux bash twins
-    assets/watch-nested-agent.py         # the watchdog (stdlib Python 3)
-    server/agents.mjs                    # the `agents` stdio MCP server (Node 18+, no dependencies)
-    server/test/                         # node --test "plugins/rlarch/skills/nested-claude/server/**/*.test.mjs"
   skills/code-comments/
     SKILL.md
-  skills/workstate-setup/
-    SKILL.md                             # four states, one script — see "WorkState" above
-    assets/workstate-setup.sh / .ps1     # .env, compose up, claude mcp add (OAuth or token), proof, backup/restore
-    assets/compose.yml                   # pull-only compose: ghcr.io/r-larch/workstate-api
-  skills/workstate-import/
-    SKILL.md                             # discover, judge against the code, ask, work_import
-  skills/workstate/
-    SKILL.md                             # plan / propose / triage / status; stops at the approval gate
-mcp/                                     # the WorkState server — NOT part of the plugin payload
-  WorkState.slnx + WorkState.{Api,Core,Mcp,Tests}/
-  compose.yml / compose.dev.yml / Dockerfile / .env.example   # compose.yml builds from source
-  plugin.mcp.json                        # reference config, deliberately not shipped in the plugin
-.github/workflows/workstate-image.yml    # publishes the image to ghcr.io on push to master (mcp/**)
-docs/workstate/                          # the server's design notes
+tests/dotnet-source/                     # tests for the dotnet-source tool
+mcp/                                     # FROZEN: the WorkState server as of 1.1.4 — developed at github.com/getsupraman/workman
+.github/workflows/workstate-image.yml    # FROZEN with mcp/
+docs/workstate/                          # FROZEN with mcp/: the server's design notes as of 1.1.4
 README.md
 CHANGELOG.md
 upgrade_guide.md

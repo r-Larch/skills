@@ -4,6 +4,10 @@ The guidance for this repo lives in **[AGENTS.md](AGENTS.md)** — one file, so 
 Cursor and anything else that reads a repo contract all get the same rules. **Read it before making
 a change.**
 
+This repo is the `rlarch` plugin marketplace: four skills (`dotnet-reflect`, `dotnet-source`,
+`ts-source`, `code-comments`). The planning and agent skills and the WorkState server moved to
+`github.com/getsupraman/workman` in 3.0.0; `mcp/` and `docs/workstate/` here are frozen.
+
 The one rule most easily missed, repeated here because skipping it silently ships nothing:
 
 > **Any change that must reach an installed user requires bumping `version` in

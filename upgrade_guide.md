@@ -1,3 +1,33 @@
+# Upgrading from 2.x to 3.0
+
+**You need this if you use any of the planning or agent skills.** rlarch 3.0 keeps only
+`dotnet-reflect`, `dotnet-source`, `ts-source` and `code-comments`. The other six skills and the
+`agents` MCP server moved to the `workman` plugin in
+[github.com/getsupraman/workman](https://github.com/getsupraman/workman), under new names:
+
+| rlarch 2.x | workman |
+|---|---|
+| `/rlarch:workstate` | `/workman:plan` |
+| `/workman:setup` | `/workman:setup` |
+| `/rlarch:workstate-import` | `/workman:import` |
+| `/rlarch:controller` | `/workman:controller` |
+| `/workman:orchestrate` | `/workman:orchestrate` |
+| `/rlarch:nested-claude` | `/workman:agents` (tools `mcp__plugin_workman_agents__*`) |
+
+1. Install workman, then restart Claude Code:
+
+   ```bash
+   claude plugin marketplace add getsupraman/workman
+   claude plugin install workman@supraman
+   ```
+
+2. Update rlarch: `claude plugin marketplace update rlarch` and `claude plugin update rlarch@rlarch`.
+   Confirm with `claude plugin details rlarch`: version `3.0.0`, four skills.
+
+Your WorkState server, its `workstate` registration, the `work_*` tools and your data are unchanged;
+there is nothing to re-run. The sections below describe older upgrades; their skill names are given
+as they are invoked today.
+
 # Upgrading from 1.x to 2.x
 
 **You need this if `claude plugin details rlarch` reports a 1.x version** and you use
@@ -9,7 +39,7 @@
   Postgres, running in Docker on your own machine. They keep their plan, rules, evidence and record
   there and nowhere else. There is **no markdown fallback**: they no longer write `PLAN.md` /
   `LEDGER.md`, and if the `work_*` tools are missing they stop and point you at
-  `/rlarch:workstate-setup`.
+  `/workman:setup`.
 - Runs you started under 1.x as `PLAN.md` / `LEDGER.md` files are not read by the 2.x skills. The
   files stay where they are. Finish those runs before upgrading, or start them again under 2.x; the
   repo's one-way importer (`mcp/tools/WorkState.Import`) can load an old corpus into the store as a
@@ -18,7 +48,7 @@
 
 ## What keeps working without WorkState
 
-`dotnet-reflect`, `dotnet-source`, `ts-source`, `code-comments` and `nested-claude` never touch
+`dotnet-reflect`, `dotnet-source`, `ts-source`, `code-comments` and `nested-claude` (now `/workman:agents`) never touch
 WorkState. If those are all you use, update the plugin and stop here — no Docker needed.
 
 ## What you must do
@@ -32,7 +62,7 @@ WorkState. If those are all you use, update the plugin and stop here — no Dock
 
    Confirm with `claude plugin details rlarch`: version `2.2.0`, eight skills.
 
-2. **Run `/rlarch:workstate-setup` once.** It needs Docker running (Docker Desktop, or the Docker
+2. **Run `/workman:setup` once.** It needs Docker running (Docker Desktop, or the Docker
    engine on Linux; Colima or OrbStack on macOS) and **no clone** (since 2.3.0). It runs a shipped
    script that writes `~/.workstate/.env` with random values, pulls and starts the published image
    `ghcr.io/r-larch/workstate-api`, registers the server with `claude mcp add --scope user`, and
@@ -171,7 +201,7 @@ A skill that ships inside a plugin is invoked as `/<plugin>:<skill>`:
 |---|---|
 | `/dotnet-reflect` | `/rlarch:dotnet-reflect` |
 | `/dotnet-source` | `/rlarch:dotnet-source` |
-| `/orchestrate` (hand-copied) | `/rlarch:orchestrate` |
+| `/orchestrate` (hand-copied) | `/workman:orchestrate` |
 
 Two things worth knowing:
 
@@ -209,7 +239,7 @@ Nothing is lost: the plugin copy is the same content, and it updates when the ma
 
 ## Optional: keep a bare `/orchestrate`
 
-If you genuinely want to type `/orchestrate` rather than `/rlarch:orchestrate`, the only mechanism is
+If you genuinely want to type `/orchestrate` rather than `/workman:orchestrate`, the only mechanism is
 a skill folder sitting directly in `~/.claude/skills/<name>/`. That is a real trade, not a free win:
 
 | You get | You give up |
@@ -260,7 +290,7 @@ Wrong scope. `claude plugin uninstall` defaults to `--scope user`; pass `--scope
 to match what `claude plugin list` reported.
 
 **`/orchestrate` is not found.**
-It's `/rlarch:orchestrate` now. Or just describe the job — "execute this plan end to end" — and let
+It's `/workman:orchestrate` now. Or just describe the job — "execute this plan end to end" — and let
 Claude load it.
 
 **`claude plugin details rlarch` shows fewer than three skills.**
