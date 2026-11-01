@@ -13,6 +13,13 @@ What changes for someone who has the `rlarch` plugin installed, newest first. Fo
   under a project or a followup in the backlog, which WorkState now requires there. When they tell you
   about an item they name it by that ref as a link, `[voice-buffer-cap](<base>/r/<full ref>)`, built
   from the `web` base the server prints, instead of a bare `1/2`.
+- WorkState server **1.1.4** (with rlarch 2.8.2; no migration): readable refs and the Workman name.
+  Under a project or its backlog, `work_create` requires `ref:`, a short kebab name; inside any other
+  run children still get numbers. A deferred item keeps its name where it lands, and the AI links items as
+  `[name](<base>/r/<ref>)`. The dashboard, the sign-in and consent pages and the MCP `serverInfo.title`
+  now say **Workman**, with the brand-kit marks. The MCP server name `workstate`, the tool names, the
+  headers, the host and the OAuth issuer are unchanged, so existing registrations and tokens keep
+  working.
 - WorkState server **1.1.3** (no plugin change; no migration): Connected apps. The Account page
   lists the apps that hold your OAuth access in this workspace, with their scopes, when they
   connected, when they last signed in or refreshed, and how many agent sessions run under each.

@@ -188,6 +188,10 @@ question's answer when it closes, and gives the dashboard a phone layout.
 the OAuth authorizations they hold in the workspace and revokes one, which also revokes the agent
 sessions minted under it.
 
+`1.1.4` (with rlarch 2.8.2, no migration) names items under a project or its backlog with a
+required kebab `ref`, which the skills link for the human. It shows the product as Workman to a
+person; every machine-facing name stays `workstate`.
+
 ---
 
 ## 3. Should the skills use it? — Yes, and as a **hard** dependency
